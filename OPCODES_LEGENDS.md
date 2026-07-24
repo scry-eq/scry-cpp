@@ -221,6 +221,46 @@ goldens unchanged (the one broadcast packet is a no-op — its target spawn isn'
 that instant), daemon exit 0. Also unblocks scry, which reads the same `opcodes.toml` and
 now routes it through `EqlBackend`/`Event::LoadoutSwap` → `World.apply_loadout`.
 
+### Dormant-handler audit + legends cross-reference (2026-07-24)
+
+After the LoadoutSwap find (`ffff` → a real id un-dormanted a wired handler), audited the
+whole table for the same shape: opcodes **bound to a handler in `wire_eql.cpp` yet sitting
+at `ffff`** (inert). Twelve exist. Cross-referenced each against the legends branch
+(`upstream/showeqlegends` @905a14f, post-07/16 so its ids are post-remap) — the authority
+for EQL. Result: legends has NOT "found everything" — it solved two we lack and is stuck
+on the same six we are.
+
+**Legends solved these; we're missing them — verify + adopt:**
+- [ ] `OP_ClickObject` — legends `0x597e`. Present in our capture (`eql-fighting`, C>S 16B
+      ×24): `clickerId@0 | ffffffff | 0 | u32 varying`. Strong; confirm `click_object.rs`
+      fits the 16B C>S form, then map.
+- [ ] `OP_LevelUpdate` — legends `0x0d68` (**contradicts our "no discrete level opcode /
+      exp-wrap heuristic" note** at the 2026-07-10 entry). In our capture as S>C **80B**,
+      n=1 — 80B is large for a level struct, so RECONCILE before trusting: decode it and
+      decide whether it supersedes the exp-wrap heuristic or is mislabeled.
+
+**Legends-corroborated — our mapped-but-undated ids are right, mark validated:**
+- [x] `OP_GuildList` `0x2efb` — legends agrees.
+- [x] `OP_MOTD` `0xf8e0` — legends agrees.
+
+**Naming alignment only (no functional gap):**
+- [ ] `OP_SpawnAppearance` — legends' name for `0x4170`, which we already map + wire as
+      `OP_SpawnAppearance2`. Optional: rename to match upstream ([[feedback_match_upstream]]).
+
+**`ffff` on legends too — genuinely open for everyone (need a capture with the event):**
+- [ ] `OP_CorpseLocResponse` (corpse `/corpse`) · [ ] `OP_DzInfo` · [ ] `OP_DzSwitchInfo`
+      (dynamic-zone/instance info) · [ ] `OP_SpawnRename` · [ ] `OP_GroupDisband2`
+      · [ ] `OP_Shroud`
+
+**Intentional `ffff` on both — EQL routes the data elsewhere, LEAVE as-is:**
+- `OP_EndUpdate` (endurance rides the stat-sync channel `0xa5c0`) · `OP_GroupMemberList`
+  (roster rides `OP_GroupFollow`/`OP_GroupDisband`) · `OP_MobHealth` (HP rides stat-sync).
+  All three are `ffff` on legends too, confirming the divergence.
+
+The remaining ~149 `ffff` entries are inherited legacy opcode *names* never EQL-mapped
+(bazaar / trade / LFG / housing, 2005–2019 dates) — correctly `ffff`, no handler behind
+them, not part of this audit.
+
 ### Still open
 
 Ambiguous small-payload clusters (4B / 8B / 12B / 24B), the chat trio, spell casts,
