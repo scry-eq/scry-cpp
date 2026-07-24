@@ -81,7 +81,7 @@ public:
     // player's OWN death severs the self-id so the in-zone respawn's new self-id
     // is re-adopted by playerUpdateSelf (EQL sends no player-reinit OP_ZoneEntry).
     void death(const uint8_t* data, size_t len, uint8_t dir);
-    // OP_LoadoutSwap (0x7477) S>C: a player's multiclass loadout change (new
+    // OP_LoadoutSwap (0x631c; was 0x7477 pre-07/14) S>C: a player's multiclass loadout change (new
     // class + level, no profile resend). Self refreshes the PC identity; the
     // broadcast variant updates a nearby tracked spawn's class/level.
     void loadoutSwap(const uint8_t* data, size_t len, uint8_t dir);

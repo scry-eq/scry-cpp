@@ -197,6 +197,30 @@ order is seed-dependent and would flap tier-2 goldens.
 `GuildShell` was dead code before this (compiled, never instantiated); it now lives in
 `ManagerSet` because a roster is per-character, unlike the daemon-global `GuildMgr`.
 
+### 2026-07-24 — OP_LoadoutSwap re-mapped `0x7477` → `0x631c` (post-07/14 rotation), WIRED
+
+The 07/14 remap rotated OP_LoadoutSwap too, but it was left `ffff` (unmapped) in
+`opcodes.toml` (dated 07/11) — so it silently decoded for **nobody** (daemon or scry)
+since the patch, despite both having a live `decode_loadout_swap` handler.
+
+**Content anchor:** `0x631c` appears in `eql-stance-sweep` as `unknown  S>C 486B` (n=1),
+with no competing unknown at that size+dir. 486B sits exactly in the loadout
+broadcast-variant range (486–491B) noted at the original 07/11 find. Decoding the payload
+with the existing `parse_loadout_swap` is decisive: header `spawnId@0` = 5843, `u8@4`,
+`u16 innerLen@5`, then a ZoneEntry-format record whose name field at offset 7 is a **clean
+NUL-terminated PC name**, and the parse yields sane fields (level 10, class 1/Warrior,
+race 330 — a valid special-humanoid race). A size-only false match cannot produce a
+well-formed name + coherent identity, so n=1 is sufficient here (method:
+[[feedback_opcode_disambiguation]] — count + zero-competitor + content match).
+
+Only the **broadcast** (nearby-player, ~486B) variant is present in this capture; the
+**self** (~118KB, +inventory tail) variant is confirmed by structure/parser-reuse, not
+directly re-observed post-07/14. Fix is the id alone (`ffff` → `631c`); the decoder,
+struct binding, and both dispatch handlers were already in place. Replay: all 10 eql
+goldens unchanged (the one broadcast packet is a no-op — its target spawn isn't tracked at
+that instant), daemon exit 0. Also unblocks scry, which reads the same `opcodes.toml` and
+now routes it through `EqlBackend`/`Event::LoadoutSwap` → `World.apply_loadout`.
+
 ### Still open
 
 Ambiguous small-payload clusters (4B / 8B / 12B / 24B), the chat trio, spell casts,

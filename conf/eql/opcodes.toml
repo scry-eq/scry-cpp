@@ -213,9 +213,9 @@ comment = "EQ Legends per-mob position update (S>C, 14B). Byte-identical to Live
   sizechecktype = "match"
 
 [[zone]]
-id      = "ffff"
+id      = "631c"
 name    = "OP_LoadoutSwap"
-updated = "2026-07-11"
+updated = "2026-07-24"
 comment = "EQ Legends multiclass loadout swap (S>C, variable). Header u32 spawnId + u8 + u16 innerLen + ZoneEntry-format record (+ serialized inventory tail on the self variant). Self ~118KB (acting client's own refresh); broadcast ~490B (nearby player's swap, no tail). No OP_PlayerProfile follows a swap, so this is the sole source for the new class + level. Decoded by decode_loadout_swap (reuses the 0x4606 record parser); self -> Player::setIdentity, broadcast -> SpawnShell::updateSpawnIdentity. Confirmed firing 2026-07-11 (login-zone/levelup captures, 486-491B short variant). Credit: Xerxes (forums). See OPCODES_LEGENDS.md."
 
   [[zone.payloads]]

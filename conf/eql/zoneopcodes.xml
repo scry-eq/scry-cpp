@@ -66,7 +66,7 @@
         <comment>EQ Legends per-mob position update (S>C, 14B). Byte-identical to Live spawnPositionUpdate (packed y:19/z:19/u3:7/x:19/heading:12 fixed-point x8, spawnId u16@0 + 2 zero bytes); decoded by the shared decode_mob_update. The earlier i16-offset read (Y@4/8, Z@6/64, X@10) was a truncated window of these bitfields — the source of the 8192-unit north&lt;->south Y wrap. See OPCODES_LEGENDS.md.</comment>
         <payload dir="server" typename="spawnPositionUpdate" sizechecktype="match"/>
     </opcode>
-    <opcode id="ffff" name="OP_LoadoutSwap" updated="07/11/26">
+    <opcode id="631c" name="OP_LoadoutSwap" updated="07/24/26">
         <comment>EQ Legends multiclass loadout swap (S>C, variable). Header u32 spawnId + u8 + u16 innerLen + ZoneEntry-format record (+ serialized inventory tail on the self variant). Self ~118KB (acting client's own refresh); broadcast ~490B (nearby player's swap, no tail). No OP_PlayerProfile follows a swap, so this is the sole source for the new class + level. Decoded by decode_loadout_swap (reuses the 0x4606 record parser); self -> Player::setIdentity, broadcast -> SpawnShell::updateSpawnIdentity. Confirmed firing 2026-07-11 (login-zone/levelup captures, 486-491B short variant). Credit: Xerxes (forums). See OPCODES_LEGENDS.md.</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
