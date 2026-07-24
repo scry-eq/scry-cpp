@@ -256,8 +256,23 @@ on the same six we are.
 
 **`ffff` on legends too — genuinely open for everyone (need a capture with the event):**
 - [ ] `OP_CorpseLocResponse` (corpse `/corpse`) · [ ] `OP_DzInfo` · [ ] `OP_DzSwitchInfo`
-      (dynamic-zone/instance info) · [ ] `OP_SpawnRename` · [ ] `OP_GroupDisband2`
-      · [ ] `OP_Shroud`
+      (dynamic-zone/instance info) · [ ] `OP_GroupDisband2` · [ ] `OP_Shroud`
+
+**`OP_SpawnRename` = `0x504f` — CONFIRMED but NOT activated (2026-07-24).** Found in
+`eql-contarget`: `0x504f` S>C, exactly 195B = `spawnRenameStruct` (3× 64B name fields +
+3 bytes), sole 195B unknown, zero competitor. Content-decisive — the payload is a coherent
+pet rename (identical `old_name`@0/`old_name_again`@64, the owner's-pet form @128). `ffff`
+on legends too, so a genuine new find. **Left `ffff` deliberately:** mapping it activates
+`SpawnShell::renameSpawn`, and because the renamed spawn is a summoned PET, its re-emission
+aggravates the known load-only summoned-pet count-flap ([[project_eql_golden_spawn_order_flap]]):
+serially at low load `eql-contarget` records byte-identical 4/5 WITH the map vs 5/5 for the
+untouched baseline — a ~20% flap that would false-fail the pre-push hook. The determinism
+fix (`QHashSeed::setDeterministicGlobalSeed` + packet-time `nowMs`) IS present and holds for
+the baseline; the rename tips the same close-call pet-spawn ordering the count-flap rides
+(the pre-push hook already passes those long captures on a low-load moment, not a lucky
+byte-cmp). So: mapping `0x504f` is a one-line toml + `spawnRenameStruct` size_override, but
+it needs the underlying count-flap made robust first (or those captures moved to the
+wallclock skip list). Nice-to-have display feature; low priority vs the flap fix.
 
 **Intentional `ffff` on both — EQL routes the data elsewhere, LEAVE as-is:**
 - `OP_EndUpdate` (endurance rides the stat-sync channel `0xa5c0`) · `OP_GroupMemberList`
