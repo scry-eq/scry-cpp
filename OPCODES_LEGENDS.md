@@ -230,14 +230,21 @@ at `ffff`** (inert). Twelve exist. Cross-referenced each against the legends bra
 for EQL. Result: legends has NOT "found everything" — it solved two we lack and is stuck
 on the same six we are.
 
-**Legends solved these; we're missing them — verify + adopt:**
-- [ ] `OP_ClickObject` — legends `0x597e`. Present in our capture (`eql-fighting`, C>S 16B
-      ×24): `clickerId@0 | ffffffff | 0 | u32 varying`. Strong; confirm `click_object.rs`
-      fits the 16B C>S form, then map.
-- [ ] `OP_LevelUpdate` — legends `0x0d68` (**contradicts our "no discrete level opcode /
-      exp-wrap heuristic" note** at the 2026-07-10 entry). In our capture as S>C **80B**,
-      n=1 — 80B is large for a level struct, so RECONCILE before trusting: decode it and
-      decide whether it supersedes the exp-wrap heuristic or is mislabeled.
+**Legends solved these; we're missing them:**
+- [x] `OP_ClickObject` — legends `0x597e`, MAPPED 2026-07-24. It's dual-direction: our
+      fixtures only have the C>S 16B click request (`eql-fighting`, ×24), which we ignore
+      like legends (S>C-only). Split the payload `server`/remDropStruct (the 12B removal we
+      decode) + `client`/uint8_t absorber so the C>S no longer trips the size-diagnostic.
+      The S>C removal side wasn't captured, so the decode rests on legends' authority + the
+      pre-existing handler, not a local S>C sample.
+- [ ] `OP_LevelUpdate` — legends `0x0d68`, and **checking the legends *code* settles it:
+      it IS a real level packet, not the wrap heuristic.** `interface.cpp` wires it to both
+      `messageShell::updateLevel` (ding text) and `player::updateLevel` (sets level), with
+      the comment "the Legends level-up packet is an 80B widened container whose first 12
+      bytes are the stock levelUpUpdateStruct (level@0, levelOld@4, exp@8)". Matches our
+      capture (`0x0d68` S>C 80B). So **our "no discrete level opcode / exp-wrap heuristic"
+      note at the 2026-07-10 entry is the stale one** — 0x0d68 is the real packet and could
+      replace the heuristic. Deferred: decode the 80B and decide whether to switch.
 
 **Legends-corroborated — our mapped-but-undated ids are right, mark validated:**
 - [x] `OP_GuildList` `0x2efb` — legends agrees.

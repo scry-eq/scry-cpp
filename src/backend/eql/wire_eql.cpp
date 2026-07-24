@@ -184,9 +184,18 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_GroundSpawn", SP_Zone, DIR_Server,
          "makeDropStruct", SZC_None,
          seqBind(ms.spawnShell, &SpawnShell::newGroundItem));
+    // OP_ClickObject (0x597e) is dual-direction: the S>C removal (12B remDropStruct)
+    // is what we decode; the C>S side is the client's click REQUEST (16B, layout
+    // unmapped) which neither we nor the legends branch decodes (legends registers
+    // S>C only). Left unregistered, the C>S trips the size-diagnostic every click
+    // ("dataLen: 16 doesn't match sizeof(remDropStruct):12"), so absorb it with a
+    // no-op — the explicit form of "ignore C>S", matching legends' S>C-only handling.
     wire("OP_ClickObject", SP_Zone, DIR_Server,
          "remDropStruct", SZC_Match,
          seqBind(ms.spawnShell, &SpawnShell::removeGroundItem));
+    wire("OP_ClickObject", SP_Zone, DIR_Client,
+         "uint8_t", SZC_None,
+         [](const uint8_t*, size_t, uint8_t) {});
     // OP_SpawnDoor (0x71ca): eql door rows are 132B (Live doorStruct is 136B);
     // seq-backend-eql's parse_door owns the 132B layout, the doorStruct size
     // override makes the modulus gate 132, and newDoorSpawns strides via
