@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# Pre-push hook: re-build the daemon and run the tier-2 replay check
+# against local fixtures so a code change that shifts the envelope
+# stream can't slip out without me knowing. Also checks that
+# showeq-decoder-rs/bindings.rs is fresh whenever everquest.h changes.
+#
+# Bypass with: git push --no-verify
+set -euo pipefail
+
+REPO="$(git rev-parse --show-toplevel)"
+cd "${REPO}"
+
+# Capture stdin before it is consumed so we can inspect the push range.
+PUSH_INFO="$(cat)"
+
+if [[ ! -d build ]]; then
+    echo "pre-push: no build/ in $(pwd) — skipping replay check (run cmake -B build first)" >&2
+    exit 0
+fi
+
+echo "pre-push: rebuilding daemon (incremental)..."
+cmake --build build --target showeq-daemon -j >/dev/null
+
+echo "pre-push: running tier-2 replay check..."
+echo "${PUSH_INFO}" | tests/replay/check.sh
+
+# ── Proto submodule sync check ───────────────────────────────────────────────
+# The proto/ submodule must match canonical showeq-proto. A pointer AHEAD of
+# origin/proto (unpushed) leaves a dangling submodule that breaks clones/CI
+# (the cross-repo push-order footgun); one BEHIND means the daemon — and scry,
+# which regenerates its Elixir proto from this submodule — build against a stale
+# schema. Fetch first: a stale cached origin/main will otherwise mislead the
+# comparison (learned the hard way).
+if [[ -d proto ]]; then
+    if git -C proto fetch -q origin 2>/dev/null; then
+        PROTO_SUB="$(git rev-parse HEAD:proto)"
+        PROTO_CANON="$(git -C proto rev-parse origin/main)"
+        if [[ "${PROTO_SUB}" == "${PROTO_CANON}" ]]; then
+            echo "pre-push: proto submodule in sync (${PROTO_SUB:0:12})"
+        elif git -C proto merge-base --is-ancestor "${PROTO_SUB}" "${PROTO_CANON}"; then
+            echo "" >&2
+            echo "ERROR: proto submodule is BEHIND canonical origin/proto." >&2
+            echo "       committed ${PROTO_SUB:0:12}  →  canonical ${PROTO_CANON:0:12}" >&2
+            echo "       Bump it: (cd proto && git fetch origin && git checkout origin/main) && git add proto" >&2
+            echo "       then regenerate consumers (scry: protoc --elixir_out; web: bun run gen) and commit." >&2
+            exit 1
+        else
+            echo "" >&2
+            echo "ERROR: proto submodule ${PROTO_SUB:0:12} is not on origin/proto main." >&2
+            echo "       Push showeq-proto FIRST (cross-repo order: proto → daemon → web)." >&2
+            exit 1
+        fi
+    else
+        echo "pre-push: WARN could not fetch proto origin — proto-sync check skipped (offline?)" >&2
+    fi
+fi
+
+# ── Rust bindings freshness check ────────────────────────────────────────────
+DECODER_RS="${REPO}/../showeq-decoder-rs"
+if [[ ! -d "${DECODER_RS}" ]]; then
+    exit 0
+fi
+
+# Check if any commit being pushed touched src/backend/live/everquest.h.
+EQ_H_CHANGED=0
+while IFS=' ' read -r _local_ref local_sha _remote_ref remote_sha; do
+    [[ -z "${local_sha}" ]] && continue
+    # remote_sha is 0000... for a new branch; treat as empty tree.
+    if [[ "${remote_sha}" == "0000000000000000000000000000000000000000" ]]; then
+        remote_sha="$(git hash-object -t tree /dev/null)"
+    fi
+    if git log --name-only "${remote_sha}..${local_sha}" -- src/backend/live/everquest.h \
+            | grep -q "everquest.h"; then
+        EQ_H_CHANGED=1
+        break
+    fi
+done <<< "${PUSH_INFO}"
+
+if [[ "${EQ_H_CHANGED}" -eq 0 ]]; then
+    exit 0
+fi
+
+echo "pre-push: everquest.h changed — verifying Rust bindings are fresh..."
+
+BINDINGS="${DECODER_RS}/seq-eqstructs-live/src/bindings.rs"
+SAVED="$(mktemp)"
+cp "${BINDINGS}" "${SAVED}"
+
+# Regenerate into the sibling repo; compare; always restore.
+(cd "${DECODER_RS}" && python3 tools/gen_eqstructs.py "${REPO}/src/backend/live/everquest.h" 2>/dev/null)
+
+if ! diff -q "${SAVED}" "${BINDINGS}" >/dev/null 2>&1; then
+    cp "${SAVED}" "${BINDINGS}"
+    rm -f "${SAVED}"
+    echo ""
+    echo "ERROR: showeq-decoder-rs/seq-eqstructs-live/src/bindings.rs is stale." >&2
+    echo "       everquest.h changed but bindings.rs was not regenerated." >&2
+    echo "       Run: (cd ../showeq-decoder-rs && python3 tools/gen_eqstructs.py ${REPO}/src/backend/live/everquest.h)" >&2
+    echo "       Then commit and push showeq-decoder-rs before retrying." >&2
+    exit 1
+fi
+
+cp "${SAVED}" "${BINDINGS}"
+rm -f "${SAVED}"
+echo "pre-push: Rust bindings are up-to-date."
