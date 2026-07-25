@@ -10,6 +10,25 @@ Checkbox legend: `[ ]` unresolved, `[x]` resolved, `[~]` superseded / obsolete o
 
 ---
 
+## ⤺ Re-hunt after the 2026-07-25 re-port to legacy 6.4.25 (07/15 patch)
+
+The Live opcode table was reset to legacy `upstream/master` (07/15/26). These six
+were hand-discovered in the PREVIOUS patch cycle, are NOT in legacy, and their old
+ids point at different opcodes on the current patch — so they were set to `ffff` to
+avoid size mismatches. Their full hunt notes survive in the `conf/opcodes.toml`
+comment blocks (grep `STALE post-07/15`). Re-hunt each on a capture taken on the
+CURRENT patch (per `feedback_opcode_hunt_no_size_match` — content-match, don't gate
+on size):
+
+- [ ] OP_SpawnAppearance2 — was `0x8cd3`. 24B `spawnAppearance2Struct{spawn_id,type,value,pad}`; type=0x2c S>C = TLP mob-lock/FTE flag (value 0=attackable / 1=locked). **Only wired one** — drives `Spawn.locked` → web; dormant on Live until re-found.
+- [ ] OP_BuffQuery — was `0x306c`. C>S 8B `{buff_slot, self_spawn_id}`; fires per occupied buff slot on the SECOND zone-in after a buff was applied.
+- [ ] OP_GroupInviteAccepted — was `0x59ab`. S>C to inviter when invitee accepts an ungrouped invite; 168B, invitee name @64. (unverified last cycle)
+- [ ] OP_GroupInvite2Sent — was `0xe2b7`. S>C to leader when a grouped invite is sent (before accept); 168B, both names.
+- [ ] OP_GroupMemberLeave — was `0x1325`. S>C broadcast when a member leaves (≥2 remain); 168B, name @64. (unverified last cycle)
+- [ ] OP_GroupMemberInfo — was `0x7324`. Recipient-only group event, 168B, recipient @64; not the roster (that's OP_GroupMemberList). Purpose still unattributed.
+
+---
+
 ## Tier 1 — Core gameplay loop (79)
 
 ### Combat (7)

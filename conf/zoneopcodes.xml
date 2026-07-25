@@ -159,16 +159,16 @@
         <comment>S>C to all STAYERS when any member departs (not leader-only). 168 bytes; membername=peer at offset 64.</comment>
         <payload dir="server" typename="groupDisbandStruct" sizechecktype="none"/>
     </opcode>
-    <opcode id="59ab" name="OP_GroupInviteAccepted" updated="05/11/26">
-        <comment>S>C to inviter when invitee accepts ungrouped invite. Fires in same bundle as OP_GroupMemberList + OP_GroupFollow2 (join-complete). 168 bytes; invitee name at offset 64.</comment>
+    <opcode id="ffff" name="OP_GroupInviteAccepted" updated="07/25/26">
+        <comment>[STALE post-07/15 patch — was 0x59ab; re-hunt on current patch] S>C to inviter when invitee accepts ungrouped invite. Fires in same bundle as OP_GroupMemberList + OP_GroupFollow2 (join-complete). 168 bytes; invitee name at offset 64.</comment>
         <payload dir="server" typename="groupInviteStruct" sizechecktype="none"/>
     </opcode>
-    <opcode id="e2b7" name="OP_GroupInvite2Sent" updated="05/11/26">
-        <comment>S>C to leader immediately when grouped invite (OP_GroupInvite2) is sent — fires before invitee accepts. Leader-only. 168 bytes; both names filled (leader at 0, invitee at 64).</comment>
+    <opcode id="ffff" name="OP_GroupInvite2Sent" updated="07/25/26">
+        <comment>[STALE post-07/15 patch — was 0xe2b7; re-hunt on current patch] S>C to leader immediately when grouped invite (OP_GroupInvite2) is sent — fires before invitee accepts. Leader-only. 168 bytes; both names filled (leader at 0, invitee at 64).</comment>
         <payload dir="server" typename="groupInviteStruct" sizechecktype="none"/>
     </opcode>
-    <opcode id="1325" name="OP_GroupMemberLeave" updated="05/11/26">
-        <comment>S>C broadcast to remaining members when any member leaves. 168 bytes. Fires only when ≥2 members remain after departure; name at offset 64 encodes updated group state.</comment>
+    <opcode id="ffff" name="OP_GroupMemberLeave" updated="07/25/26">
+        <comment>[STALE post-07/15 patch — was 0x1325; re-hunt on current patch] S>C broadcast to remaining members when any member leaves. 168 bytes. Fires only when ≥2 members remain after departure; name at offset 64 encodes updated group state.</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="ffff" name="OP_GroupLeader" updated="07/17/26" priority="4">
@@ -312,8 +312,8 @@
         <comment>Seems to be sent to handle a variety of UI updates - Variable length</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
-    <opcode id="7324" name="OP_GroupMemberInfo" updated="05/28/26">
-        <comment>Recipient-only group event notification (modern: 168 bytes; recipient name@64, leading 64b zero, tail u32 epoch + group_id + spawn_id fields). NOT the actual roster — that's OP_GroupMemberList=0x312a. Misidentified previously based on 'fires per form-event' shape alone; content fingerprint shows only the recipient's own name with no peer identity. Kept named distinctly to avoid confusion; needs a real purpose attribution.</comment>
+    <opcode id="ffff" name="OP_GroupMemberInfo" updated="07/25/26">
+        <comment>[STALE post-07/15 patch — was 0x7324; re-hunt on current patch] Recipient-only group event notification (modern: 168 bytes; recipient name@64, leading 64b zero, tail u32 epoch + group_id + spawn_id fields). NOT the actual roster — that's OP_GroupMemberList=0x312a. Misidentified previously based on 'fires per form-event' shape alone; content fingerprint shows only the recipient's own name with no peer identity. Kept named distinctly to avoid confusion; needs a real purpose attribution.</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="ffff" name="OP_GroupMemberList" updated="07/17/26" priority="-1">
@@ -576,16 +576,16 @@
         <comment>Server acknowledges click from inventory or armor - 20 bytes</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
-    <opcode id="306c" name="OP_BuffQuery" updated="05/13/26">
-        <comment>C>S: {u32 buff_slot, u32 self_spawn_id} (8 bytes). Client requests server reconfirm buff slot N at zone-in. Fires once per occupied buff slot on the SECOND zone-in after a buff was applied (not the first — the buff must survive one full zone cycle before the client requests verification). Server responds with OP_Buff for that slot. Wire-verified: slot=0 → OP_Buff IVU(225) spellslot=0; slot=1 → DE(352) spellslot=1; slot=2/1/0 → SLW/SoW/Regen.</comment>
+    <opcode id="ffff" name="OP_BuffQuery" updated="07/25/26">
+        <comment>[STALE post-07/15 patch — was 0x306c; re-hunt on current patch] C>S: {u32 buff_slot, u32 self_spawn_id} (8 bytes). Client requests server reconfirm buff slot N at zone-in. Fires once per occupied buff slot on the SECOND zone-in after a buff was applied (not the first — the buff must survive one full zone cycle before the client requests verification). Server responds with OP_Buff for that slot. Wire-verified: slot=0 → OP_Buff IVU(225) spellslot=0; slot=1 → DE(352) spellslot=1; slot=2/1/0 → SLW/SoW/Regen.</comment>
         <payload dir="client" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="ffff" name="OP_BuffWindow" updated="07/17/26" priority="-1">
         <comment>S>C: fires 10x per zone-in (slots 0-9), one packet per slot. Payload: {u32 slot, u32 spellid=0xffffffff_empty, u32 pad} (12 bytes). Initializes the short-duration buff window at zone-in. Field2 always 0xffffffff in all observed captures — long-duration buffs come via OP_Buff / the buff-bar sync instead. Never fires mid-session. Re-confirmed 2026-05-27 (buffquery-fresh2: 30 fires = 10 slots × 3 zone-ins, byte-exact). The prior 0x3f37 assignment (2026-05-25) was a misidentification — 0x3f37 does not fire at all in clean buff captures.</comment>
         <payload dir="server" typename="buffWindowSlotStruct" sizechecktype="match"/>
     </opcode>
-    <opcode id="8cd3" name="OP_SpawnAppearance2" updated="07/13/26">
-        <comment>Extended 24-byte bidirectional appearance update — spawnAppearance2Struct {u32 spawn_id, u32 type, u32 value, u8[12] pad}. C>S type=0x24 (36) with spawn_id=0 = OP_ClickBuffOff (buff_slot in value field); acknowledged, unwired. S>C fires carry guild/cast/appearance types and co-occur with buff landing messages. Distinct from OP_SpawnAppearance. Re-confirmed post-2026-05-22 patch: type set {5,6,8,22,26,36,42} matches; ClickBuffOff C>S type=0x24 fires with spawn_id=0, varying buff_slot. type=0x2c (44) S>C = TLP-ruleset mob-lock / FTE attackable flag: value=0 = attackable (fires ~5-7s after a fresh spawn's OP_ZoneEntry — the grey→attackable transition), value=1 = locked/engaged (fires when a mob is claimed; observed firing for the engaged target exactly at engage time). Per-spawn 0/1 toggle, balanced across a session; absent on standard Live (mobs always attackable). Confirmed 2026-05-27 on a locked TLP server (moblock.vpk): fresh spawns 14245/14247/14264 each spawn→value=0 after ~5-7s; engaged target 13799 → value=1 at engage. Wired to Spawn.locked → web UI. 2026-07-13: payload flipped uint8_t/none → spawnAppearance2Struct/match so the wire_live typename binds exactly (the old entry only worked via the dispatch last-payload fallback, now removed).</comment>
+    <opcode id="ffff" name="OP_SpawnAppearance2" updated="07/25/26">
+        <comment>[STALE post-07/15 patch — was 0x8cd3; re-hunt on current patch] Extended 24-byte bidirectional appearance update — spawnAppearance2Struct {u32 spawn_id, u32 type, u32 value, u8[12] pad}. C>S type=0x24 (36) with spawn_id=0 = OP_ClickBuffOff (buff_slot in value field); acknowledged, unwired. S>C fires carry guild/cast/appearance types and co-occur with buff landing messages. Distinct from OP_SpawnAppearance. Re-confirmed post-2026-05-22 patch: type set {5,6,8,22,26,36,42} matches; ClickBuffOff C>S type=0x24 fires with spawn_id=0, varying buff_slot. type=0x2c (44) S>C = TLP-ruleset mob-lock / FTE attackable flag: value=0 = attackable (fires ~5-7s after a fresh spawn's OP_ZoneEntry — the grey→attackable transition), value=1 = locked/engaged (fires when a mob is claimed; observed firing for the engaged target exactly at engage time). Per-spawn 0/1 toggle, balanced across a session; absent on standard Live (mobs always attackable). Confirmed 2026-05-27 on a locked TLP server (moblock.vpk): fresh spawns 14245/14247/14264 each spawn→value=0 after ~5-7s; engaged target 13799 → value=1 at engage. Wired to Spawn.locked → web UI. 2026-07-13: payload flipped uint8_t/none → spawnAppearance2Struct/match so the wire_live typename binds exactly (the old entry only worked via the dispatch last-payload fallback, now removed).</comment>
         <payload dir="server" typename="spawnAppearance2Struct" sizechecktype="match"/>
     </opcode>
     <opcode id="ffff" name="OP_HouseAddress" updated="11/20/15" priority="-1">

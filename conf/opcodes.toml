@@ -479,10 +479,10 @@ comment = "S>C to all STAYERS when any member departs (not leader-only). 168 byt
   sizechecktype = "none"
 
 [[zone]]
-id      = "59ab"
+id      = "ffff"
 name    = "OP_GroupInviteAccepted"
-updated = "2026-05-11"
-comment = "S>C to inviter when invitee accepts ungrouped invite. Fires in same bundle as OP_GroupMemberList + OP_GroupFollow2 (join-complete). 168 bytes; invitee name at offset 64."
+updated = "2026-07-25"
+comment = "[STALE post-07/15 patch — was 0x59ab; re-hunt on current patch] S>C to inviter when invitee accepts ungrouped invite. Fires in same bundle as OP_GroupMemberList + OP_GroupFollow2 (join-complete). 168 bytes; invitee name at offset 64."
 
   [[zone.payloads]]
   dir           = "server"
@@ -490,10 +490,10 @@ comment = "S>C to inviter when invitee accepts ungrouped invite. Fires in same b
   sizechecktype = "none"
 
 [[zone]]
-id      = "e2b7"
+id      = "ffff"
 name    = "OP_GroupInvite2Sent"
-updated = "2026-05-11"
-comment = "S>C to leader immediately when grouped invite (OP_GroupInvite2) is sent — fires before invitee accepts. Leader-only. 168 bytes; both names filled (leader at 0, invitee at 64)."
+updated = "2026-07-25"
+comment = "[STALE post-07/15 patch — was 0xe2b7; re-hunt on current patch] S>C to leader immediately when grouped invite (OP_GroupInvite2) is sent — fires before invitee accepts. Leader-only. 168 bytes; both names filled (leader at 0, invitee at 64)."
 
   [[zone.payloads]]
   dir           = "server"
@@ -501,10 +501,10 @@ comment = "S>C to leader immediately when grouped invite (OP_GroupInvite2) is se
   sizechecktype = "none"
 
 [[zone]]
-id      = "1325"
+id      = "ffff"
 name    = "OP_GroupMemberLeave"
-updated = "2026-05-11"
-comment = "S>C broadcast to remaining members when any member leaves. 168 bytes. Fires only when ≥2 members remain after departure; name at offset 64 encodes updated group state."
+updated = "2026-07-25"
+comment = "[STALE post-07/15 patch — was 0x1325; re-hunt on current patch] S>C broadcast to remaining members when any member leaves. 168 bytes. Fires only when ≥2 members remain after departure; name at offset 64 encodes updated group state."
 
   [[zone.payloads]]
   dir           = "server"
@@ -941,10 +941,10 @@ comment = "Seems to be sent to handle a variety of UI updates - Variable length"
   sizechecktype = "none"
 
 [[zone]]
-id      = "7324"
+id      = "ffff"
 name    = "OP_GroupMemberInfo"
-updated = "2026-05-28"
-comment = "Recipient-only group event notification (modern: 168 bytes; recipient name@64, leading 64b zero, tail u32 epoch + group_id + spawn_id fields). NOT the actual roster — that's OP_GroupMemberList=0x312a. Misidentified previously based on 'fires per form-event' shape alone; content fingerprint shows only the recipient's own name with no peer identity. Kept named distinctly to avoid confusion; needs a real purpose attribution."
+updated = "2026-07-25"
+comment = "[STALE post-07/15 patch — was 0x7324; re-hunt on current patch] Recipient-only group event notification (modern: 168 bytes; recipient name@64, leading 64b zero, tail u32 epoch + group_id + spawn_id fields). NOT the actual roster — that's OP_GroupMemberList=0x312a. Misidentified previously based on 'fires per form-event' shape alone; content fingerprint shows only the recipient's own name with no peer identity. Kept named distinctly to avoid confusion; needs a real purpose attribution."
 
   [[zone.payloads]]
   dir           = "server"
@@ -1732,10 +1732,10 @@ comment = "Server acknowledges click from inventory or armor - 20 bytes"
   sizechecktype = "none"
 
 [[zone]]
-id      = "306c"
+id      = "ffff"
 name    = "OP_BuffQuery"
-updated = "2026-05-13"
-comment = "C>S: {u32 buff_slot, u32 self_spawn_id} (8 bytes). Client requests server reconfirm buff slot N at zone-in. Fires once per occupied buff slot on the SECOND zone-in after a buff was applied (not the first — the buff must survive one full zone cycle before the client requests verification). Server responds with OP_Buff for that slot. Wire-verified: slot=0 → OP_Buff IVU(225) spellslot=0; slot=1 → DE(352) spellslot=1; slot=2/1/0 → SLW/SoW/Regen."
+updated = "2026-07-25"
+comment = "[STALE post-07/15 patch — was 0x306c; re-hunt on current patch] C>S: {u32 buff_slot, u32 self_spawn_id} (8 bytes). Client requests server reconfirm buff slot N at zone-in. Fires once per occupied buff slot on the SECOND zone-in after a buff was applied (not the first — the buff must survive one full zone cycle before the client requests verification). Server responds with OP_Buff for that slot. Wire-verified: slot=0 → OP_Buff IVU(225) spellslot=0; slot=1 → DE(352) spellslot=1; slot=2/1/0 → SLW/SoW/Regen."
 
   [[zone.payloads]]
   dir           = "client"
@@ -1755,10 +1755,10 @@ comment = "S>C: fires 10x per zone-in (slots 0-9), one packet per slot. Payload:
   sizechecktype = "match"
 
 [[zone]]
-id      = "8cd3"
+id      = "ffff"
 name    = "OP_SpawnAppearance2"
-updated = "2026-07-13"
-comment = "Extended 24-byte bidirectional appearance update — spawnAppearance2Struct {u32 spawn_id, u32 type, u32 value, u8[12] pad}. C>S type=0x24 (36) with spawn_id=0 = OP_ClickBuffOff (buff_slot in value field); acknowledged, unwired. S>C fires carry guild/cast/appearance types and co-occur with buff landing messages. Distinct from OP_SpawnAppearance. Re-confirmed post-2026-05-22 patch: type set {5,6,8,22,26,36,42} matches; ClickBuffOff C>S type=0x24 fires with spawn_id=0, varying buff_slot. type=0x2c (44) S>C = TLP-ruleset mob-lock / FTE attackable flag: value=0 = attackable (fires ~5-7s after a fresh spawn's OP_ZoneEntry — the grey→attackable transition), value=1 = locked/engaged (fires when a mob is claimed; observed firing for the engaged target exactly at engage time). Per-spawn 0/1 toggle, balanced across a session; absent on standard Live (mobs always attackable). Confirmed 2026-05-27 on a locked TLP server (moblock.vpk): fresh spawns 14245/14247/14264 each spawn→value=0 after ~5-7s; engaged target 13799 → value=1 at engage. Wired to Spawn.locked → web UI. 2026-07-13: payload flipped uint8_t/none → spawnAppearance2Struct/match so the wire_live typename binds exactly (the old entry only worked via the dispatch last-payload fallback, now removed)."
+updated = "2026-07-25"
+comment = "[STALE post-07/15 patch — was 0x8cd3; re-hunt on current patch] Extended 24-byte bidirectional appearance update — spawnAppearance2Struct {u32 spawn_id, u32 type, u32 value, u8[12] pad}. C>S type=0x24 (36) with spawn_id=0 = OP_ClickBuffOff (buff_slot in value field); acknowledged, unwired. S>C fires carry guild/cast/appearance types and co-occur with buff landing messages. Distinct from OP_SpawnAppearance. Re-confirmed post-2026-05-22 patch: type set {5,6,8,22,26,36,42} matches; ClickBuffOff C>S type=0x24 fires with spawn_id=0, varying buff_slot. type=0x2c (44) S>C = TLP-ruleset mob-lock / FTE attackable flag: value=0 = attackable (fires ~5-7s after a fresh spawn's OP_ZoneEntry — the grey→attackable transition), value=1 = locked/engaged (fires when a mob is claimed; observed firing for the engaged target exactly at engage time). Per-spawn 0/1 toggle, balanced across a session; absent on standard Live (mobs always attackable). Confirmed 2026-05-27 on a locked TLP server (moblock.vpk): fresh spawns 14245/14247/14264 each spawn→value=0 after ~5-7s; engaged target 13799 → value=1 at engage. Wired to Spawn.locked → web UI. 2026-07-13: payload flipped uint8_t/none → spawnAppearance2Struct/match so the wire_live typename binds exactly (the old entry only worked via the dispatch last-payload fallback, now removed)."
 
   [[zone.payloads]]
   dir           = "server"
@@ -2341,7 +2341,7 @@ updated = "2026-07-17"
 comment = "Server response to OP_AAAction; carries 12B records (ability_id, rank, _) for player's full AA list incl. auto-grants and purchased ranks"
 
 [[world]]
-id      = "ffff"
+id      = "3ad6"
 name    = "OP_GuildList"
 comment = "GuildListCode - S>C ~14KB at login, full server guild roster (list of guild-name strings). Confirmed 2026-05-27 (login-charmgmt): inline guild names in a 14176b login packet."
 
@@ -2351,7 +2351,7 @@ comment = "GuildListCode - S>C ~14KB at login, full server guild roster (list of
   sizechecktype = "none"
 
 [[world]]
-id      = "ffff"
+id      = "08b3"
 name    = "OP_MOTD"
 comment = "MOTDCode - server message of the day, S>C world-stream post-EnterWorld. Confirmed 2026-05-27 (login-charmgmt): 154b payload = readable MOTD text (\"Greetings Norrathians! ...\")."
 
@@ -2361,81 +2361,81 @@ comment = "MOTDCode - server message of the day, S>C world-stream post-EnterWorl
   sizechecktype = "none"
 
 [[world]]
-id      = "ffff"
+id      = "6893"
 name    = "OP_SendLoginInfo"
-updated = "2026-07-17"
+updated = "2010-11-07"
 comment = "Client starting world session by asking for login information. Live: 464b C>S, first packet of every world session (5/5 confirmations)."
 
 [[world]]
-id      = "ffff"
-updated = "2026-07-17"
+id      = "3288"
+updated = "2010-11-07"
 name    = "OP_LogServer"
 comment = "Live candidate: S>C 24b (0x7f8e), fires immediately after OP_SendLoginInfo in the handshake band."
 
 [[world]]
-id      = "ffff"
-updated = "2026-07-17"
+id      = "115a"
+updated = "2008-11-07"
 name    = "OP_ApproveWorld"
 comment = "Live candidate: small S>C in handshake band; not isolated yet."
 
 [[world]]
-id      = "ffff"
+id      = "3288"
 name    = "OP_EnterWorld"
-updated = "2026-07-17"
+updated = "2010-11-07"
 comment = "Client tells world server to enter world with selected char. Live: 72b C>S, char name (zero-padded) at offset 0 + 64b zeros + 0xffffffff trailer. 4/4 confirmations across char-create + login flows. Server reuses 0x0839 with shorter S>C variants (1b ack, 7b name echo) — XML maps the opcode to OP_EnterWorld for log naming."
 
 [[world]]
-id      = "ffff"
+id      = "1771"
 name    = "OP_ExpansionInfo"
-updated = "2026-07-17"
+updated = "2010-11-07"
 comment = "Which expansions user has. Live: 64b fixed S>C in the post-LogServer / pre-ApproveWorld handshake band (5/5 confirmations)."
 
 [[world]]
-id      = "ffff"
+id      = "6685"
 name    = "OP_SendCharInfo"
-updated = "2026-07-17"
+updated = "2012-07-18"
 comment = "Send all chars visible @ char select. Live: 14176b S>C (variable with character roster size), fires once early in world handshake."
 
 [[world]]
-id      = "ffff"
+id      = "3c2d"
 name    = "OP_SendSpellChecksum"
-updated = "2026-07-17"
+updated = "2010-11-07"
 comment = "Contains a snippet of spell data. Live: 2056b C>S, payload tail shows caret-delimited spell-data text (matches spells_us.txt format). Capture-order position 2 of 4 in the post-handshake checksum burst."
 
 [[world]]
-id      = "ffff"
+id      = "30e2"
 name    = "OP_SendExeChecksum"
-updated = "2026-07-17"
+updated = "2010-11-07"
 comment = "Client-side eqgame.exe checksum sample. Live: 2056b C>S, payload tail shows binary code-style content. Capture-order position 1 of 4 in the post-handshake checksum burst."
 
 [[world]]
-id      = "ffff"
+id      = "2b5f"
 name    = "OP_SendBaseDataChecksum"
-updated = "2026-07-17"
+updated = "2010-11-07"
 comment = "Client-side base-data file sample. Live: 2056b C>S, payload tail shows caret-delimited text records. Capture-order position 3 of 4 in the post-handshake checksum burst. Mapping to BaseData (vs another text-format file) inferred by elimination + position."
 
 [[world]]
-id      = "ffff"
+id      = "2874"
 name    = "OP_SendSkillCapsChecksum"
-updated = "2026-07-17"
+updated = "2010-11-07"
 comment = "Client-side skillcaps checksum. Live: 64b C>S, opaque hash-style payload. Capture-order position 4 of 4 in the post-handshake checksum burst — the only one not at 2056b, fits the smaller skillcaps data table."
 
 [[world]]
-id      = "ffff"
-updated = "2026-07-17"
+id      = "28d4"
+updated = "2012-06-27"
 name    = "OP_SetChatServer"
 comment = "Legacy chatserver tuple. May be obsolete on Live — handshake capture shows only the SetChatServer2 catalog (no 56b S>C tuple observed, unlike Test)."
 
 [[world]]
-id      = "ffff"
+id      = "75f5"
 name    = "OP_SetChatServer2"
-updated = "2026-07-17"
+updated = "2012-06-27"
 comment = "Secondary chat / account / commerce service catalog. Live: 1464b S>C in handshake band (3/3 confirmations); ~18 plaintext Daybreak service URLs."
 
 [[world]]
-id      = "ffff"
+id      = "777c"
 name    = "OP_ZoneServerInfo"
-updated = "2026-07-17"
+updated = "2012-06-27"
 comment = "Zone server connection info. Live: 130b S>C, fires on world->zone handoff (zone server hostname + port). 2/2 confirmations."
 
   [[world.payloads]]
@@ -2444,30 +2444,54 @@ comment = "Zone server connection info. Live: 130b S>C, fires on world->zone han
   sizechecktype = "match"
 
 [[world]]
-id      = "ffff"
+id      = "72f3"
 name    = "OP_WorldComplete"
-updated = "2026-07-17"
+updated = "2010-11-07"
 comment = "Client telling world server it is done. Live: 0b C>S, last C>S packet of session immediately after OP_ZoneServerInfo. World replies by disconnecting. 2/2 confirmations."
 
 [[world]]
-id      = "ffff"
+id      = "2730"
 name    = "OP_DeleteCharacter"
-updated = "2026-07-17"
+updated = "2010-11-07"
 comment = "Delete character @ char select. Live: 68b C>S world, name@offset 0. Re-confirmed post-2026-05-22 patch (login-charmgmt): 1 C>S fire carrying the deleted char name."
 
 [[world]]
-id      = "ffff"
+id      = "49b6"
 name    = "OP_CharacterCreate"
-updated = "2026-07-17"
+updated = "2010-11-07"
 comment = "Create character @ char select. Live: 168b C>S world (name[64] + gender/race/class/deity/appearance fields), fires once per submitted creation right after OP_ApproveName response. Re-confirmed post-2026-05-22 patch (login-charmgmt)."
 
 [[world]]
-id      = "ffff"
+id      = "6e97"
 name    = "OP_ApproveName"
-updated = "2026-07-17"
+updated = "2010-11-07"
 comment = "Approving new character name @ char creation. Live: 84b C>S name candidate, 1b S>C status (taken vs available). Re-confirmed post-2026-05-22 patch (login-charmgmt): fires right before OP_CharacterCreate."
 
 [[world]]
-id      = "ffff"
+id      = "0005"
 name    = "OP_RandomNameGenerator"
 comment = "Returns a random name. May be obsolete on Live — repeated random-button presses during char creation produced no isolated wire request/response; names likely come pre-baked in char-select catalog dump."
+
+[[world]]
+id      = "02db"
+name    = "OP_LoginComplete"
+priority = 0
+updated = "2004-02-10"
+comment = "Imported from legacy showeq 6.4.25 (07/15/26). Identification-only, no handler wired."
+
+  [[world.payloads]]
+  dir           = "server"
+  typename      = "uint8_t"
+  sizechecktype = "none"
+
+[[world]]
+id      = "02a5"
+name    = "OP_UserCompInfo"
+priority = 0
+updated = "2004-02-10"
+comment = "Imported from legacy showeq 6.4.25 (07/15/26). Identification-only, no handler wired."
+
+  [[world.payloads]]
+  dir           = "server"
+  typename      = "uint8_t"
+  sizechecktype = "none"
