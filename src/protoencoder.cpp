@@ -357,6 +357,18 @@ void fillGuildMotd(seq::v1::GuildMotd* out, GuildShell& gs)
     out->set_sender(gs.motdSender().toStdString());
 }
 
+void fillGuildRankNames(seq::v1::GuildRankNames* out, GuildShell& gs)
+{
+    out->set_guild_id(gs.guildId());
+    // QMap iterates keys ascending, so the parallel arrays come out sorted by
+    // rank ordinal — deterministic across runs (no golden flap).
+    const QMap<uint32_t, QString>& ranks = gs.rankNames();
+    for (auto it = ranks.constBegin(); it != ranks.constEnd(); ++it) {
+        out->add_rank_ids(it.key());
+        out->add_names(it.value().toStdString());
+    }
+}
+
 void fillGuildRoster(seq::v1::GuildRoster* out, GuildShell& gs)
 {
     out->set_guild_id(gs.guildId());

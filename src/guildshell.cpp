@@ -284,6 +284,11 @@ void GuildShell::setRoster(uint32_t guildId, const QVector<GuildRosterEntry>& ro
   qDeleteAll(m_members);
   m_members.clear();
   m_maxNameLength = 0;
+  // Rank names belong to the guild; drop them only when the guild actually
+  // changes (a same-guild roster re-request isn't followed by a fresh rank-name
+  // table, so keep the one we have).
+  if (guildId != m_guildId)
+    m_rankNames.clear();
   m_guildId = guildId;
 
   for (const GuildRosterEntry& e : rows)
@@ -358,6 +363,23 @@ void GuildShell::memberZoneUpdate(const uint8_t* data, size_t len)
     return;   // update for a member not in the current roster — ignore (like legacy)
   m->setZone(u.zone_id, u.zone_instance, u.last_on);
   emit updated(m);
+}
+
+void GuildShell::expandedGuildInfo(const uint8_t* data, size_t len)
+{
+  // OP_ExpandedGuildInfo S>C (Live): tagged union; the rank-name action carries
+  // one (rank ordinal -> label) entry. Decoded in Rust. The 8 rank entries
+  // arrive right after the roster, so grow the table and re-announce when it
+  // actually changes; other actions (misc guild config) are ignored here.
+  auto e = seq::rust::decode_guild_expanded_info(rust::Slice<const uint8_t>{data, len});
+  if (e.rank_index == 0 || e.rank_name.empty())
+    return;   // not the rank-name action, or an empty label
+  const QString name = QString::fromLatin1(e.rank_name.data(), int(e.rank_name.size()));
+  auto it = m_rankNames.find(e.rank_index);
+  if (it != m_rankNames.end() && it.value() == name)
+    return;   // already known — no re-announce
+  m_rankNames.insert(e.rank_index, name);
+  emit rankNamesChanged();
 }
 
 void GuildShell::setMotd(const QString& message, const QString& sender)

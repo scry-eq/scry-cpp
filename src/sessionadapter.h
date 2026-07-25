@@ -156,6 +156,8 @@ private slots:
     void sendGuildRoster();
     // Re-emits the guild MOTD on GuildShell::motdChanged().
     void sendGuildMotd();
+    // Re-emits the guild rank-name table on GuildShell::rankNamesChanged().
+    void sendGuildRankNames();
     // Re-emits the full active-buff list on any SpellShell change.
     void onBuffsChanged();
     void onEffectsChanged();

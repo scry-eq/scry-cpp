@@ -69,6 +69,7 @@ void fillGroupUpdate(seq::v1::GroupUpdate* out, GroupMgr& g);
 // QHash, whose iteration order is seed-dependent.
 void fillGuildRoster(seq::v1::GuildRoster* out, GuildShell& gs);
 void fillGuildMotd(seq::v1::GuildMotd* out, GuildShell& gs);
+void fillGuildRankNames(seq::v1::GuildRankNames* out, GuildShell& gs);
 
 // Fills `out` with one Buff message from a SpellShell SpellItem.
 void fillBuff(seq::v1::Buff* out, const SpellItem& spell);

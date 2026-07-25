@@ -113,6 +113,12 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_GuildMemberUpdate", SP_Zone, DIR_Server,
          "GuildMemberUpdate", SZC_Match,
          seqBind(ms.guildShell, &GuildShell::memberZoneUpdate));
+    // OP_ExpandedGuildInfo — tagged union; its rank-name action builds the
+    // guild's rank -> label table (arrives per-rank right after the roster).
+    // Variable-size, so uint8_t/none + a seq-decode parser in the handler.
+    wire("OP_ExpandedGuildInfo", SP_Zone, DIR_Server,
+         "uint8_t", SZC_None,
+         seqBind(ms.guildShell, &GuildShell::expandedGuildInfo));
     // OP_GuildsInZoneList / OP_NewGuildInZone — the guild id->name source that
     // puts guild tags on spawns (fed to the daemon-wide GuildMgr). Decoded in
     // seq-decode. Per-box (each zone-in re-sends the in-zone set); GuildMgr

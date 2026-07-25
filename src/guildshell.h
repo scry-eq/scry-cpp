@@ -30,6 +30,7 @@
 #include <QString>
 #include <QObject>
 #include <QHash>
+#include <QMap>
 #include <QTextStream>
 
 //----------------------------------------------------------------------
@@ -152,6 +153,11 @@ class GuildShell : public QObject
   const QString& motdSender() const { return m_motdSender; }
   bool hasMotd() const { return m_motdSet; }
 
+  // The guild's rank-name table (rank ordinal -> label), from
+  // OP_ExpandedGuildInfo. A QMap so keys iterate sorted -> deterministic proto.
+  // Ranks are 1-based and sparse; a roster member's numeric rank indexes this.
+  const QMap<uint32_t, QString>& rankNames() const { return m_rankNames; }
+
  public slots:
   void guildMemberList(const uint8_t* data, size_t len);
   void guildMemberUpdate(const uint8_t* data, size_t len);
@@ -168,6 +174,12 @@ class GuildShell : public QObject
   // member's online state, and emits updated(). Fills the online/offline gap the
   // roster leaves (it ships zoneId 0). Not the stock guildMemberUpdate() slot.
   void memberZoneUpdate(const uint8_t* data, size_t len);
+  // OP_ExpandedGuildInfo handler (Live): decodes via
+  // seq::rust::decode_guild_expanded_info and, for the rank-name action, adds
+  // the (rank -> label) entry to the guild's rank-name table. Emits
+  // rankNamesChanged() when the table grows. The Live path; eql has no decoder
+  // for this yet.
+  void expandedGuildInfo(const uint8_t* data, size_t len);
 
  signals:
   void cleared();
@@ -176,6 +188,7 @@ class GuildShell : public QObject
   void removed(const GuildMember* gm);
   void updated(const GuildMember* gm);
   void motdChanged();
+  void rankNamesChanged();
 
  protected:
 
@@ -187,6 +200,8 @@ class GuildShell : public QObject
   QString m_motdSender;
   // Distinguishes "MOTD received, empty" from "no MOTD packet yet".
   bool m_motdSet = false;
+  // rank ordinal (1-based) -> label; see rankNames().
+  QMap<uint32_t, QString> m_rankNames;
 };
 
 #endif // _GUILDSHELL_H_

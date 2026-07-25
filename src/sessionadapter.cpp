@@ -458,6 +458,10 @@ void SessionAdapter::connectPerBox()
         // partial-member message); the signal's GuildMember* arg is dropped.
         connect(m_guildShell, SIGNAL(updated(const GuildMember*)),
                 this, SLOT(sendGuildRoster()));
+        // Rank-name table grows (arrives per-rank after the roster); each send is
+        // the full known table, so the client just takes the latest.
+        connect(m_guildShell, SIGNAL(rankNamesChanged()),
+                this, SLOT(sendGuildRankNames()));
     }
 
     if (m_groupMgr) {
@@ -627,6 +631,11 @@ void SessionAdapter::startStreaming()
     // MOTD is legitimate state, but "no packet yet" is not something to assert).
     if (m_guildShell && m_guildShell->hasMotd()) {
         sendGuildMotd();
+    }
+    // Initial GuildRankNames — only when the rank-name table has entries, so a
+    // client that connects after the guild data arrived resolves member ranks.
+    if (m_guildShell && !m_guildShell->rankNames().isEmpty()) {
+        sendGuildRankNames();
     }
     // Initial BuffsUpdate (may be an empty list before login).
     if (m_spellShell) {
@@ -1056,6 +1065,14 @@ void SessionAdapter::sendGuildMotd()
     if (!m_guildShell) return;
     seq::v1::Envelope env;
     seq::encode::fillGuildMotd(env.mutable_guild_motd(), *m_guildShell);
+    sendOrBuffer(std::move(env));
+}
+
+void SessionAdapter::sendGuildRankNames()
+{
+    if (!m_guildShell) return;
+    seq::v1::Envelope env;
+    seq::encode::fillGuildRankNames(env.mutable_guild_rank_names(), *m_guildShell);
     sendOrBuffer(std::move(env));
 }
 
