@@ -30,10 +30,21 @@
 
 #include <QObject>
 #include <QString>
+#include <QVector>
 #include <vector>
 #include <map>
 
 #include "everquest.h"
+
+// Target-neutral guild-in-zone row: (guildId, serverId) -> name, already decoded
+// off the wire by the backend's own parser. The daemon never parses guild wire
+// bytes in C++ — see GuildMgr::learnGuilds().
+struct GuildInZoneEntry
+{
+  uint32_t guildId = 0;
+  uint32_t serverId = 0;
+  QString  name;
+};
 
 //------------------------------
 // GuildMgr
@@ -49,9 +60,13 @@ class GuildMgr : public QObject
 
   QString guildIdToName(uint16_t, uint16_t);
 
+  // Learn id->name mappings from already-decoded rows (in wire order). New keys
+  // are inserted, each firing guildTagUpdated so spawns re-tag; the list is
+  // persisted once if anything changed. The wire is decoded in the backend's own
+  // parser (eql: seq_backend_eql::guild_in_zone), never here.
+  void learnGuilds(const QVector<GuildInZoneEntry>& rows);
+
  public slots:
-  void newGuildInZone(const uint8_t* data, size_t len);
-  void guildsInZoneList(const uint8_t * data, size_t len);
   void readGuildList();
   void guildList2text(QString);
   void listGuildInfo();

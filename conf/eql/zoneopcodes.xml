@@ -698,11 +698,11 @@
     </opcode>
     <opcode id="3959" name="OP_GuildsInZoneList" updated="07/16/26" priority="8">
         <comment>Listing of guild names present in the current zone.  Generally seen on zoning</comment>
-        <payload dir="server" typename="guildsInZoneListStruct" sizechecktype="none"/>
+        <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="6c4c" name="OP_NewGuildInZone" updated="07/16/26" priority="8">
         <comment>An additional guild name has appeared in the current zone. Seen when a guilded player enters the current zone</comment>
-        <payload dir="server" typename="newGuildInZoneStruct" sizechecktype="none"/>
+        <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="ffff" name="OP_LFGGetMatchesRequest" updated="11/28/12" priority="-1">
         <comment>LFG/LFP client request - 16 bytes</comment>

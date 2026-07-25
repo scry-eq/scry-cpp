@@ -35,12 +35,19 @@ class SpawnShell;
 class Player;
 class DbStrings;
 class GuildShell;
+class GuildMgr;
 
 class EqlDispatch
 {
 public:
     EqlDispatch(ZoneMgr* zoneMgr, SpawnShell* spawnShell, Player* player,
-                DbStrings* dbStrings, GuildShell* guildShell);
+                DbStrings* dbStrings, GuildShell* guildShell, GuildMgr* guildMgr);
+
+    // OP_GuildsInZoneList / OP_NewGuildInZone S>C: the guilds present in the zone
+    // — the sole source of guild names. Decoded in seq-backend-eql (eql owns its
+    // own parser; the wire is never read in C++) and fed to GuildMgr::learnGuilds.
+    void guildsInZone(const uint8_t* data, size_t len, uint8_t dir);
+    void newGuildInZone(const uint8_t* data, size_t len, uint8_t dir);
 
     // OP_GuildMemberList S>C: the full guild roster. The eql wire diverges from
     // the stock struct (wider header, multiclass bitmask in the class slot, a
@@ -118,6 +125,7 @@ private:
     Player*     m_player;
     DbStrings*  m_dbStrings;   // AA titleSID -> name (dbstr type-1); may be empty
     GuildShell* m_guildShell;
+    GuildMgr*   m_guildMgr;    // daemon-global guild id->name map
     // Last regular-exp permille seen (−1 = unseeded); a decrease is a ding.
     int64_t     m_lastExp = -1;
     // While awaiting the in-zone respawn after the local player's own death,

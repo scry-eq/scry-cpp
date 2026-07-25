@@ -26,9 +26,7 @@
  */
 
 #include "guild.h"
-#include "packet.h"
 #include "diagnosticmessages.h"
-#include "netstream.h"
 
 #include <QFile>
 #include <QDataStream>
@@ -58,86 +56,26 @@ QString GuildMgr::guildIdToName(uint16_t guildID, uint16_t guildServerID)
 }
 
 
-void GuildMgr::newGuildInZone(const uint8_t* data, size_t len)
+void GuildMgr::learnGuilds(const QVector<GuildInZoneEntry>& rows)
 {
-    NetStream netStream(data, len);
-    QString guildName;
-    uint32_t size = 0; // to keep track of how much we're reading from the packet
-    uint32_t guildId = 0;
-    uint32_t guildServerId = 0;
-
-    guildId = netStream.readUInt32NC();
-    size += 4;
-
-    guildServerId = netStream.readUInt32NC();
-    size += 4;
-
-    uint32_t key = guildServerId << 16 | guildId;
-
-    guildName = netStream.readText();
-    if (guildName.length() && !m_guildList.count(key))
-    {
-        m_guildList[key] = guildName;
-        writeGuildList();
-        emit guildTagUpdated(guildId);
-    }
-    size += guildName.length() + 1; // include null in count
-
-    if (size != len)
-        seqWarn("newGuildInZone packet is not the expected length: %u != %u", size, len);
-}
-
-void GuildMgr::guildsInZoneList(const uint8_t* data, size_t len)
-{
-    NetStream netStream(data, len);
-    QString guildName;
-    QString emptyName = "";
-    uint32_t size = 0; // to keep track of how much we're reading from the packet
-    uint32_t guildId = 0;
-    uint32_t guildServerId = 0;
-
-    uint32_t nameLen = netStream.readUInt32NC();
-    size += 4;
-
-    // skip the player name to get to the guilds
-    netStream.skipBytes(nameLen);
-    size += nameLen;
-
-    netStream.readUInt32NC(); // numGuilds — present in wire format but unused here
-    size += 4;
-
+    // The rows arrive already decoded by the backend's own parser (both
+    // OP_GuildsInZoneList and OP_NewGuildInZone reduce to this — the former a
+    // list, the latter a single row). Insert only new keys, in wire order, so
+    // the guildTagUpdated emissions match the old inline C++ parse exactly.
     bool need_save = false;
-
-    while(!netStream.end())
+    for (const GuildInZoneEntry& e : rows)
     {
-        guildId = netStream.readUInt32NC();
-        size += 4;
-
-        guildServerId = netStream.readUInt32NC();
-        size += 4;
-
-        uint32_t key = guildServerId << 16 | guildId;
-
-        guildName = netStream.readText();
-        if (guildName.length() && !m_guildList.count(key))
+        const uint32_t key = e.serverId << 16 | e.guildId;
+        if (!e.name.isEmpty() && !m_guildList.count(key))
         {
-            m_guildList[key] = guildName;
+            m_guildList[key] = e.name;
             need_save = true;
-            emit guildTagUpdated(guildId);
+            emit guildTagUpdated(e.guildId);
         }
-
-        size += guildName.length() + 1; // include null in count
-
-        if (size >= len)
-            break;
     }
-
-    if (size != len)
-        seqWarn("guildsInZoneList packet is not the expected length: %u != %u", size, len);
 
     if (need_save)
         writeGuildList();
-
 }
 
 

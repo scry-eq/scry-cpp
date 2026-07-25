@@ -1962,7 +1962,7 @@ comment = "Listing of guild names present in the current zone.  Generally seen o
 
   [[zone.payloads]]
   dir           = "server"
-  typename      = "guildsInZoneListStruct"
+  typename      = "uint8_t"
   sizechecktype = "none"
 
 [[zone]]
@@ -1974,7 +1974,7 @@ comment = "An additional guild name has appeared in the current zone. Seen when 
 
   [[zone.payloads]]
   dir           = "server"
-  typename      = "newGuildInZoneStruct"
+  typename      = "uint8_t"
   sizechecktype = "none"
 
 [[zone]]

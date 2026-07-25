@@ -24,6 +24,7 @@
 
 #include "dbstrings.h"
 #include "diagnosticmessages.h"
+#include "guild.h"
 #include "guildshell.h"
 #include "packetcommon.h"   // DIR_Client / DIR_Server
 #include "player.h"
@@ -76,14 +77,54 @@ QString invocationName(uint32_t id)
 }
 
 EqlDispatch::EqlDispatch(ZoneMgr* zoneMgr, SpawnShell* spawnShell, Player* player,
-                         DbStrings* dbStrings, GuildShell* guildShell)
+                         DbStrings* dbStrings, GuildShell* guildShell, GuildMgr* guildMgr)
     : m_zoneMgr(zoneMgr)
     , m_spawnShell(spawnShell)
     , m_player(player)
     , m_dbStrings(dbStrings)
     , m_guildShell(guildShell)
+    , m_guildMgr(guildMgr)
     , m_selfTracker(seq::rust::eql_self_tracker_new())
 {
+}
+
+// Shared tail for both guild-in-zone opcodes: turn the decoded rows into neutral
+// entries and hand them to GuildMgr. The wire is decoded in seq-backend-eql; no
+// guild bytes are read in C++.
+static void applyGuildRows(GuildMgr* mgr,
+                           const rust::Vec<seq::rust::GuildInZoneRow>& rows)
+{
+    if (!mgr || rows.empty())
+        return;
+    QVector<GuildInZoneEntry> out;
+    out.reserve(int(rows.size()));
+    for (const auto& r : rows)
+    {
+        GuildInZoneEntry e;
+        e.guildId  = r.guild_id;
+        e.serverId = r.server_id;
+        e.name     = latin1(r.name);
+        out.append(e);
+    }
+    mgr->learnGuilds(out);
+}
+
+void EqlDispatch::guildsInZone(const uint8_t* data, size_t len, uint8_t dir)
+{
+    if (dir != DIR_Server)
+        return;
+    applyGuildRows(m_guildMgr,
+                   seq::rust::decode_guilds_in_zone_list(
+                       rust::Slice<const uint8_t>{data, len}));
+}
+
+void EqlDispatch::newGuildInZone(const uint8_t* data, size_t len, uint8_t dir)
+{
+    if (dir != DIR_Server)
+        return;
+    applyGuildRows(m_guildMgr,
+                   seq::rust::decode_new_guild_in_zone(
+                       rust::Slice<const uint8_t>{data, len}));
 }
 
 void EqlDispatch::guildMemberList(const uint8_t* data, size_t len, uint8_t dir)

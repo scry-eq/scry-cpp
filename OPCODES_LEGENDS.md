@@ -129,8 +129,16 @@ The position channel rotated id (0x7171→0x5188) **and** wire size in both dire
 resolves a spawn's `(guildID, guildServerID)` into a guild name. Both were already
 content-confirmed in the 07-14 re-map; this entry is the wiring + verification.
 
-**Wire is byte-identical to the stock Live structs — no eql decoder needed.** Confirmed by
-`--dump-payload` across 15 payloads in 4 post-07/14 captures:
+**Decoded in eql's OWN Rust parser** (`seq_backend_eql::guild_in_zone`), like every other
+eql opcode — even though the wire happens to match the stock Live struct today. "Byte-
+identical" is never a licence to ride a shared parser: eql owns its decode so a Live-only
+change can't silently corrupt it, and the daemon's rule is that Rust is the only decoder
+(no C++ NetStream parse). ⚠️ **The 2026-07-20 version wired this to the shared C++
+`GuildMgr::guildsInZoneList`/`newGuildInZone` NetStream parsers — a rule violation, fixed
+2026-07-21.** The daemon now calls `seq::rust::decode_guilds_in_zone_list` /
+`decode_new_guild_in_zone` in `EqlDispatch` and feeds the neutral `GuildMgr::learnGuilds`;
+the C++ wire slots are deleted. Behaviour is byte-identical (goldens unchanged). Layout,
+confirmed by `--dump-payload` across 15 payloads in 4 post-07/14 captures:
 
 | opcode | layout | evidence |
 |--------|--------|----------|
@@ -141,10 +149,11 @@ content-confirmed in the 07-14 re-map; this entry is the wiring + verification.
 `guildID 0xFFFF` (not 0) — `guildIdToName` misses the map and returns `""`, so the
 sentinel is harmless today, but it does reach proto consumers as `guild_id: 65535`.
 
-**Wiring only — the whole downstream chain already existed** (`GuildMgr` handlers, its
-`guildTagUpdated` signal, and `SpawnShell::updateGuildTag`'s back-fill). Three gaps closed:
-`wire_eql.cpp` binds the two opcodes under `wireGlobalSinks` (the guild map is daemon-wide
-and persists to `guilds2.dat`); `SpawnShell::upsertSpawn` gained `guildServerID` (the Rust
+**Downstream chain already existed** (`GuildMgr::learnGuilds` map, its `guildTagUpdated`
+signal, and `SpawnShell::updateGuildTag`'s back-fill). Gaps closed: `wire_eql.cpp` binds
+the two opcodes to `EqlDispatch` per-box (NOT under `wireGlobalSinks` — see the per-box fix
+note below; each zone-in opens a fresh box and the guild map is daemon-wide, ignoring known
+keys); `SpawnShell::upsertSpawn` gained `guildServerID` (the Rust
 parser and cxx bridge already decoded it — the daemon was dropping it, so every eql spawn
 keyed as server 0 and could never resolve); and `upsertSpawn` now resolves the tag at all,
 which the eql path never did. New proto `Spawn.guild_tag = 25` carries the resolved name.

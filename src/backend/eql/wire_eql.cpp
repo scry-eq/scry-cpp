@@ -72,7 +72,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // capture, so it lives as long as this box's stream dispatchers reference
     // it — no QObject parent needed.
     auto eql = std::make_shared<EqlDispatch>(ms.zoneMgr, ms.spawnShell, ms.player,
-                                             m_dbStrings, ms.guildShell);
+                                             m_dbStrings, ms.guildShell, m_guildMgr);
 
     // --- ZoneMgr: zone transitions + player profile.
     // (EQ Legends has no separate c2s OP_ZoneEntry: the 4606 c2s 92B is a
@@ -155,10 +155,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     }
 
     // Guild id→name, feeding spawn guild tags via GuildMgr::guildTagUpdated.
-    // The eql wire is byte-identical to the stock structs (verified across 15
-    // captured payloads: the list is u32 name_len + name + u32 count +
-    // count×{u32 guildId, u32 serverId, cstring}), so the shared NetStream
-    // handlers parse it directly — no eql decoder.
+    // Decoded in eql's OWN Rust parser (seq_backend_eql::guild_in_zone) through
+    // EqlDispatch, then fed to the neutral GuildMgr::learnGuilds — the daemon
+    // never reads guild wire bytes in C++, and eql never rides a shared parser,
+    // even where the layout happens to match Live today.
     //
     // Per-box, NOT gated on wireGlobalSinks, even though GuildMgr itself is
     // daemon-wide: the roster is re-sent on every zone-in, and each zone-in
@@ -167,11 +167,11 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // own — it fills a map that ignores keys it already holds — so wiring it on
     // every box duplicates no output.
     wire("OP_GuildsInZoneList", SP_Zone, DIR_Server,
-         "guildsInZoneListStruct", SZC_None,
-         seqBind(m_guildMgr, &GuildMgr::guildsInZoneList));
+         "uint8_t", SZC_None,
+         seqBind(eql, &EqlDispatch::guildsInZone));
     wire("OP_NewGuildInZone", SP_Zone, DIR_Server,
-         "newGuildInZoneStruct", SZC_None,
-         seqBind(m_guildMgr, &GuildMgr::newGuildInZone));
+         "uint8_t", SZC_None,
+         seqBind(eql, &EqlDispatch::newGuildInZone));
     // The roster is per-character (GuildShell lives in the ManagerSet), so it
     // wires per-box like the rest of the box pipeline.
     wire("OP_GuildMemberList", SP_Zone, DIR_Server,
