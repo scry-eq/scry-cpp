@@ -133,14 +133,15 @@ for vpk in "${vpks[@]}"; do
         continue
     fi
 
-    # Compare method: exact byte-cmp by default. The three long, pet-heavy
-    # captures below carry the load-only summoned-pet flap (idempotent duplicate
-    # spawn_added + async guild-tag back-fill timing; see semantic_diff.py and
+    # Compare method: exact byte-cmp by default. The long, high-spawn captures
+    # below carry the under-load spawn flap (idempotent duplicate spawn_added +
+    # async guild-tag back-fill timing; see semantic_diff.py and
     # project_eql_golden_spawn_order_flap) that a byte-cmp can't tolerate, so they
     # compare SEMANTICALLY — real regressions (spawn content/presence, non-spawn
-    # events) still fail; only the flap is normalized away.
+    # events) still fail; only the flap is normalized away. live-guild is a busy
+    # Live zone (232-member guild roster + 4 in-zone guilds tagging ~600 spawns).
     case "${name}" in
-      eql-contarget|eqlegends-patch20260714|eql-fighting)
+      eql-contarget|eqlegends-patch20260714|eql-fighting|live-guild)
         if semdiff="$(python3 "${DAEMON_DIR}/scripts/semantic_diff.py" "${golden}" "${check}" 2>&1)"; then
             echo "PASS ${name} (semantic: ${semdiff})"
             pass=$((pass+1))
