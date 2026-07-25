@@ -350,6 +350,13 @@ void fillPlayerStats(seq::v1::PlayerStats* out, const Player& p)
     }
 }
 
+void fillGuildMotd(seq::v1::GuildMotd* out, GuildShell& gs)
+{
+    out->set_guild_id(gs.guildId());
+    out->set_message(gs.motd().toStdString());
+    out->set_sender(gs.motdSender().toStdString());
+}
+
 void fillGuildRoster(seq::v1::GuildRoster* out, GuildShell& gs)
 {
     out->set_guild_id(gs.guildId());

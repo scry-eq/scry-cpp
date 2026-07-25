@@ -302,6 +302,16 @@ void GuildShell::setRoster(uint32_t guildId, const QVector<GuildRosterEntry>& ro
   emit loaded();
 }
 
+void GuildShell::setMotd(const QString& message, const QString& sender)
+{
+  m_motd = message;
+  m_motdSender = sender;
+  m_motdSet = true;
+  // Length only — the MOTD text is user content and may name characters.
+  seqInfo("GuildShell: MOTD for guild %u — %d chars", m_guildId, message.length());
+  emit motdChanged();
+}
+
 void GuildShell::guildMemberList(const uint8_t* data, size_t len)
 {
   // clear out any existing member data

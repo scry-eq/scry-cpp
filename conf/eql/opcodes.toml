@@ -118,12 +118,12 @@ comment = "07/09 l-patch correction: the regular exp bar rides 0x6801 (16B expUp
 id      = "5924"
 name    = "OP_GuildMOTD"
 priority = 2
-updated = "2026-07-16"
-comment = "07/07 rotation (community f-patch id, daemon-confirmed): stock guildMOTDStruct byte-perfect (target@8, sender@72, message@140; 656B = header + msg buffer). Present 1×656B in captures. NOT wired yet — named for logs; handler wiring is guild-tier work."
+updated = "2026-07-25"
+comment = "Guild message of the day (target@8, sender@72, message@140; 656B = header + 516B msg buffer). Decoded in eql's own seq-backend-eql parser -> EqlDispatch::guildMotd -> GuildShell::setMotd -> proto GuildMotd. Every captured MOTD is empty (guild has none set); non-empty text not yet golden-verified."
 
   [[zone.payloads]]
   dir           = "server"
-  typename      = "guildMOTDStruct"
+  typename      = "uint8_t"
   sizechecktype = "none"
 
 [[zone]]

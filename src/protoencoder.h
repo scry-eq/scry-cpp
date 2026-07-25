@@ -68,6 +68,7 @@ void fillGroupUpdate(seq::v1::GroupUpdate* out, GroupMgr& g);
 // Roster rows are emitted in name order: GuildShell keys them by name in a
 // QHash, whose iteration order is seed-dependent.
 void fillGuildRoster(seq::v1::GuildRoster* out, GuildShell& gs);
+void fillGuildMotd(seq::v1::GuildMotd* out, GuildShell& gs);
 
 // Fills `out` with one Buff message from a SpellShell SpellItem.
 void fillBuff(seq::v1::Buff* out, const SpellItem& spell);

@@ -177,6 +177,9 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_GuildMemberList", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(eql, &EqlDispatch::guildMemberList));
+    wire("OP_GuildMOTD", SP_Zone, DIR_Server,
+         "uint8_t", SZC_None,
+         seqBind(eql, &EqlDispatch::guildMotd));
 
     // --- SpawnShell: spawn lifecycle + positions.
     // eql ground-item defs are makeDropStruct/none (variable name field);

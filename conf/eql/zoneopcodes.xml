@@ -40,9 +40,9 @@
         <comment>07/09 l-patch correction: the regular exp bar rides 0x6801 (16B expUpdateStruct), NOT 0x42d1 — the ids were CROSS-WIRED with OP_AAExpUpdate. eql layout matches expUpdateStruct: u32 exp (0-100000 permille, in-game-calibrated against the exp bar), u32 0, u32 aaUnspent (@8, not Live's type), u32 0. exp@0 feeds Player::updateExp directly — the daemon already works in 0-100000, so NO scale conversion. Verified: exp wraps once at the level-up in the death-respawn capture (99.459%->3.622%).</comment>
         <payload dir="server" typename="expUpdateStruct" sizechecktype="match"/>
     </opcode>
-    <opcode id="5924" name="OP_GuildMOTD" updated="07/16/26" priority="2">
-        <comment>07/07 rotation (community f-patch id, daemon-confirmed): stock guildMOTDStruct byte-perfect (target@8, sender@72, message@140; 656B = header + msg buffer). Present 1×656B in captures. NOT wired yet — named for logs; handler wiring is guild-tier work.</comment>
-        <payload dir="server" typename="guildMOTDStruct" sizechecktype="none"/>
+    <opcode id="5924" name="OP_GuildMOTD" updated="07/25/26" priority="2">
+        <comment>Guild message of the day (target@8, sender@72, message@140; 656B = header + 516B msg buffer). Decoded in eql's own seq-backend-eql parser -> EqlDispatch::guildMotd -> GuildShell::setMotd -> proto GuildMotd. Every captured MOTD is empty (guild has none set); non-empty text not yet golden-verified.</comment>
+        <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="5188" name="OP_ClientUpdate" updated="07/14/26" priority="10">
         <comment>07/14 rotation (was 0x7171): whole position channel rotated id AND wire size. S>C 24B (was 28B) = OTHER-spawn position broadcast, 19-bit ×8 packed in each word's LOW bits (z rides bits13-31 of the @8 word; y@16 low19; x@20 low19) — re-cracked 2026-07-14 vs the OP_MobUpdate ground-truth stream + self-trajectory smoothness; WIRED S>C (playerUpdateOther → SpawnShell::moveSpawn). C>S 38B (was 42B) self-position — re-cracked 2026-07-14 vs a /loc ground-truth capture: IEEE floats gameX@14/gameY@26/gameZ@10 + heading@18 (low 12b); NO spawnId (client's self report carries none — self-id adoption is via SpawnShell::zoneEntry name-match). WIRED C>S (playerUpdateSelf → Player::applySelfPosition). See OPCODES_LEGENDS.md</comment>

@@ -154,6 +154,8 @@ private slots:
     // Re-emits the whole roster; it is replaced wholesale, never diffed, so
     // GuildShell::loaded() connects straight here.
     void sendGuildRoster();
+    // Re-emits the guild MOTD on GuildShell::motdChanged().
+    void sendGuildMotd();
     // Re-emits the full active-buff list on any SpellShell change.
     void onBuffsChanged();
     void onEffectsChanged();

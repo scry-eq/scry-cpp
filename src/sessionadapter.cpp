@@ -453,6 +453,7 @@ void SessionAdapter::connectPerBox()
         // The roster replaces wholesale, so only the terminal loaded() matters —
         // connecting added() too would emit one full roster envelope per member.
         connect(m_guildShell, SIGNAL(loaded()), this, SLOT(sendGuildRoster()));
+        connect(m_guildShell, SIGNAL(motdChanged()), this, SLOT(sendGuildMotd()));
     }
 
     if (m_groupMgr) {
@@ -541,7 +542,7 @@ void SessionAdapter::startStreaming()
             m_player       = ns->player;
             m_messageShell = ns->messageShell;
             m_groupMgr     = ns->groupMgr;
-            m_guildShell   = ns->guildShell;
+            m_guildShell   = ns->guildShell;   // MOTD + roster ride this
             m_spellShell   = ns->spellShell;
             m_combatRouter = ns->combatRouter;
             m_spawnMonitor = ns->spawnMonitor;
@@ -617,6 +618,11 @@ void SessionAdapter::startStreaming()
     // every session that simply hasn't asked yet.
     if (m_guildShell && !m_guildShell->members().isEmpty()) {
         sendGuildRoster();
+    }
+    // Initial GuildMotd — only once a MOTD packet has actually arrived (an empty
+    // MOTD is legitimate state, but "no packet yet" is not something to assert).
+    if (m_guildShell && m_guildShell->hasMotd()) {
+        sendGuildMotd();
     }
     // Initial BuffsUpdate (may be an empty list before login).
     if (m_spellShell) {
@@ -1038,6 +1044,14 @@ void SessionAdapter::sendGuildRoster()
     if (!m_guildShell) return;
     seq::v1::Envelope env;
     seq::encode::fillGuildRoster(env.mutable_guild_roster(), *m_guildShell);
+    sendOrBuffer(std::move(env));
+}
+
+void SessionAdapter::sendGuildMotd()
+{
+    if (!m_guildShell) return;
+    seq::v1::Envelope env;
+    seq::encode::fillGuildMotd(env.mutable_guild_motd(), *m_guildShell);
     sendOrBuffer(std::move(env));
 }
 

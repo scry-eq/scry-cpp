@@ -139,6 +139,15 @@ class GuildShell : public QObject
   void setRoster(uint32_t guildId, const QVector<GuildRosterEntry>& rows);
   uint32_t guildId() const { return m_guildId; }
 
+  // Neutral MOTD-apply primitive: the message + who set it, already decoded off
+  // the wire (the packet carries no guild id — it's the player's own guild). The
+  // guild id is taken from the roster this shell already tracks. Emits
+  // motdChanged(). Unused on live/test.
+  void setMotd(const QString& message, const QString& sender);
+  const QString& motd() const { return m_motd; }
+  const QString& motdSender() const { return m_motdSender; }
+  bool hasMotd() const { return m_motdSet; }
+
  public slots:
   void guildMemberList(const uint8_t* data, size_t len);
   void guildMemberUpdate(const uint8_t* data, size_t len);
@@ -149,6 +158,7 @@ class GuildShell : public QObject
   void added(const GuildMember* gm);
   void removed(const GuildMember* gm);
   void updated(const GuildMember* gm);
+  void motdChanged();
 
  protected:
 
@@ -156,6 +166,10 @@ class GuildShell : public QObject
   size_t m_maxNameLength;
   ZoneMgr* m_zoneMgr;
   uint32_t m_guildId = 0;
+  QString m_motd;
+  QString m_motdSender;
+  // Distinguishes "MOTD received, empty" from "no MOTD packet yet".
+  bool m_motdSet = false;
 };
 
 #endif // _GUILDSHELL_H_

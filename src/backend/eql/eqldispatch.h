@@ -55,6 +55,10 @@ public:
     // applied through GuildShell's neutral setRoster().
     void guildMemberList(const uint8_t* data, size_t len, uint8_t dir);
 
+    // OP_GuildMOTD S>C: the guild message of the day. Decoded in seq-backend-eql
+    // (its own parser, per the isolation rule) and applied via GuildShell::setMotd.
+    void guildMotd(const uint8_t* data, size_t len, uint8_t dir);
+
     // OP_PlayerProfile (0x62f0) S>C: identity header (race/class/level).
     void profile(const uint8_t* data, size_t len, uint8_t dir);
     // OP_MoneyUpdate (0x6414) S>C, 20B: authoritative carried purse.

@@ -162,6 +162,18 @@ void EqlDispatch::guildMemberList(const uint8_t* data, size_t len, uint8_t dir)
     m_guildShell->setRoster(rows[0].guild_id, out);
 }
 
+void EqlDispatch::guildMotd(const uint8_t* data, size_t len, uint8_t dir)
+{
+    // OP_GuildMOTD S>C: message + who set it (both empty when the guild has none).
+    // The packet has no guild id; GuildShell associates it with the roster's.
+    if (dir != DIR_Server || !m_guildShell)
+        return;
+    auto m = seq::rust::decode_guild_motd(rust::Slice<const uint8_t>{data, len});
+    if (!m.ok)
+        return;
+    m_guildShell->setMotd(latin1(m.message), latin1(m.sender));
+}
+
 void EqlDispatch::applySelfVitals(const seq::rust::SelfStat& v)
 {
     if (!m_player || !(v.has_hp || v.has_mana || v.has_end))

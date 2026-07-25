@@ -206,6 +206,32 @@ order is seed-dependent and would flap tier-2 goldens.
 `GuildShell` was dead code before this (compiled, never instantiated); it now lives in
 `ManagerSet` because a roster is per-character, unlike the daemon-global `GuildMgr`.
 
+### ✅ Guild MOTD tier WIRED (2026-07-25) — `OP_GuildMOTD 0x5924`
+
+The guild message-of-the-day now decodes into `GuildShell` and ships as a new proto
+`GuildMotd` message. Fixed layout, matching the stock struct but decoded in eql's own
+`seq_backend_eql::guild_motd` parser (isolation rule — no stock struct cast):
+
+```
+u32, u32, char target[64], char sender[64], u32, char message[516]   (656B)
+```
+
+`sender@72` = who set it, `message@140` = the text, both NUL-terminated within their fixed
+width. `target@8` is the recipient (self) — decoded past but not surfaced (a char name, and
+redundant). The packet carries **no guild id**, so `GuildShell` stamps the MOTD with the
+guild id from the roster it already tracks (0 if the MOTD precedes the roster).
+
+⚠️ **Every captured MOTD is EMPTY** (the fixture guild has none set): message and sender
+both zero-length across all 10 fixtures. So the wiring, the empty-state path, and the
+`guild_id` association are golden-verified, but **non-empty text is only unit-tested**
+(`guild_motd.rs::reads_sender_and_message`), never seen on a real capture. The daemon
+plumbing past the parser is trivial string-forwarding.
+
+Emitted on receipt (like the roster, re-sent per zone-in — `eql-fighting` fires it 12× over
+its zones) plus once on subscribe when a MOTD has arrived. Deterministic: the 10 goldens
+each gained their `guild_motd` envelopes and stay stable over 3 runs, the 3 semantic-
+compared captures included.
+
 ### 2026-07-24 — OP_LoadoutSwap re-mapped `0x7477` → `0x631c` (post-07/14 rotation), WIRED
 
 The 07/14 remap rotated OP_LoadoutSwap too, but it was left `ffff` (unmapped) in
@@ -296,8 +322,7 @@ them, not part of this audit.
 
 Ambiguous small-payload clusters (4B / 8B / 12B / 24B), the chat trio, spell casts,
 and the rest of the ~40 unmapped opcodes — see the WIP doc. Remaining guild work:
-`OP_GuildMOTD 0x5924` (656B, stock `guildMOTDStruct`, present in 8 of 10 fixtures) and
-the popout-only web panel. **`OP_GuildMemberUpdate 0x0717` is deliberately NOT wired** —
+the popout-only web panel + the scry port. **`OP_GuildMemberUpdate 0x0717` is deliberately NOT wired** —
 the legends branch found its zone/lastOn tail is uninitialized server memory (a logoff
 sends a garbage zone like 5376), so only the roster is authoritative for zone/lastOn and
 the update's sole trustworthy field is rank. The new
