@@ -316,6 +316,35 @@ void GuildShell::guildMOTD(const uint8_t* data, size_t len)
           QString::fromLatin1(m.sender.data(), int(m.sender.size())));
 }
 
+void GuildShell::guildRoster(const uint8_t* data, size_t len)
+{
+  // OP_GuildMemberList S>C. Decoded in Rust (seq-decode's stock-layout parser);
+  // an empty result is a decode failure — don't wipe a good roster over it.
+  auto rows = seq::rust::decode_guild_roster(rust::Slice<const uint8_t>{data, len});
+  if (rows.empty())
+    return;
+
+  QVector<GuildRosterEntry> out;
+  out.reserve(int(rows.size()));
+  for (const auto& r : rows)
+  {
+    GuildRosterEntry e;
+    e.name       = QString::fromLatin1(r.name.data(), int(r.name.size()));
+    e.level      = (uint8_t)r.level;
+    e.classVal   = r.primary_class;
+    e.classMask  = r.class_mask;   // 0 on Live (single-class)
+    e.guildRank  = r.rank;
+    e.lastOn     = r.last_on;
+    e.banker     = r.banker;
+    e.alt        = r.alt;
+    e.fullMember = r.full_member;
+    e.publicNote = QString::fromLatin1(r.public_note.data(), int(r.public_note.size()));
+    e.zoneId     = r.zone_id;      // 0 on Live (roster carries no zone)
+    out.append(e);
+  }
+  setRoster(rows[0].guild_id, out);
+}
+
 void GuildShell::setMotd(const QString& message, const QString& sender)
 {
   m_motd = message;

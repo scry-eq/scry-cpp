@@ -155,6 +155,10 @@ class GuildShell : public QObject
   // own parser — Live and eql each own one) and applies via setMotd(). Used by
   // the Live wire, which has no dispatch adapter; eql decodes in EqlDispatch.
   void guildMOTD(const uint8_t* data, size_t len);
+  // OP_GuildMemberList handler: decodes via seq::rust::decode_guild_roster and
+  // applies via setRoster(). The Live path (no dispatch adapter); eql decodes in
+  // EqlDispatch. Not the stock-struct NetStream guildMemberList() below.
+  void guildRoster(const uint8_t* data, size_t len);
 
  signals:
   void cleared();

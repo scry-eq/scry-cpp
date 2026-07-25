@@ -100,6 +100,12 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_GuildMOTD", SP_Zone, DIR_Server,
          "guildMOTDStruct", SZC_None,
          seqBind(ms.guildShell, &GuildShell::guildMOTD));
+    // OP_GuildMemberList — the guild roster. Variable-length (a member list with
+    // per-member LPText names/notes), so no fixed struct: uint8_t/none, decoded
+    // in seq-decode's stock-layout parser inside the handler.
+    wire("OP_GuildMemberList", SP_Zone, DIR_Server,
+         "uint8_t", SZC_None,
+         seqBind(ms.guildShell, &GuildShell::guildRoster));
 
     // Cross-manager: profile feeds Player too (after GroupMgr, which is
     // connected in buildManagerSet() — preserves slot fire order). This is an
