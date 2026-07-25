@@ -102,19 +102,6 @@ for vpk in "${vpks[@]}"; do
         skip=$((skip+1))
         continue
         ;;
-      # A SECOND, distinct flap: the summoned-pet count-flap (see
-      # project_eql_golden_spawn_order_flap / OPCODES_LEGENDS.md). These three
-      # long, pet-heavy captures produce a run-to-run `spawn_added` ±N delta
-      # under CPU contention — a close-call ordering that flips whether a pet
-      # double-spawn_added's at zone-in. The QHashSeed/packet-time fix holds at
-      # genuine idle but not under load, so the byte-cmp is unreliable here.
-      # Idempotent re-renders (not a gameplay bug); a robust fix needs rr-level
-      # record-replay, disproportionate for a dev-local golden. Skip until then.
-      eql-contarget|eqlegends-patch20260714|eql-fighting)
-        echo "SKIP ${name} (summoned-pet spawn_added count-flap under load; cmp non-deterministic)"
-        skip=$((skip+1))
-        continue
-        ;;
     esac
 
     golden="${GOLDEN_DIR}/${name}.pbstream"
@@ -146,21 +133,46 @@ for vpk in "${vpks[@]}"; do
         continue
     fi
 
-    if cmp --silent "${golden}" "${check}"; then
-        echo "PASS ${name}"
-        pass=$((pass+1))
-    else
-        # Save divergence artifacts so the user can inspect them after
-        # the script's tmpdir would otherwise be wiped.
-        keep="${GOLDEN_DIR}/${name}.check.pbstream"
-        cp "${check}" "${keep}"
-        bytes="$(cmp "${golden}" "${check}" 2>&1 || true)"
-        echo "FAIL ${name}: ${bytes}"
-        echo "     golden:  ${golden}"
-        echo "     produced: ${keep}"
-        fail=$((fail+1))
-        failures+=("${name}")
-    fi
+    # Compare method: exact byte-cmp by default. The three long, pet-heavy
+    # captures below carry the load-only summoned-pet flap (idempotent duplicate
+    # spawn_added + async guild-tag back-fill timing; see semantic_diff.py and
+    # project_eql_golden_spawn_order_flap) that a byte-cmp can't tolerate, so they
+    # compare SEMANTICALLY — real regressions (spawn content/presence, non-spawn
+    # events) still fail; only the flap is normalized away.
+    case "${name}" in
+      eql-contarget|eqlegends-patch20260714|eql-fighting)
+        if semdiff="$(python3 "${DAEMON_DIR}/scripts/semantic_diff.py" "${golden}" "${check}" 2>&1)"; then
+            echo "PASS ${name} (semantic: ${semdiff})"
+            pass=$((pass+1))
+        else
+            keep="${GOLDEN_DIR}/${name}.check.pbstream"
+            cp "${check}" "${keep}"
+            echo "FAIL ${name} (semantic): $(echo "${semdiff}" | head -1)"
+            echo "     golden:  ${golden}"
+            echo "     produced: ${keep}"
+            echo "${semdiff}" | sed -n '2,3p' | sed 's/^/     /'
+            fail=$((fail+1))
+            failures+=("${name}")
+        fi
+        ;;
+      *)
+        if cmp --silent "${golden}" "${check}"; then
+            echo "PASS ${name}"
+            pass=$((pass+1))
+        else
+            # Save divergence artifacts so the user can inspect them after
+            # the script's tmpdir would otherwise be wiped.
+            keep="${GOLDEN_DIR}/${name}.check.pbstream"
+            cp "${check}" "${keep}"
+            bytes="$(cmp "${golden}" "${check}" 2>&1 || true)"
+            echo "FAIL ${name}: ${bytes}"
+            echo "     golden:  ${golden}"
+            echo "     produced: ${keep}"
+            fail=$((fail+1))
+            failures+=("${name}")
+        fi
+        ;;
+    esac
 done
 
 echo
