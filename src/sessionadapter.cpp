@@ -454,6 +454,10 @@ void SessionAdapter::connectPerBox()
         // connecting added() too would emit one full roster envelope per member.
         connect(m_guildShell, SIGNAL(loaded()), this, SLOT(sendGuildRoster()));
         connect(m_guildShell, SIGNAL(motdChanged()), this, SLOT(sendGuildMotd()));
+        // A member's online-status update re-sends the whole roster (proto has no
+        // partial-member message); the signal's GuildMember* arg is dropped.
+        connect(m_guildShell, SIGNAL(updated(const GuildMember*)),
+                this, SLOT(sendGuildRoster()));
     }
 
     if (m_groupMgr) {

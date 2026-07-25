@@ -73,6 +73,10 @@ class GuildMember
   ~GuildMember();
 
   void update(const GuildMemberUpdate* gmu);
+  // Neutral zone/last-on setter, from already-decoded OP_GuildMemberUpdate
+  // fields (the Rust path — no C++ struct cast).
+  void setZone(uint16_t zoneId, uint16_t zoneInstance, uint32_t lastOn)
+  { m_zoneId = zoneId; m_zoneInstance = zoneInstance; m_lastOn = time_t(lastOn); }
 
   const QString& name() const { return m_name; }
   uint8_t level() const { return m_level; }
@@ -159,6 +163,11 @@ class GuildShell : public QObject
   // applies via setRoster(). The Live path (no dispatch adapter); eql decodes in
   // EqlDispatch. Not the stock-struct NetStream guildMemberList() below.
   void guildRoster(const uint8_t* data, size_t len);
+  // OP_GuildMemberUpdate handler (Live): a member's zone/last-on update (NOT
+  // rank). Decodes via seq::rust::decode_guild_member_update, updates the tracked
+  // member's online state, and emits updated(). Fills the online/offline gap the
+  // roster leaves (it ships zoneId 0). Not the stock guildMemberUpdate() slot.
+  void memberZoneUpdate(const uint8_t* data, size_t len);
 
  signals:
   void cleared();

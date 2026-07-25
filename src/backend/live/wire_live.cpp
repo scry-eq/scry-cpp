@@ -106,6 +106,12 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_GuildMemberList", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(ms.guildShell, &GuildShell::guildRoster));
+    // OP_GuildMemberUpdate — a member's zone/last-on (online status), a fixed
+    // 88B GuildMemberUpdate struct. Decoded in seq-decode via the eqstructs
+    // binding; the handler updates the tracked member + re-emits the roster.
+    wire("OP_GuildMemberUpdate", SP_Zone, DIR_Server,
+         "GuildMemberUpdate", SZC_Match,
+         seqBind(ms.guildShell, &GuildShell::memberZoneUpdate));
 
     // Cross-manager: profile feeds Player too (after GroupMgr, which is
     // connected in buildManagerSet() — preserves slot fire order). This is an

@@ -345,6 +345,21 @@ void GuildShell::guildRoster(const uint8_t* data, size_t len)
   setRoster(rows[0].guild_id, out);
 }
 
+void GuildShell::memberZoneUpdate(const uint8_t* data, size_t len)
+{
+  // OP_GuildMemberUpdate S>C (Live): one member's current zone + last-on. Decoded
+  // in Rust; applied to the tracked member so the client sees online/offline.
+  auto u = seq::rust::decode_guild_member_update(rust::Slice<const uint8_t>{data, len});
+  if (!u.ok)
+    return;
+  const QString name = QString::fromLatin1(u.name.data(), int(u.name.size()));
+  GuildMember* m = m_members.value(name, nullptr);
+  if (!m)
+    return;   // update for a member not in the current roster — ignore (like legacy)
+  m->setZone(u.zone_id, u.zone_instance, u.last_on);
+  emit updated(m);
+}
+
 void GuildShell::setMotd(const QString& message, const QString& sender)
 {
   m_motd = message;
