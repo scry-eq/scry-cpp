@@ -44,9 +44,15 @@ sudo dnf install gcc-c++ make cmake \
 
 ```sh
 git submodule update --init --recursive
+git config core.hooksPath scripts/hooks   # activate the committed pre-push hook (once per clone)
 cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build -j
 ```
+
+The pre-push hook (`scripts/hooks/pre-push`) rebuilds, runs the tier-2 replay
+check, verifies the `proto/` submodule is in sync with canonical `origin/proto`,
+and checks the Rust bindings are fresh when `everquest.h` changed. Bypass with
+`--no-verify`.
 
 For the optional Rust decoder integration, see [RUST.md](RUST.md).
 
