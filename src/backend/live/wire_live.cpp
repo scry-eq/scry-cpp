@@ -29,6 +29,7 @@
 #include "datetimemgr.h"
 #include "everquest.h"
 #include "group.h"
+#include "guild.h"
 #include "guildshell.h"
 #include "itemcache.h"
 #include "messageshell.h"
@@ -112,6 +113,17 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_GuildMemberUpdate", SP_Zone, DIR_Server,
          "GuildMemberUpdate", SZC_Match,
          seqBind(ms.guildShell, &GuildShell::memberZoneUpdate));
+    // OP_GuildsInZoneList / OP_NewGuildInZone — the guild id->name source that
+    // puts guild tags on spawns (fed to the daemon-wide GuildMgr). Decoded in
+    // seq-decode. Per-box (each zone-in re-sends the in-zone set); GuildMgr
+    // ignores keys it already holds, so it duplicates no envelope. NewGuildInZone
+    // is ffff on Live (legacy doesn't map it) so it's inert until its id is found.
+    wire("OP_GuildsInZoneList", SP_Zone, DIR_Server,
+         "uint8_t", SZC_None,
+         seqBind(m_guildMgr, &GuildMgr::guildsInZone));
+    wire("OP_NewGuildInZone", SP_Zone, DIR_Server,
+         "uint8_t", SZC_None,
+         seqBind(m_guildMgr, &GuildMgr::newGuildInZone));
 
     // Cross-manager: profile feeds Player too (after GroupMgr, which is
     // connected in buildManagerSet() — preserves slot fire order). This is an

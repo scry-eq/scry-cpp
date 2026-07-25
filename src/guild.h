@@ -66,6 +66,12 @@ class GuildMgr : public QObject
   // parser (eql: seq_backend_eql::guild_in_zone), never here.
   void learnGuilds(const QVector<GuildInZoneEntry>& rows);
 
+  // OP_GuildsInZoneList / OP_NewGuildInZone handlers (Live): decode via
+  // seq::rust::decode_* (the backend's own parser) and feed learnGuilds, so
+  // spawns get guild tags. The Live wire path; eql decodes in EqlDispatch.
+  void guildsInZone(const uint8_t* data, size_t len);
+  void newGuildInZone(const uint8_t* data, size_t len);
+
  public slots:
   void readGuildList();
   void guildList2text(QString);

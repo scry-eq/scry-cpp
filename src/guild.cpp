@@ -28,6 +28,8 @@
 #include "guild.h"
 #include "diagnosticmessages.h"
 
+#include "seq-bridge-cxx/lib.h"
+
 #include <QFile>
 #include <QDataStream>
 #include <QTextStream>
@@ -76,6 +78,35 @@ void GuildMgr::learnGuilds(const QVector<GuildInZoneEntry>& rows)
 
     if (need_save)
         writeGuildList();
+}
+
+static void feedRows(GuildMgr* mgr, const rust::Vec<seq::rust::GuildInZoneRow>& rows)
+{
+    if (rows.empty())
+        return;
+    QVector<GuildInZoneEntry> out;
+    out.reserve(int(rows.size()));
+    for (const auto& r : rows)
+    {
+        GuildInZoneEntry e;
+        e.guildId  = r.guild_id;
+        e.serverId = r.server_id;
+        e.name     = QString::fromLatin1(r.name.data(), int(r.name.size()));
+        out.append(e);
+    }
+    mgr->learnGuilds(out);
+}
+
+void GuildMgr::guildsInZone(const uint8_t* data, size_t len)
+{
+    feedRows(this, seq::rust::decode_guilds_in_zone_list(
+                       rust::Slice<const uint8_t>{data, len}));
+}
+
+void GuildMgr::newGuildInZone(const uint8_t* data, size_t len)
+{
+    feedRows(this, seq::rust::decode_new_guild_in_zone(
+                       rust::Slice<const uint8_t>{data, len}));
 }
 
 
