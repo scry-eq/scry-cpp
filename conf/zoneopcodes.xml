@@ -41,8 +41,8 @@
         <comment>ExpUpdateCode</comment>
         <payload dir="server" typename="expUpdateStruct" sizechecktype="match"/>
     </opcode>
-    <opcode id="3425" name="OP_GuildMOTD" updated="07/15/26" priority="2">
-        <comment>GuildMOTD</comment>
+    <opcode id="3425" name="OP_GuildMOTD" updated="07/25/26" priority="2">
+        <comment>Guild message of the day (guildMOTDStruct: sender@72, message@140; variable). Decoded in seq-decode via GuildShell::guildMOTD.</comment>
         <payload dir="server" typename="guildMOTDStruct" sizechecktype="none"/>
     </opcode>
     <opcode id="76e4" name="OP_ClientUpdate" updated="07/15/26" priority="10">

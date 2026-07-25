@@ -28,6 +28,8 @@
 #include "everquest.h"
 #include "diagnosticmessages.h"
 
+#include "seq-bridge-cxx/lib.h"
+
 #include <QDateTime>
 #include <QTextStream>
 
@@ -300,6 +302,18 @@ void GuildShell::setRoster(uint32_t guildId, const QVector<GuildRosterEntry>& ro
   seqInfo("GuildShell: roster for guild %u — %d members",
           m_guildId, int(m_members.count()));
   emit loaded();
+}
+
+void GuildShell::guildMOTD(const uint8_t* data, size_t len)
+{
+  // OP_GuildMOTD S>C. Decoded in Rust (the backend's own guild_motd parser),
+  // never a C++ struct cast. The packet carries no guild id — setMotd stamps it
+  // from the roster this shell tracks.
+  auto m = seq::rust::decode_guild_motd(rust::Slice<const uint8_t>{data, len});
+  if (!m.ok)
+    return;
+  setMotd(QString::fromLatin1(m.message.data(), int(m.message.size())),
+          QString::fromLatin1(m.sender.data(), int(m.sender.size())));
 }
 
 void GuildShell::setMotd(const QString& message, const QString& sender)

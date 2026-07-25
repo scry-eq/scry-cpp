@@ -151,6 +151,10 @@ class GuildShell : public QObject
  public slots:
   void guildMemberList(const uint8_t* data, size_t len);
   void guildMemberUpdate(const uint8_t* data, size_t len);
+  // OP_GuildMOTD handler: decodes via seq::rust::decode_guild_motd (the backend's
+  // own parser — Live and eql each own one) and applies via setMotd(). Used by
+  // the Live wire, which has no dispatch adapter; eql decodes in EqlDispatch.
+  void guildMOTD(const uint8_t* data, size_t len);
 
  signals:
   void cleared();

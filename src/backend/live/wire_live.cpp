@@ -29,6 +29,7 @@
 #include "datetimemgr.h"
 #include "everquest.h"
 #include "group.h"
+#include "guildshell.h"
 #include "itemcache.h"
 #include "messageshell.h"
 #include "packet.h"        // EQStreamPairs, SP_World / SP_Zone
@@ -91,6 +92,14 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_DzInfo", SP_Zone, DIR_Server,
          "dzInfo", SZC_Match,
          seqBind(ms.zoneMgr, &ZoneMgr::dynamicZoneInfo));
+
+    // OP_GuildMOTD — the player's guild message of the day. Per-character
+    // (GuildShell lives in the ManagerSet), so per-box, not a global sink.
+    // Decoded in seq-decode (Live's own guild_motd parser) inside the handler;
+    // no C++ struct cast. GuildShell stamps the guild id from its roster.
+    wire("OP_GuildMOTD", SP_Zone, DIR_Server,
+         "guildMOTDStruct", SZC_None,
+         seqBind(ms.guildShell, &GuildShell::guildMOTD));
 
     // Cross-manager: profile feeds Player too (after GroupMgr, which is
     // connected in buildManagerSet() — preserves slot fire order). This is an

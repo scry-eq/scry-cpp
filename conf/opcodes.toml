@@ -124,8 +124,8 @@ comment = "ExpUpdateCode"
 id      = "3425"
 name    = "OP_GuildMOTD"
 priority = 2
-updated = "2026-07-15"
-comment = "GuildMOTD"
+updated = "2026-07-25"
+comment = "Guild message of the day (guildMOTDStruct: sender@72, message@140; variable). Decoded in seq-decode via GuildShell::guildMOTD."
 
   [[zone.payloads]]
   dir           = "server"
