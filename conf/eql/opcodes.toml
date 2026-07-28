@@ -3,11 +3,11 @@
 # from this file by tools/toml_to_xml.py (run via CMake on build).
 
 [[zone]]
-id      = "6a88"
+id      = "50e5"
 name    = "OP_PlayerProfile"
 priority = 10
-updated = "2026-07-14"
-comment = "07/14 rotation (was 0x62f0): the ~43KB char profile S>C, once at enter-world. Content-confirmed (carries the char name + identity). This is the self-id/name source — decoded by parse_player_profile (anchor-scan for name), which drives SpawnShell::zoneEntry name-match to adopt the self-spawn id. EQ Legends char profile: hdr race@21/class@25/level@33; bind@39; name via anchor-scan. See OPCODES_LEGENDS.md"
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - decode-verified: the eql profile parser yields the capture character name; 13 fires = 13 zone-ins. PRIOR: 07/14 rotation (was 0x62f0): the ~43KB char profile S>C, once at enter-world. Content-confirmed (carries the char name + identity). This is the self-id/name source — decoded by parse_player_profile (anchor-scan for name), which drives SpawnShell::zoneEntry name-match to adopt the self-spawn id. EQ Legends char profile: hdr race@21/class@25/level@33; bind@39; name via anchor-scan. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "server"
@@ -127,11 +127,11 @@ comment = "Guild message of the day (target@8, sender@72, message@140; 656B = he
   sizechecktype = "none"
 
 [[zone]]
-id      = "5188"
+id      = "5bfd"
 name    = "OP_ClientUpdate"
 priority = 10
-updated = "2026-07-14"
-comment = "07/14 rotation (was 0x7171): whole position channel rotated id AND wire size. S>C 24B (was 28B) = OTHER-spawn position broadcast, 19-bit ×8 packed in each word's LOW bits (z rides bits13-31 of the @8 word; y@16 low19; x@20 low19) — re-cracked 2026-07-14 vs the OP_MobUpdate ground-truth stream + self-trajectory smoothness; WIRED S>C (playerUpdateOther → SpawnShell::moveSpawn). C>S 38B (was 42B) self-position — re-cracked 2026-07-14 vs a /loc ground-truth capture: IEEE floats gameX@14/gameY@26/gameZ@10 + heading@18 (low 12b); NO spawnId (client's self report carries none — self-id adoption is via SpawnShell::zoneEntry name-match). WIRED C>S (playerUpdateSelf → Player::applySelfPosition). See OPCODES_LEGENDS.md"
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - carries a real spawn id at offset 2 in BOTH directions - the self-position signature. PRIOR: 07/14 rotation (was 0x7171): whole position channel rotated id AND wire size. S>C 24B (was 28B) = OTHER-spawn position broadcast, 19-bit ×8 packed in each word's LOW bits (z rides bits13-31 of the @8 word; y@16 low19; x@20 low19) — re-cracked 2026-07-14 vs the OP_MobUpdate ground-truth stream + self-trajectory smoothness; WIRED S>C (playerUpdateOther → SpawnShell::moveSpawn). C>S 38B (was 42B) self-position — re-cracked 2026-07-14 vs a /loc ground-truth capture: IEEE floats gameX@14/gameY@26/gameZ@10 + heading@18 (low 12b); NO spawnId (client's self report carries none — self-id adoption is via SpawnShell::zoneEntry name-match). WIRED C>S (playerUpdateSelf → Player::applySelfPosition). See OPCODES_LEGENDS.md"
 
   # C>S 38B self-position report (was 42B). Re-cracked 2026-07-14 against a /loc
   # ground-truth capture; size-gated on playerSelfPosStruct (size override = 38 =
@@ -167,11 +167,11 @@ comment = "Second EQL self-pos C>S opcode, distinct from OP_ClientUpdate 0x5188:
   sizechecktype = "none"
 
 [[zone]]
-id      = "144f"
+id      = "5c7f"
 name    = "OP_ZoneEntry"
 priority = 10
-updated = "2026-07-14"
-comment = "EQ Legends per-spawn zone stream (S>C, one spawn per payload): null-term name + variable block; position = three u32 words at the block tail (Z/Y/X @ len-95/-91/-87), each a signed 19-bit fixed-point (x8) coord in the word's low bits — same packing as Live spawnStruct position words. NAMED OP_ZoneEntry per stock SEQ: the s2c OP_ZoneEntry has carried the per-spawn payload (one fillSpawnStruct per packet) since 2008; OP_ZoneSpawns is the long-dead bulk-array opcode. Decoded by EqlDispatch::spawn. See OPCODES_LEGENDS.md"
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - spawn opcode: 8198 fires but only 30 carry the self name (2/zone-in, the known eql double-announce); payload = cstring name then u32 spawn_id; concentrated in zone-in windows. PRIOR: EQ Legends per-spawn zone stream (S>C, one spawn per payload): null-term name + variable block; position = three u32 words at the block tail (Z/Y/X @ len-95/-91/-87), each a signed 19-bit fixed-point (x8) coord in the word's low bits — same packing as Live spawnStruct position words. NAMED OP_ZoneEntry per stock SEQ: the s2c OP_ZoneEntry has carried the per-spawn payload (one fillSpawnStruct per packet) since 2008; OP_ZoneSpawns is the long-dead bulk-array opcode. Decoded by EqlDispatch::spawn. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "server"
@@ -187,11 +187,11 @@ comment = "EQ Legends per-spawn zone stream (S>C, one spawn per payload): null-t
   sizechecktype = "none"
 
 [[zone]]
-id      = "021e"
+id      = "3e7b"
 name    = "OP_NpcMoveUpdate"
 priority = 10
-updated = "2026-07-14"
-comment = "EQ Legends per-NPC movement stream (S>C, variable 15-21B). Byte-identical bit format to Live OP_NpcMoveUpdate (16b BE spawnId + 16b pad + 6b fieldmask + 19/19/19 y/x/z sign-magnitude >>3 + 12b heading + optional deltas); decoded by the shared decode_npc_move_update. Confirmed 2026-07-08: all 51 ids + positions match the 0x67e0 OP_MobUpdate stream. Prior 917c was a dead mapping (never seen on the wire). See OPCODES_LEGENDS.md."
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - highest rate in the capture (91869); its id is NOT byte-aligned, consistent with the BitStream packing. PRIOR: EQ Legends per-NPC movement stream (S>C, variable 15-21B). Byte-identical bit format to Live OP_NpcMoveUpdate (16b BE spawnId + 16b pad + 6b fieldmask + 19/19/19 y/x/z sign-magnitude >>3 + 12b heading + optional deltas); decoded by the shared decode_npc_move_update. Confirmed 2026-07-08: all 51 ids + positions match the 0x67e0 OP_MobUpdate stream. Prior 917c was a dead mapping (never seen on the wire). See OPCODES_LEGENDS.md."
 
   [[zone.payloads]]
   dir           = "server"
@@ -199,11 +199,11 @@ comment = "EQ Legends per-NPC movement stream (S>C, variable 15-21B). Byte-ident
   sizechecktype = "none"
 
 [[zone]]
-id      = "3348"
+id      = "26d8"
 name    = "OP_MobUpdate"
 priority = 10
-updated = "2026-07-14"
-comment = "EQ Legends per-mob position update (S>C, 14B). Byte-identical to Live spawnPositionUpdate (packed y:19/z:19/u3:7/x:19/heading:12 fixed-point x8, spawnId u16@0 + 2 zero bytes); decoded by the shared decode_mob_update. The earlier i16-offset read (Y@4/8, Z@6/64, X@10) was a truncated window of these bitfields — the source of the 8192-unit north<->south Y wrap. See OPCODES_LEGENDS.md."
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - spawn id at offset 0; 38301 fires, second-highest rate in the capture. PRIOR: EQ Legends per-mob position update (S>C, 14B). Byte-identical to Live spawnPositionUpdate (packed y:19/z:19/u3:7/x:19/heading:12 fixed-point x8, spawnId u16@0 + 2 zero bytes); decoded by the shared decode_mob_update. The earlier i16-offset read (Y@4/8, Z@6/64, X@10) was a truncated window of these bitfields — the source of the 8192-unit north<->south Y wrap. See OPCODES_LEGENDS.md."
 
   # Byte-identical to Live spawnPositionUpdate (sizeof==14) → size-gate on it
   # directly; decode via the shared Rust decode_mob_update.
@@ -224,11 +224,11 @@ comment = "EQ Legends multiclass loadout swap (S>C, variable). Header u32 spawnI
   sizechecktype = "none"
 
 [[zone]]
-id      = "0e2c"
+id      = "1856"
 name    = "OP_DeleteSpawn"
 priority = 10
-updated = "2026-07-14"
-comment = "EQ Legends spawn removal / death (S>C, 4B {u32 spawnId}, deleteSpawnStruct). CONFIRMED 2026-07-08 by time-correlation: 8/9 ids stop receiving OP_MobUpdate position updates at/after this event (mobs killed over a combat session). Lights up the already-wired SpawnShell::deleteSpawn. NOTE: 0x67a8 is the LOOK-ALIKE 4B {id} op but is combat engage/disengage (ids keep moving after; id=0 clears) — NOT despawn. See OPCODES_LEGENDS.md"
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - last in the chain - never followed by either other removal; bare id payload. PRIOR: EQ Legends spawn removal / death (S>C, 4B {u32 spawnId}, deleteSpawnStruct). CONFIRMED 2026-07-08 by time-correlation: 8/9 ids stop receiving OP_MobUpdate position updates at/after this event (mobs killed over a combat session). Lights up the already-wired SpawnShell::deleteSpawn. NOTE: 0x67a8 is the LOOK-ALIKE 4B {id} op but is combat engage/disengage (ids keep moving after; id=0 clears) — NOT despawn. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "both"
@@ -236,11 +236,11 @@ comment = "EQ Legends spawn removal / death (S>C, 4B {u32 spawnId}, deleteSpawnS
   sizechecktype = "match"
 
 [[zone]]
-id      = "483c"
+id      = "27cb"
 name    = "OP_RemoveSpawn"
 priority = 10
-updated = "2026-07-14"
-comment = "07/07 rotation (community f-patch id, daemon-confirmed): S>C 5B + C>S 4B removeSpawnStruct, none-gated. Present 78×5B in upperguk capture. Wired SpawnShell::removeSpawn."
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - second in the chain (98% followed by the final removal); fires more often than deaths, so it also covers spawns leaving range. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed): S>C 5B + C>S 4B removeSpawnStruct, none-gated. Present 78×5B in upperguk capture. Wired SpawnShell::removeSpawn."
 
   [[zone.payloads]]
   dir           = "both"
@@ -248,12 +248,12 @@ comment = "07/07 rotation (community f-patch id, daemon-confirmed): S>C 5B + C>S
   sizechecktype = "none"
 
 [[zone]]
-id      = "36bf"
+id      = "2087"
 name    = "OP_Death"
 priority = 7
 priority_note = "also fires on corpse decay"
-updated = "2026-07-14"
-comment = "EQ Legends death/corpse (S>C, 40B = newCorpseStruct, n=8). CONFIRMED 2026-07-08: decodes field-for-field — victim u32@0 (all 8 ∈ the OP_DeleteSpawn 0x59a1 set), killer u32@4 (=player 13167 every kill), corpse type i32@12, killing-blow spellId u32@16 (-1=melee), damage u32@24 (9-80). Lights up the already-wired SpawnShell::killSpawn → SpawnKilled. Fires just before the matching OP_DeleteSpawn. See OPCODES_LEGENDS.md"
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - first in the death->removal chain: 99% of its ids are later named by both removal opcodes, never the reverse; spawn goes silent (corpse). PRIOR: EQ Legends death/corpse (S>C, 40B = newCorpseStruct, n=8). CONFIRMED 2026-07-08: decodes field-for-field — victim u32@0 (all 8 ∈ the OP_DeleteSpawn 0x59a1 set), killer u32@4 (=player 13167 every kill), corpse type i32@12, killing-blow spellId u32@16 (-1=melee), damage u32@24 (9-80). Lights up the already-wired SpawnShell::killSpawn → SpawnKilled. Fires just before the matching OP_DeleteSpawn. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "server"
@@ -348,11 +348,11 @@ comment = "EQ Legends active-invocation echo (S>C, 4B activateAbilityStruct {u32
   sizechecktype = "none"
 
 [[zone]]
-id      = "a5c0"
+id      = "3139"
 name    = "OP_HPUpdate"
 priority = 10
-updated = "2026-07-14"
-comment = "07/07 rotation; multiplexed stat channel (subtype byte @4). 6B subtype-0x02 = HP-bar feed (u16 id, u16 0, 0x02, u8 hp%); decoded by EqlDispatch::hpUpdate. Other sizes/subtypes are cur/max i64 stat pairs (dropped)"
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - spawn id at offset 0; 34237 fires across several payload forms - the multiplexed stat-sync channel. PRIOR: 07/07 rotation; multiplexed stat channel (subtype byte @4). 6B subtype-0x02 = HP-bar feed (u16 id, u16 0, 0x02, u8 hp%); decoded by EqlDispatch::hpUpdate. Other sizes/subtypes are cur/max i64 stat pairs (dropped)"
 
   [[zone.payloads]]
   dir           = "server"
@@ -409,11 +409,11 @@ comment = "EQ Legends spell/special action (S>C). Live paired send: 64B actionSt
   sizechecktype = "match"
 
 [[zone]]
-id      = "5446"
+id      = "7df9"
 name    = "OP_Action2"
 priority = 7
-updated = "2026-07-14"
-comment = "EQ Legends melee combat / damage-resolution stream (S>C, 48B fixed, n=481/968). Byte-identical to Live action2Struct: target u16@0, source u16@2, damage i32@8, spell i32@20 (-1=melee), type u8@40; @24-39 = knockback floats. Sole 48B S>C op; cross-val upperguk+fulllogin. Lights up the already-wired CombatRouter::action2. See OPCODES_LEGENDS.md"
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - quotes TWO spawn ids (offsets 0 and 2) - the source/target pair. PRIOR: EQ Legends melee combat / damage-resolution stream (S>C, 48B fixed, n=481/968). Byte-identical to Live action2Struct: target u16@0, source u16@2, damage i32@8, spell i32@20 (-1=melee), type u8@40; @24-39 = knockback floats. Sole 48B S>C op; cross-val upperguk+fulllogin. Lights up the already-wired CombatRouter::action2. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "both"

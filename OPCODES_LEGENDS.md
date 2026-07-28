@@ -1549,3 +1549,53 @@ hypotheses are client build and input method (hotbar vs menu vs slash command)
 Regardless of cause, the client payload stays `uint8_t`/`sizechecktype=none`:
 we never decode the request, so the variance costs nothing and a size-match
 would only reintroduce the warnings.
+
+---
+
+### 2026-07-28 — third full rotation: p10 core re-mapped from a post-patch capture
+
+The 07/28 patch rotated the table again: **2 of 233 opcodes still resolved**.
+Legacy `upstream/showeqlegends` has nothing past the 07/14 patch, so there was
+nothing to import — this is hand-derived from a single long post-patch capture.
+
+Method, and why NOT the obvious one: every identification below is CONTENT or
+BEHAVIOUR. No size matching, in either its explicit form or its disguised form
+(probing with a size-gated parser and calling a small candidate set
+"selectivity" — that parser rejects anything of the wrong length, so a struct
+that grew hides the true opcode and surfaces a coincidental one).
+
+| opcode | id | evidence |
+|---|---|---|
+| OP_PlayerProfile | `50e5` | the eql profile parser decodes the capture's character name out of it; 13 fires = 13 zone-ins |
+| OP_ZoneEntry | `5c7f` | 8198 fires but only 30 carry the self name — 2 per zone-in, the known eql double-announce. Payload is `cstring name` then `u32 spawn_id`; concentrated in zone-in windows |
+| OP_ClientUpdate | `5bfd` | carries a real spawn id at offset 2 in BOTH directions — the self-position signature |
+| OP_MobUpdate | `26d8` | spawn id at offset 0; 38301 fires, second-highest rate |
+| OP_NpcMoveUpdate | `3e7b` | highest rate in the capture (91869), and its id is NOT byte-aligned — consistent with the BitStream packing |
+| OP_HPUpdate | `3139` | spawn id at offset 0; 34237 fires across several payload forms — the multiplexed stat-sync channel |
+| OP_Death | `2087` | first in the death→removal chain: 99% of its ids are later named by both removal opcodes, never the reverse; the spawn goes silent (corpse) |
+| OP_RemoveSpawn | `27cb` | second in the chain (98% followed by the final removal); fires more often than deaths, so it also covers spawns leaving range |
+| OP_DeleteSpawn | `1856` | last in the chain — never followed by either other removal |
+| OP_Action2 | `7df9` | quotes TWO spawn ids (offsets 0 and 2) — the source/target pair |
+
+**Verified end-to-end**, not just per-opcode: replaying the capture through the
+full pipeline yields 8198 spawns / 234951 position updates / 6542 combat / 4966
+removals / 4227 kills / 3470 player-stat updates, 13 undecodable out of 440298
+packets. Spawn names, levels, races and positions all read sane.
+
+**Structs did NOT drift this rotation** for any of the above — the existing eql
+parsers decode the new ids unchanged. (An earlier pass here claimed ZoneEntry
+and HPUpdate had changed; that was a bug in the validator — it rejected spawn
+names containing digits, which most are.)
+
+**Method that worked, for the next rotation.** Confirm ONE opcode by decoded
+content, then bootstrap off it: a confirmed OP_PlayerProfile is a zone-in clock
+(whatever storms after it is the zone-in set), and a confirmed spawn opcode
+yields the zone's id set, which every movement / HP / despawn opcode must quote
+back — that pins those opcodes AND their id-field offsets in one pass. Ordering
+between opcodes that all reference a spawn is recoverable from succession
+(death precedes removal, never the reverse).
+
+**Still open at p10:** OP_NewZone, OP_ZoneChange, OP_SelfPos, OP_SpawnAppearance
+(zone name is still empty in a replay, so NewZone is the next one to take).
+Below p10 the ladder is untouched — 71 opcodes are actionable in total, the
+other 149 prioritised entries are p-1 and are not hunted.
