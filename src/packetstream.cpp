@@ -545,8 +545,8 @@ void EQPacketStream::handlePacket(EQUDPIPPacketFormat& packet)
   {
 #if (defined(PACKET_PROCESS_DIAG) && (PACKET_PROCESS_DIAG > 1)) || (defined(PACKET_SESSION_DIAG) && PACKET_SESSION_DIAG > 1)
     seqDebug("discarding packet %s:%d ==>%s:%d netopcode=%04x size=%d. Session not initialized. Need to zone to start picking up packets. Session tracking %s.",
-      (const char*)packet.getIPv4SourceA(), packet.getSourcePort(),
-      (const char*)packet.getIPv4DestA(), packet.getDestPort(),
+      qUtf8Printable(packet.getIPv4SourceA()), packet.getSourcePort(),
+      qUtf8Printable(packet.getIPv4DestA()), packet.getDestPort(),
       packet.getNetOpCode(), packet.payloadLength(),
         (m_session_tracking_enabled == 2 ? "locked on" : 
           (m_session_tracking_enabled == 1 ? "enabled" : "disabled")));
@@ -565,8 +565,8 @@ void EQPacketStream::handlePacket(EQUDPIPPacketFormat& packet)
   {
 #if (defined(PACKET_PROCESS_DIAG) && (PACKET_PROCESS_DIAG > 1)) || (defined(PACKET_SESSION_DIAG) && PACKET_SESSION_DIAG > 1)
     seqDebug("discarding packet %s:%d ==>%s:%d netopcode=%04x size=%d. Multiple sessions on the same box? Ignoring all but one of them. Latched client port %d. Session tracking %s.",
-      (const char*)packet.getIPv4SourceA(), packet.getSourcePort(),
-      (const char*)packet.getIPv4DestA(), packet.getDestPort(),
+      qUtf8Printable(packet.getIPv4SourceA()), packet.getSourcePort(),
+      qUtf8Printable(packet.getIPv4DestA()), packet.getDestPort(),
       packet.getNetOpCode(), packet.payloadLength(),
       m_sessionClientPort,
         (m_session_tracking_enabled == 2 ? "locked on" :
@@ -590,8 +590,8 @@ void EQPacketStream::handlePacket(EQUDPIPPacketFormat& packet)
     {
 #if (defined(PACKET_PROCESS_DIAG))
       seqDebug("INVALID PACKET: Bad CRC [%s:%d -> %s:%d] netOp %04x seq %04x len %d crc (%04x != %04x)",
-         (const char*)packet.getIPv4SourceA(), packet.getSourcePort(),
-         (const char*)packet.getIPv4DestA(), packet.getDestPort(),
+         qUtf8Printable(packet.getIPv4SourceA()), packet.getSourcePort(),
+         qUtf8Printable(packet.getIPv4DestA()), packet.getDestPort(),
          packet.getNetOpCode(), packet.arqSeq(), packet.getUDPPayloadLength(),
          packet.crc(), calcedCRC);
 #endif
@@ -989,9 +989,9 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
           // request.
 #if defined(PACKET_PROCESS_DIAG) || defined(PACKET_SESSION_DIAG)
           seqDebug("EQPacket: Ignoring SessionRequest %s:%u->%s:%u with invalid size %d.",
-            ((EQUDPIPPacketFormat&) packet).getIPv4SourceA().ascii(),
+            qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4SourceA()),
             ((EQUDPIPPacketFormat&) packet).getSourcePort(),
-            ((EQUDPIPPacketFormat&) packet).getIPv4DestA().ascii(),
+            qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4DestA()),
             ((EQUDPIPPacketFormat&) packet).getDestPort(),
             packet.payloadLength());
 #endif
@@ -1024,9 +1024,9 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 
 #if defined(PACKET_SESSION_DIAG)
       seqDebug("EQPacket: SessionRequest %s:%u->%s:%u, sessionId %u maxLength %u, awaiting key for stream %s (%d)",
-        ((EQUDPIPPacketFormat&) packet).getIPv4SourceA().ascii(),
+        qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4SourceA()),
         ((EQUDPIPPacketFormat&) packet).getSourcePort(),
-        ((EQUDPIPPacketFormat&) packet).getIPv4DestA().ascii(),
+        qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4DestA()),
         ((EQUDPIPPacketFormat&) packet).getDestPort(),
         m_sessionId, m_maxLength, EQStreamStr[m_streamid], m_streamid);
 #endif
@@ -1072,9 +1072,9 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
           // response.
 #if defined(PACKET_PROCESS_DIAG) || defined(PACKET_SESSION_DIAG)
           seqDebug("EQPacket: Ignoring SessionResponse %s:%u->%s:%u with invalid size %d.",
-            ((EQUDPIPPacketFormat&) packet).getIPv4SourceA().ascii(),
+            qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4SourceA()),
             ((EQUDPIPPacketFormat&) packet).getSourcePort(),
-            ((EQUDPIPPacketFormat&) packet).getIPv4DestA().ascii(),
+            qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4DestA()),
             ((EQUDPIPPacketFormat&) packet).getDestPort(),
             packet.payloadLength());
 #endif
@@ -1102,9 +1102,9 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 
 #if defined(PACKET_PROCESS_DIAG) || defined(PACKET_SESSION_DIAG)
       seqDebug("EQPacket: SessionResponse found %s:%u->%s:%u, resetting expected seq, stream %s (%d) (session tracking %s)",
-        ((EQUDPIPPacketFormat&) packet).getIPv4SourceA().ascii(),
+        qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4SourceA()),
         ((EQUDPIPPacketFormat&) packet).getSourcePort(),
-        ((EQUDPIPPacketFormat&) packet).getIPv4DestA().ascii(),
+        qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4DestA()),
         ((EQUDPIPPacketFormat&) packet).getDestPort(),
 	    EQStreamStr[m_streamid], m_streamid,
         (m_session_tracking_enabled == 2 ? "locked on" : 
@@ -1191,9 +1191,9 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 
 #if defined(PACKET_PROCESS_DIAG) || defined(PACKET_SESSION_DIAG)
       seqDebug("EQPacket: SessionDisconnect found %s:%u->%s:%u, resetting expected seq, stream %s (%d) (session tracking %s)",
-        ((EQUDPIPPacketFormat&) packet).getIPv4SourceA().ascii(),
+        qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4SourceA()),
         ((EQUDPIPPacketFormat&) packet).getSourcePort(),
-        ((EQUDPIPPacketFormat&) packet).getIPv4DestA().ascii(),
+        qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4DestA()),
         ((EQUDPIPPacketFormat&) packet).getDestPort(),
 	    EQStreamStr[m_streamid], m_streamid,
         (m_session_tracking_enabled == 2 ? "locked on" : 
