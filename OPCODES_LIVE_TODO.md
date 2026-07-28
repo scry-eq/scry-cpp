@@ -1,6 +1,6 @@
 # Unresolved opcodes (live)
 
-`showeq-daemon/conf/zoneopcodes.xml` has **222 of 275** zone opcodes still set to `id="ffff"`. `worldopcodes.xml` is clean.
+`showeq-daemon/conf/zoneopcodes.xml` has **188 of 218** zone opcodes still set to `id="ffff"`. `worldopcodes.xml` is **11 of 22 mapped** — the 07/15 rotation moved every world id and legacy's world table (dated 2010-2016) matched nothing on the wire; see the 2026-07-28 entry at the bottom. Unmapped world entries carry a `priority` (10 = hunt first) for patch-day triage.
 
 Target server: **live EQ** (Tasks/AA/DZ/Tribute/Fellowship/Marketplace/Mercenaries/etc. all in scope).
 
@@ -935,3 +935,163 @@ The buff must survive **one full zone cycle** before the client requests server 
 Duration delta in buff-306c-test: initialDuration=270, remaining=237 → 33 ticks × 6s = **198 seconds elapsed** since buff was cast, consistent with the user waiting ~3 minutes before zoning.
 
 **`0xbbf0` clarification:** fires 10 times per zone-in (slots 0-9, all 0xffffffff). It always reports all slots as empty regardless of active buffs. The client uses its own tracking (not `0xbbf0`) to decide which slots to query via `0x306c`.
+
+---
+
+### 2026-07-28 — World stream re-hunted from scratch after the 07/15 rotation (11 of 22 resolved)
+
+Capture: a Live world capture spanning **3 full logins** (2 of which continued into a zone
+handoff). Method: `--list-events` + `--dump-all-sessions` for the handshake ordering, then
+`--dump-payload` per opcode for content classification.
+
+**Why this was needed:** the Live table had just been re-ported wholesale from legacy 6.4.25,
+but legacy's *world* ids are dated 11/07/10-11/16/16 and **not one of the 22 matched the wire**
+(`--opcode-stats` reported 0 known / 38 unknown on the world stream). The world stream had also
+been entirely `ffff` before that port, so nothing was lost by the reset — but nothing was gained
+either. Because the handshake repeats identically per login, 3 sessions give free
+cross-validation, which is why order-plus-content beats counting here.
+
+**Blast radius of the miss:** `OP_ZoneServerInfo` is what binds a box's zone stream. While it was
+unmapped no zone session ever bound, and with >1 box on the wire (any client that has zoned once)
+`BoxRegistry` drops every unbound zone packet — so the *entire zone stream* decoded to nothing.
+Mapping this one opcode took the capture from 0 decoded events to 5859.
+
+**Resolved** (all cross-validated across 3 logins / 2 handoffs):
+
+- **OP_ZoneServerInfo = `0x5986`** (S>C, 130b, n=2). `zoneServerInfoStruct` UNCHANGED across the
+  rotation: `char ip[128]` holds a NUL-terminated `eqzone-NN.everquest.com` hostname (tail is
+  uninitialised client stack), `uint16 port` at offset 128. Clinched by the port field matching
+  the port of the zone session the client opened moments later.
+- **OP_SendLoginInfo = `0xaae4`** (C>S, 464b, n=3). Packet #1 of every world session; no
+  competitor at that size+dir.
+- **OP_EnterWorld = `0x5a59`** (C>S, 72b, n=3). Name zero-padded at offset 0, 64b zeros,
+  `0xffffffff` trailer at 68. Server reuses the id for two shorter S>C variants (1b ack n=2,
+  7b name echo n=1) — all three observed, matching the historical fingerprint exactly.
+- **OP_WorldComplete = `0x3603`** (C>S, 0b, n=2). Last C>S of the session, immediately after
+  OP_ZoneServerInfo; world then disconnects.
+- **OP_SetChatServer = `0x4f96`** (S>C, 62b, n=2). ASCII comma-delimited tuple
+  `chat-host,port,worldshortname.charname,ticket,flag`. **This disproves the prior "may be
+  obsolete on Live" note** — it is present, just at 62b (not the 56b that was looked for).
+  Embedded port matches `WorldServerChat2Port` and the observed chat session. Payload carries
+  identity + a session ticket: never quote literal bytes from it.
+- **OP_SetChatServer2 = `0x084f`** (S>C, 1464b, n=3). ~18 plaintext Daybreak service URLs
+  (auth / account / wallet endpoints), length-prefixed.
+- **The 4-member checksum burst**, separated by *content* rather than order alone — the prior
+  mapping had BaseData "inferred by elimination + position", now upgraded to content-confirmed:
+  - **OP_SendExeChecksum = `0x3ed7`** (C>S, 2056b, burst position 1). Tail is x86-64 machine
+    code — recognisable mov/test/je sequences.
+  - **OP_SendSpellChecksum = `0xbb86`** (C>S, 2056b, position 2). Tail is caret-delimited text
+    in spells_us.txt record format, **integer fields only**.
+  - **OP_SendBaseDataChecksum = `0x60b5`** (C>S, 2056b, position 3). Tail is caret-delimited text
+    carrying **decimal/float** fields (per-level stat tables). That float content is the
+    discriminator against the integer-only spell records at position 2.
+  - **OP_SendSkillCapsChecksum = `0xf6e7`** (C>S, 64b, position 4). Opaque hash-style payload;
+    the only burst member not at 2056b, zero competitors at 64b C>S.
+- **OP_ExpansionInfo = `0x4c13`** (S>C, 64b, n=3). **Weaker evidence class than the rest** —
+  size + direction + handshake position + zero-competitor (it is the only 64b S>C in the world
+  stream). Payload is opaque: no strings, no obvious bitmask, so the field layout is NOT
+  confirmed. Identification-only until a capture with a changed expansion set is diffed.
+
+**Ruled out** (so we don't re-chase):
+
+- `0x5496` (S>C, 14176b) is **not** OP_GuildList. Content-dumped: its 81 strings are housing plot
+  addresses (street name + plot number) — a neighborhood/housing list. The prior note claiming
+  "inline guild names in a 14176b login packet" was reading this packet. No guild-name list
+  appears anywhere in the world stream across 3 logins.
+- `0xe29c` (S>C, 36873b) is **not** OP_SendCharInfo. Only 3% printable and its sole string is a
+  timezone id; the logged-in character's name does not appear in it. The prior OP_SendCharInfo
+  note also claimed 14176b — that was the same mis-attribution as OP_GuildList above.
+- **OP_SendCharInfo not found at all.** Every S>C world payload was content-scanned for the
+  logged-in character name; only the chatserver tuple and OP_EnterWorld carried it.
+- **OP_MOTD not found.** No readable-text S>C packet post-OP_EnterWorld. May now ride the zone
+  stream (see the existing OP_MOTD zone-vs-world note) or fire only when the MOTD changes.
+- **OP_LogServer unresolved — two candidates.** (A) a 24b S>C firing immediately after
+  OP_SendLoginInfo in all 3 logins: position matches the historical fingerprint but 24b is too
+  small for the classic server-info block and the payload is opaque. (B) a 1984b S>C later in the
+  same burst whose only string is the world shortname. Legacy 6.4.25 defines **no**
+  `logServerStruct`, so there is nothing to size-check against and neither could be confirmed.
+- **OP_ApproveWorld** still not isolated: several small S>C packets (0b, 12b, 16b, 72b, 92b) fire
+  in the band with no distinguishing content.
+
+**Side findings worth carrying forward:**
+
+- Three world-stream opcodes are **modern storefront traffic with no legacy name**, all
+  identified by content and worth leaving `ffff`: a 204907b S>C marketplace catalog (~3160
+  strings: item names, category paths, SKU codes), a 250b S>C station-cash top-up SKU list, and
+  a 1188b S>C membership block containing an everquest.com membership URL.
+- `0x4068` appears on the **world** stream (100b, both directions) at the zone-transfer moment,
+  immediately before the SetChatServer / ZoneServerInfo / WorldComplete tail. The same id is
+  mapped to OP_ZoneChange in the *zone* table; the two tables are separate namespaces so this is
+  not a conflict, but it suggests the zone-change exchange rides the world stream on Live.
+- `--dump-payload` needs `--dump-all-sessions` here: the primary box is whichever world session
+  is seen first, and on a multi-login capture that session may never zone, so a payload dump
+  scoped to the primary silently produces zero files.
+
+**Round-2 ideas:**
+
+1. **OP_LogServer:** capture a login on a *different world server*. Whichever of the two
+   candidates carries the changed shortname is OP_LogServer.
+2. **OP_SendCharInfo / OP_GuildList / OP_MOTD:** capture a login that sits at character select
+   long enough to page the roster, and open the guild window in-zone.
+3. **OP_ApproveWorld:** contrast a successful world entry against a rejected one (full/locked
+   server) to isolate the approval packet.
+4. **OP_ExpansionInfo:** diff two captures from accounts with different expansion entitlements to
+   confirm the 64b payload's field layout.
+
+---
+
+### 2026-07-28 — `spawnAppearanceStruct` re-derived: `type` moved to offset 4, value field gone
+
+Captures: `tests/replay/live/live-guild.vpk` (10 fires) + `tests/replay/live/eq-live.vpk`
+(44 fires), both on the current (07/15) patch, two different zones. Method:
+`--dump-payload 0x9f7c:<path>` plus a replay-order correlation of each fire against the
+same spawn's other packets.
+
+**The id was never in doubt** — `0x9f7c` comes from legacy `upstream/master` dated 07/15/26,
+and under any reading the u16 at offset 0 resolved to a spawn present in the capture for
+54/54 packets (167 distinct spawns in an id space of 65536 — chance alignment is not on the
+table). What drifted is the layout.
+
+- **Old:** `{u16 spawnId, u16 type, u32 parameter}` → reads `type == 0` on **every one of the
+  54 packets**, with 4/32/64 landing in `parameter`. An appearance opcode that only ever sends
+  subcommand 0 across two zones — never level, anon, AFK, light, guild — is not credible.
+- **New:** `{u32 spawnId, u32 type}` → three distinct types (4, 32, 64) and no value field,
+  matching the `u32 spawnId, u32 type, u32 value` convention of the sibling
+  `spawnAppearance2Struct` already in `everquest.h`. A typed *value* now rides
+  OP_SpawnAppearance2; the plain opcode is a bare signal.
+
+Sample bytes (8B S>C, `id | type`):
+```
+631b0000 04000000   spawn 7011,  type 4
+5d1b0000 20000000   spawn 7005,  type 32
+521c0000 20000000   spawn 7250,  type 32
+```
+
+Note both readings put the spawn id at offset 0 little-endian, so **id decode was never
+wrong** and the id width (u16 vs u32) is not decidable while every observed id is < 65536.
+The consequential part is that `type` is at offset 4 and `parameter` does not exist.
+
+**Type semantics: NOT confirmed** — decoders parse the struct and deliberately surface no
+event. Correlation across both captures gives a strong hypothesis worth one targeted capture:
+
+- **4** — fires shortly after an NPC engages; 23 of 44 fires, always npc-flagged spawns.
+- **32** — fires *after* a 4 for the same spawn, often repeatedly, and is followed by that
+  spawn's `OP_Death` in 6 of 7 traced cases (25075, 25079, 25085, 25088, 25112, 25146).
+  Reads like a combat/flee state, not a one-shot.
+- **64** — one fire, on a level-60 **player** spawn 7 packets after its ZoneEntry, followed by
+  RemoveSpawn + DeleteSpawn. Reads like linkdead/camp.
+
+**To confirm:** a capture with scripted actions — sit/stand/duck (does any type carry a pose?),
+feign death, camp out (does 64 fire?), and one deliberate mob pull watched to the kill (does
+4 land at aggro and 32 at flee?). Legacy's `14 = anim, 100/110/111` numbering assumed the old
+offset and should NOT be carried forward.
+
+**Wired through:** `src/backend/{live,test}/everquest.h`, regenerated `seq-structs-{live,test}`,
+`seq-decode/src/spawn_appearance.rs`, `seq-bridge`'s `SpawnAppearance` (widened to u32/u32;
+`parameter` retained for eql, which keeps its own pinned struct and is unaffected), and
+`SpawnShell::updateSpawnAppearance`'s `case 1` now guards on a non-zero parameter so Live's
+missing value field can't write a level of 0.
+
+**Still to mirror:** legacy `showeq/src/everquest.h` — its `spawnshell.cpp:1765,1777` reads
+`app->type` / `app->parameter`, so the mirror needs a paired handler edit and that checkout is
+not on a Live branch right now.
