@@ -2653,11 +2653,13 @@ struct playerSelfPosStruct
 ** OpCode: spawnAppearanceCode
 */
 
+// Mirrors the Live re-derivation of 2026-07-28 (Test's wire is byte-identical
+// to Live here) — `type` moved to offset 4 and the value field is gone. Kept in
+// sync because seq-decode's parser is shared by both targets.
 struct spawnAppearanceStruct
 {
-/*0000*/ uint16_t spawnId;                       // ID of the spawn
-/*0002*/ uint16_t type;                          // Type of data sent
-/*0004*/ uint32_t parameter;                     // Values associated with the type
+/*0000*/ uint32_t spawnId;                       // ID of the spawn
+/*0004*/ uint32_t type;                          // Type of data sent (no value field)
 /*0008*/
 };
 

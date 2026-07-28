@@ -2658,11 +2658,20 @@ struct playerSelfPosStruct
 ** OpCode: spawnAppearanceCode
 */
 
+// Re-derived 2026-07-28 against 54 S>C packets over two current-patch captures
+// (2 zones). The legacy layout (u16 spawnId, u16 type, u32 parameter) reads
+// type == 0 for EVERY packet, with 4/32/64 landing in `parameter` — an
+// appearance opcode that only ever sends subcommand 0, never level/anon/AFK, is
+// not credible over that sample. Read as the modern layout below it yields
+// three distinct types and no value field, matching the u32/u32 convention of
+// spawnAppearance2Struct. NOTE: the two readings put the spawn id at the same
+// offset, so id decode was never wrong; what moved is `type`, and `parameter`
+// no longer exists (a typed value now rides OP_SpawnAppearance2).
+// Type semantics are NOT yet confirmed — see OPCODES_LIVE_TODO.md 2026-07-28.
 struct spawnAppearanceStruct
 {
-/*0000*/ uint16_t spawnId;                       // ID of the spawn
-/*0002*/ uint16_t type;                          // Type of data sent
-/*0004*/ uint32_t parameter;                     // Values associated with the type
+/*0000*/ uint32_t spawnId;                       // ID of the spawn
+/*0004*/ uint32_t type;                          // Type of data sent (no value field)
 /*0008*/
 };
 
