@@ -61,7 +61,9 @@ if [[ ! -d "${DECODER_RS}" ]]; then
     exit 0
 fi
 
-# Check if any commit being pushed touched src/backend/live/everquest.h.
+# Check if any commit being pushed touched a backend's everquest.h. live and
+# test share seq-decode, so a struct edit to either must regenerate BOTH sets
+# of bindings — regenerating one alone breaks the other target's build.
 EQ_H_CHANGED=0
 while IFS=' ' read -r _local_ref local_sha _remote_ref remote_sha; do
     [[ -z "${local_sha}" ]] && continue
@@ -69,7 +71,8 @@ while IFS=' ' read -r _local_ref local_sha _remote_ref remote_sha; do
     if [[ "${remote_sha}" == "0000000000000000000000000000000000000000" ]]; then
         remote_sha="$(git hash-object -t tree /dev/null)"
     fi
-    if git log --name-only "${remote_sha}..${local_sha}" -- src/backend/live/everquest.h \
+    if git log --name-only "${remote_sha}..${local_sha}" \
+            -- src/backend/live/everquest.h src/backend/test/everquest.h \
             | grep -q "everquest.h"; then
         EQ_H_CHANGED=1
         break
@@ -82,24 +85,41 @@ fi
 
 echo "pre-push: everquest.h changed — verifying Rust bindings are fresh..."
 
-BINDINGS="${DECODER_RS}/seq-eqstructs-live/src/bindings.rs"
-SAVED="$(mktemp)"
-cp "${BINDINGS}" "${SAVED}"
+STALE=0
+SAVED_LIVE="$(mktemp)"
+SAVED_TEST="$(mktemp)"
+BINDINGS_LIVE="${DECODER_RS}/seq-structs-live/src/bindings.rs"
+BINDINGS_TEST="${DECODER_RS}/seq-structs-test/src/bindings.rs"
 
-# Regenerate into the sibling repo; compare; always restore.
-(cd "${DECODER_RS}" && python3 tools/gen_eqstructs.py "${REPO}/src/backend/live/everquest.h" 2>/dev/null)
+for B in "${BINDINGS_LIVE}" "${BINDINGS_TEST}"; do
+    if [[ ! -f "${B}" ]]; then
+        echo "ERROR: expected generated bindings at ${B}" >&2
+        echo "       (the freshness check cannot run — is the crate renamed?)" >&2
+        rm -f "${SAVED_LIVE}" "${SAVED_TEST}"
+        exit 1
+    fi
+done
 
-if ! diff -q "${SAVED}" "${BINDINGS}" >/dev/null 2>&1; then
-    cp "${SAVED}" "${BINDINGS}"
-    rm -f "${SAVED}"
+cp "${BINDINGS_LIVE}" "${SAVED_LIVE}"
+cp "${BINDINGS_TEST}" "${SAVED_TEST}"
+
+# Regenerate BOTH targets into the sibling repo; compare; always restore.
+(cd "${DECODER_RS}" && python3 tools/gen_eqstructs.py all >/dev/null 2>&1)
+
+diff -q "${SAVED_LIVE}" "${BINDINGS_LIVE}" >/dev/null 2>&1 || STALE=1
+diff -q "${SAVED_TEST}" "${BINDINGS_TEST}" >/dev/null 2>&1 || STALE=1
+
+cp "${SAVED_LIVE}" "${BINDINGS_LIVE}"
+cp "${SAVED_TEST}" "${BINDINGS_TEST}"
+rm -f "${SAVED_LIVE}" "${SAVED_TEST}"
+
+if [[ "${STALE}" -eq 1 ]]; then
     echo ""
-    echo "ERROR: showeq-decoder-rs/seq-eqstructs-live/src/bindings.rs is stale." >&2
+    echo "ERROR: showeq-decoder-rs bindings are stale." >&2
     echo "       everquest.h changed but bindings.rs was not regenerated." >&2
-    echo "       Run: (cd ../showeq-decoder-rs && python3 tools/gen_eqstructs.py ${REPO}/src/backend/live/everquest.h)" >&2
+    echo "       Run: (cd ../showeq-decoder-rs && python3 tools/gen_eqstructs.py all)" >&2
     echo "       Then commit and push showeq-decoder-rs before retrying." >&2
     exit 1
 fi
 
-cp "${SAVED}" "${BINDINGS}"
-rm -f "${SAVED}"
-echo "pre-push: Rust bindings are up-to-date."
+echo "pre-push: Rust bindings are up-to-date (live + test)."
