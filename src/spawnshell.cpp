@@ -1336,9 +1336,15 @@ void SpawnShell::updateSpawnAppearance(const uint8_t* data)
        switch(out.kind)
        {
            case 1: // level update
-               spawn->setLevel(out.parameter);
-               spawn->updateLastChanged();
-               emit changeItem(spawn, tSpawnChangedLevel);
+               // Live's re-derived 8-byte layout carries NO value field (the
+               // bridge reports parameter 0 there), so guard rather than write
+               // a level of 0 over a good one. eql still carries a real value.
+               if (out.parameter)
+               {
+                   spawn->setLevel(out.parameter);
+                   spawn->updateLastChanged();
+                   emit changeItem(spawn, tSpawnChangedLevel);
+               }
                break;
        }
 
