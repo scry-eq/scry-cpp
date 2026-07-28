@@ -2341,9 +2341,10 @@ updated = "2026-07-17"
 comment = "Server response to OP_AAAction; carries 12B records (ability_id, rank, _) for player's full AA list incl. auto-grants and purchased ranks"
 
 [[world]]
-id      = "3ad6"
+id      = "ffff"
 name    = "OP_GuildList"
-comment = "GuildListCode - S>C ~14KB at login, full server guild roster (list of guild-name strings). Confirmed 2026-05-27 (login-charmgmt): inline guild names in a 14176b login packet."
+priority = 6
+comment = "[ffff — needs re-hunt] GuildListCode. The prior note claiming a 14176b login packet held guild names is WRONG: 2026-07-28 content-dumped that packet and its 81 strings are housing plot addresses (street name + plot number), i.e. a neighborhood/housing list, not guilds. No guild-name list was seen anywhere in the world stream of a 3-login capture — a full server guild roster may no longer ride the world stream at login. Re-hunt against a capture that opens the guild window."
 
   [[world.payloads]]
   dir           = "server"
@@ -2351,9 +2352,10 @@ comment = "GuildListCode - S>C ~14KB at login, full server guild roster (list of
   sizechecktype = "none"
 
 [[world]]
-id      = "08b3"
+id      = "ffff"
 name    = "OP_MOTD"
-comment = "MOTDCode - server message of the day, S>C world-stream post-EnterWorld. Confirmed 2026-05-27 (login-charmgmt): 154b payload = readable MOTD text (\"Greetings Norrathians! ...\")."
+priority = 7
+comment = "[ffff — needs re-hunt] MOTDCode, server message of the day. NOT FOUND on 2026-07-28: no readable-text S>C packet appeared post-OP_EnterWorld in a 3-login world capture. Prior fingerprint was a ~154b readable-text payload. May now ride the zone stream (see the OP_MOTD zone-vs-world note) or fire only when the MOTD changes."
 
   [[world.payloads]]
   dir           = "server"
@@ -2361,82 +2363,95 @@ comment = "MOTDCode - server message of the day, S>C world-stream post-EnterWorl
   sizechecktype = "none"
 
 [[world]]
-id      = "6893"
+id      = "aae4"
 name    = "OP_SendLoginInfo"
-updated = "2010-11-07"
-comment = "Client starting world session by asking for login information. Live: 464b C>S, first packet of every world session (5/5 confirmations)."
+priority = 10
+updated = "2026-07-28"
+comment = "Client starting world session by asking for login information. Live: 464b C>S, the FIRST packet of every world session. Re-confirmed 2026-07-28 on a 3-login Live world capture (3/3 sessions, always packet #1). Zero competing unknowns at 464b C>S."
 
 [[world]]
-id      = "3288"
+id      = "ffff"
 updated = "2010-11-07"
 name    = "OP_LogServer"
-comment = "Live candidate: S>C 24b (0x7f8e), fires immediately after OP_SendLoginInfo in the handshake band."
+priority = 9
+comment = "[ffff — unresolved, two candidates] Live world handshake. Candidate A: a 24b S>C packet that fires immediately after OP_SendLoginInfo in all 3 logins (position matches the historical fingerprint, but 24b is too small to carry the classic server-info block and the payload is opaque). Candidate B: a 1984b S>C packet later in the same burst whose only string is the world shortname. Legacy 6.4.25 defines no logServerStruct, so there is no struct to size-check against and neither candidate could be confirmed 2026-07-28. Resolve with a capture on a DIFFERENT world server — the payload carrying the changed shortname is OP_LogServer."
 
 [[world]]
-id      = "115a"
+id      = "ffff"
 updated = "2008-11-07"
 name    = "OP_ApproveWorld"
-comment = "Live candidate: small S>C in handshake band; not isolated yet."
+priority = 5
+comment = "[ffff — needs re-hunt] Small S>C in the handshake band; still not isolated. 2026-07-28: several small S>C packets (0b, 12b, 16b, 72b, 92b) fire in the band with no distinguishing content; needs a capture of a REJECTED world entry (full server / locked) to contrast against a successful one."
 
 [[world]]
-id      = "3288"
+id      = "5a59"
 name    = "OP_EnterWorld"
-updated = "2010-11-07"
-comment = "Client tells world server to enter world with selected char. Live: 72b C>S, char name (zero-padded) at offset 0 + 64b zeros + 0xffffffff trailer. 4/4 confirmations across char-create + login flows. Server reuses 0x0839 with shorter S>C variants (1b ack, 7b name echo) — XML maps the opcode to OP_EnterWorld for log naming."
+priority = 10
+updated = "2026-07-28"
+comment = "Client tells world server to enter world with selected char. Live: 72b C>S, char name (zero-padded) at offset 0, 64b of zeros, 0xffffffff trailer at offset 68. Server REUSES the same id for two shorter S>C variants (1b ack, 7b name echo) — all three observed. Re-confirmed 2026-07-28 (3/3 logins); byte layout matched the recorded fingerprint exactly."
 
 [[world]]
-id      = "1771"
+id      = "4c13"
 name    = "OP_ExpansionInfo"
-updated = "2010-11-07"
-comment = "Which expansions user has. Live: 64b fixed S>C in the post-LogServer / pre-ApproveWorld handshake band (5/5 confirmations)."
+priority = 10
+updated = "2026-07-28"
+comment = "Which expansions user has. Live: 64b fixed S>C in the handshake band. Re-confirmed 2026-07-28 (3/3 logins) — it is the ONLY 64b S>C opcode in the world stream, so zero competitors at that size+direction. NOTE evidence class: size + direction + handshake position + zero-competitor. The payload is opaque (no strings, no obvious bitmask), so the field layout is NOT confirmed; treat as identification-only until a capture with a changed expansion set is diffed."
 
 [[world]]
-id      = "6685"
+id      = "ffff"
 name    = "OP_SendCharInfo"
+priority = 8
 updated = "2012-07-18"
-comment = "Send all chars visible @ char select. Live: 14176b S>C (variable with character roster size), fires once early in world handshake."
+comment = "[ffff — needs re-hunt] Send all chars visible @ char select. NOT FOUND on 2026-07-28: every S>C world payload in a 3-login capture was content-scanned for the logged-in character name and only the chatserver tuple and OP_EnterWorld carried it. The two large early S>C packets were ruled out — one is a housing plot list, the other a 36873b binary table whose only string is a timezone id. The prior note claiming 14176b was a mis-attribution of the same packet as OP_GuildList."
 
 [[world]]
-id      = "3c2d"
+id      = "bb86"
 name    = "OP_SendSpellChecksum"
-updated = "2010-11-07"
-comment = "Contains a snippet of spell data. Live: 2056b C>S, payload tail shows caret-delimited spell-data text (matches spells_us.txt format). Capture-order position 2 of 4 in the post-handshake checksum burst."
+priority = 10
+updated = "2026-07-28"
+comment = "Contains a snippet of spell data. Live: 2056b C>S, position 2 of 4 in the post-handshake checksum burst. Content-confirmed 2026-07-28: payload tail is caret-delimited text in spells_us.txt record format (integer fields only)."
 
 [[world]]
-id      = "30e2"
+id      = "3ed7"
 name    = "OP_SendExeChecksum"
-updated = "2010-11-07"
-comment = "Client-side eqgame.exe checksum sample. Live: 2056b C>S, payload tail shows binary code-style content. Capture-order position 1 of 4 in the post-handshake checksum burst."
+priority = 10
+updated = "2026-07-28"
+comment = "Client-side eqgame.exe checksum sample. Live: 2056b C>S, position 1 of 4 in the post-handshake checksum burst. Content-confirmed 2026-07-28: payload tail is x86-64 machine code (recognisable mov/test/je sequences), unlike the caret-delimited text of the other 2056b members."
 
 [[world]]
-id      = "2b5f"
+id      = "60b5"
 name    = "OP_SendBaseDataChecksum"
-updated = "2010-11-07"
-comment = "Client-side base-data file sample. Live: 2056b C>S, payload tail shows caret-delimited text records. Capture-order position 3 of 4 in the post-handshake checksum burst. Mapping to BaseData (vs another text-format file) inferred by elimination + position."
+priority = 10
+updated = "2026-07-28"
+comment = "Client-side base-data file sample. Live: 2056b C>S, position 3 of 4 in the post-handshake checksum burst. Content-confirmed 2026-07-28: payload tail is caret-delimited text carrying DECIMAL/float fields (per-level stat tables) — that float content is what separates it from the integer-only spell records at position 2."
 
 [[world]]
-id      = "2874"
+id      = "f6e7"
 name    = "OP_SendSkillCapsChecksum"
-updated = "2010-11-07"
-comment = "Client-side skillcaps checksum. Live: 64b C>S, opaque hash-style payload. Capture-order position 4 of 4 in the post-handshake checksum burst — the only one not at 2056b, fits the smaller skillcaps data table."
+priority = 10
+updated = "2026-07-28"
+comment = "Client-side skillcaps checksum. Live: 64b C>S, opaque hash-style payload, position 4 of 4 in the checksum burst and the only member not at 2056b. Re-confirmed 2026-07-28 (3/3 logins); zero competing unknowns at 64b C>S."
 
 [[world]]
-id      = "28d4"
-updated = "2012-06-27"
+id      = "4f96"
+updated = "2026-07-28"
 name    = "OP_SetChatServer"
-comment = "Legacy chatserver tuple. May be obsolete on Live — handshake capture shows only the SetChatServer2 catalog (no 56b S>C tuple observed, unlike Test)."
+priority = 10
+comment = "Legacy chatserver tuple — NOT obsolete on Live (the prior 'may be obsolete' note is disproven). Live: 62b S>C, ASCII comma-delimited tuple: chat-host,port,worldshortname.charname,ticket,flag. Fires immediately before OP_ZoneServerInfo on each world->zone handoff. Content-confirmed 2026-07-28; the embedded port matches WorldServerChat2Port and the observed chat session. Payload carries identity + a session ticket — never quote literal bytes."
 
 [[world]]
-id      = "75f5"
+id      = "084f"
 name    = "OP_SetChatServer2"
-updated = "2012-06-27"
-comment = "Secondary chat / account / commerce service catalog. Live: 1464b S>C in handshake band (3/3 confirmations); ~18 plaintext Daybreak service URLs."
+priority = 10
+updated = "2026-07-28"
+comment = "Secondary chat / account / commerce service catalog. Live: 1464b S>C in the handshake band, ~18 plaintext Daybreak service URLs (auth/account/wallet endpoints). Content-confirmed 2026-07-28 (3/3 logins) — payload opens with a length-prefixed URL list."
 
 [[world]]
-id      = "777c"
+id      = "5986"
 name    = "OP_ZoneServerInfo"
-updated = "2012-06-27"
-comment = "Zone server connection info. Live: 130b S>C, fires on world->zone handoff (zone server hostname + port). 2/2 confirmations."
+priority = 10
+updated = "2026-07-28"
+comment = "Zone server connection info. Live: 130b S>C, fires on world->zone handoff. zoneServerInfoStruct is UNCHANGED across the 07/15 rotation — char ip[128] holds a NUL-terminated 'eqzone-NN.everquest.com' hostname (tail is uninitialised client stack, ignore it), uint16 port at offset 128. Confirmed 2026-07-28 against a Live world+zone capture: the 130b S>C world payload's trailing port matched the port of the zone session the client opened moments later. PRIORITY 10 — the daemon binds a box's zone stream off this opcode; while it is unmapped no zone session ever binds, and with >1 box on the wire (any client that has zoned once) BoxRegistry drops every unbound zone packet, so the whole zone stream decodes to nothing. Re-hunt this FIRST after every patch. Legacy's 777c is stale (dated 2012) and matched nothing on the current wire."
 
   [[world.payloads]]
   dir           = "server"
@@ -2444,36 +2459,41 @@ comment = "Zone server connection info. Live: 130b S>C, fires on world->zone han
   sizechecktype = "match"
 
 [[world]]
-id      = "72f3"
+id      = "3603"
 name    = "OP_WorldComplete"
-updated = "2010-11-07"
-comment = "Client telling world server it is done. Live: 0b C>S, last C>S packet of session immediately after OP_ZoneServerInfo. World replies by disconnecting. 2/2 confirmations."
+priority = 10
+updated = "2026-07-28"
+comment = "Client telling world server it is done. Live: 0b C>S, the LAST C>S packet of the session, fires immediately after OP_ZoneServerInfo; world then disconnects. Re-confirmed 2026-07-28 on both world->zone handoffs in a 3-login capture (2/2)."
 
 [[world]]
-id      = "2730"
+id      = "ffff"
 name    = "OP_DeleteCharacter"
+priority = 3
 updated = "2010-11-07"
 comment = "Delete character @ char select. Live: 68b C>S world, name@offset 0. Re-confirmed post-2026-05-22 patch (login-charmgmt): 1 C>S fire carrying the deleted char name."
 
 [[world]]
-id      = "49b6"
+id      = "ffff"
 name    = "OP_CharacterCreate"
+priority = 3
 updated = "2010-11-07"
 comment = "Create character @ char select. Live: 168b C>S world (name[64] + gender/race/class/deity/appearance fields), fires once per submitted creation right after OP_ApproveName response. Re-confirmed post-2026-05-22 patch (login-charmgmt)."
 
 [[world]]
-id      = "6e97"
+id      = "ffff"
 name    = "OP_ApproveName"
+priority = 3
 updated = "2010-11-07"
 comment = "Approving new character name @ char creation. Live: 84b C>S name candidate, 1b S>C status (taken vs available). Re-confirmed post-2026-05-22 patch (login-charmgmt): fires right before OP_CharacterCreate."
 
 [[world]]
-id      = "0005"
+id      = "ffff"
 name    = "OP_RandomNameGenerator"
+priority = 1
 comment = "Returns a random name. May be obsolete on Live — repeated random-button presses during char creation produced no isolated wire request/response; names likely come pre-baked in char-select catalog dump."
 
 [[world]]
-id      = "02db"
+id      = "ffff"
 name    = "OP_LoginComplete"
 priority = 0
 updated = "2004-02-10"
@@ -2485,7 +2505,7 @@ comment = "Imported from legacy showeq 6.4.25 (07/15/26). Identification-only, n
   sizechecktype = "none"
 
 [[world]]
-id      = "02a5"
+id      = "ffff"
 name    = "OP_UserCompInfo"
 priority = 0
 updated = "2004-02-10"
