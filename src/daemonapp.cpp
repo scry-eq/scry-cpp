@@ -405,7 +405,8 @@ bool DaemonApp::start()
         // signal is broadcast — but keeping it adjacent to where the
         // packet pipeline starts makes the order obvious).
         if (!m_cfg.opcodeStats.isEmpty()) {
-            m_opcodeStats = new OpcodeStatsLogger(m_packet, m_cfg.opcodeStats, this);
+            m_opcodeStats = new OpcodeStatsLogger(m_packet, m_cfg.opcodeStats,
+                                                  m_cfg.dumpAllSessions, this);
         }
 
         if (!m_cfg.listEvents.isEmpty()) {

@@ -26,6 +26,7 @@
 namespace {
 constexpr in_addr_t kClientIp = 0x0a0d0008;
 constexpr in_port_t kSrvPort  = 0x789c;
+constexpr in_addr_t kServerIp = 0x0a0d00cd;  // the world server this box handshook with
 constexpr uint16_t  kAnyOp    = 0x9bdc;   // current OP_EnterWorld C>S id
 
 in_port_t cport(uint16_t p) { return htons(p); }
@@ -72,7 +73,7 @@ void NamePromoterTest::promotesFromEnterWorld()
   EQPacketOPCodeDB db;
   EQPacketStream stream(client2world, DIR_Client, 0, db);
   BoxRegistry reg;
-  Box* box = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
+  Box* box = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
   NamePromoter promoter(box, &reg, &stream);
 
   feed(stream, QStringLiteral("OP_EnterWorld"),
@@ -87,7 +88,7 @@ void NamePromoterTest::ignoresWrongOpcodeName()
   EQPacketOPCodeDB db;
   EQPacketStream stream(client2world, DIR_Client, 0, db);
   BoxRegistry reg;
-  Box* box = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
+  Box* box = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
   NamePromoter promoter(box, &reg, &stream);
 
   feed(stream, QStringLiteral("OP_ZoneEntry"),
@@ -101,7 +102,7 @@ void NamePromoterTest::ignoresWrongLength()
   EQPacketOPCodeDB db;
   EQPacketStream stream(client2world, DIR_Client, 0, db);
   BoxRegistry reg;
-  Box* box = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
+  Box* box = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
   NamePromoter promoter(box, &reg, &stream);
 
   // Server echo variants share the name but are not 72 bytes C>S.
@@ -116,7 +117,7 @@ void NamePromoterTest::ignoresServerDirection()
   EQPacketOPCodeDB db;
   EQPacketStream stream(world2client, DIR_Server, 0, db);
   BoxRegistry reg;
-  Box* box = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
+  Box* box = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
   NamePromoter promoter(box, &reg, &stream);
 
   feed(stream, QStringLiteral("OP_EnterWorld"),
@@ -130,8 +131,8 @@ void NamePromoterTest::mergesRelogByName()
   EQPacketOPCodeDB db;
   EQPacketStream stream(client2world, DIR_Client, 0, db);
   BoxRegistry reg;
-  Box* first  = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
-  Box* second = reg.observe(kClientIp, cport(1001), kSrvPort, 2);
+  Box* first  = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
+  Box* second = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 2);
   NamePromoter p1(first,  &reg, &stream);
   NamePromoter p2(second, &reg, &stream);
 

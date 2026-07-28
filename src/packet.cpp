@@ -824,7 +824,9 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
                                                    : srcPortHost);
     const in_port_t server_port = htons(srcIsWorld ? srcPortHost
                                                    : dstPortHost);
-    m_boxes.observe(client_ip, client_port, server_port, nowMs());
+    const in_addr_t server_ip = srcIsWorld ? packet.getIPv4SourceN()
+                                          : packet.getIPv4DestN();
+    m_boxes.observe(client_ip, server_ip, client_port, server_port, nowMs());
   }
 
   if (m_detectingClient && srcIsWorld)
@@ -960,6 +962,30 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
         srcIsClient = false;
         return true;
       }
+      // Nobody CLAIMED this port. Normally that means OP_ZoneServerInfo never
+      // decoded — its id rotates every patch, and while it is unmapped no box
+      // ever announces a port, so with >1 box on the wire every zone packet
+      // falls through to the drop below and the whole zone stream goes dark.
+      // A zone session always opens with a client SessionRequest moments after
+      // the world handshake, so bind that to the client's most recently
+      // world-active unbound box. Weaker than the announced-port match (two
+      // boxes zoning inside the same window can bind to each other's session),
+      // which is why it runs ONLY after the expected-zone lookups miss.
+      if (packet.getNetOpCode() == OP_SessionRequest &&
+          m_boxes.hasClient(src_ip)) {
+        box = m_boxes.lookupByRecentWorld(src_ip, dst_ip, nowMs(),
+                                          kZoneBindWindowMs);
+        if (box) {
+          box->zone_client_port = src_port;
+          box->zone_server_port_bound = dst_port;
+          srcIsClient = true;
+          seqWarn("BoxRegistry: bound zone session %s:%u by world recency — "
+                  "no box announced port %u (is OP_ZoneServerInfo mapped?)",
+                  qUtf8Printable(packet.getIPv4SourceA()),
+                  packet.getSourcePort(), packet.getDestPort());
+          return true;
+        }
+      }
       return false;
     };
 
@@ -1002,6 +1028,33 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
       } else {
         m_zone2ClientStream->handlePacket(packet);
       }
+      return;
+    }
+
+    // Dropping is silent by construction and looks identical to "the daemon
+    // decodes nothing" from the outside — the failure mode that hid an
+    // unmapped OP_ZoneServerInfo for a whole patch cycle. Warn once per
+    // distinct 5-tuple (capped), but only for traffic involving a client we
+    // actually track, so the unrelated UDP a broad capture filter sweeps up
+    // stays quiet.
+    if (!m_boxes.hasClient(src_ip) && !m_boxes.hasClient(dst_ip)) return;
+    // ...and only for a peer that could actually be a zone server. An EQ
+    // client also opens SOE sessions to auxiliary services on other subnets;
+    // those are unbindable by design, not a symptom.
+    const in_addr_t peer_ip = m_boxes.hasClient(src_ip) ? dst_ip : src_ip;
+    if (!m_boxes.looksLikeZoneServer(peer_ip)) return;
+
+    const quint64 tupleKey = (quint64(src_ip) << 32) ^ (quint64(dst_ip) << 16)
+                             ^ (quint64(src_port) << 16) ^ quint64(dst_port);
+    if (m_unboundZoneWarned.size() < kMaxUnboundZoneWarnings &&
+        !m_unboundZoneWarned.contains(tupleKey)) {
+      m_unboundZoneWarned.insert(tupleKey);
+      seqWarn("dropping unbound zone traffic %s:%u -> %s:%u (%zu boxes, none "
+              "bound or expecting this port). Zone decode will be EMPTY for "
+              "this session — check that OP_ZoneServerInfo is mapped.",
+              qUtf8Printable(packet.getIPv4SourceA()), packet.getSourcePort(),
+              qUtf8Printable(packet.getIPv4DestA()), packet.getDestPort(),
+              m_boxes.size());
     }
   }
 } /* end dispatchPacket() */

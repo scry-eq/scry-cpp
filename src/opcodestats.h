@@ -24,8 +24,11 @@ class EQPacketOPCode;
 class OpcodeStatsLogger : public QObject {
     Q_OBJECT
 public:
+    // `allSessions` records whether --dump-all-sessions was in effect, so the
+    // report can tell "nothing decoded" apart from "scoped away from the box
+    // that decoded it" (see writeReport).
     OpcodeStatsLogger(EQPacket* packet, const QString& outPath,
-                      QObject* parent = nullptr);
+                      bool allSessions = false, QObject* parent = nullptr);
     ~OpcodeStatsLogger() override;
 
     // Writes the accumulated report. Called automatically from the
@@ -40,6 +43,9 @@ private slots:
                               uint16_t opcode, const EQPacketOPCode* entry);
 
 private:
+    EQPacket* m_packet = nullptr;
+    bool      m_allSessions = false;
+
     struct Sample {
         QByteArray bytes;       // up to kSampleBytes captured prefix
         int        size  = 0;   // full payload size as observed

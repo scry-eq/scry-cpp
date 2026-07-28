@@ -45,6 +45,10 @@ public:
     in_addr_t client_ip          = 0;
     in_port_t client_world_port  = 0;
     in_port_t server_world_port  = 0;
+    // The world server this box handshook with. A zone server lives on the
+    // same subnet, which is what lets the no-announced-port fallback tell a
+    // real zone session apart from the other SOE services an EQ client opens.
+    in_addr_t server_world_ip    = 0;
 
     qint64    first_seen_ms      = 0;
     qint64    last_seen_ms       = 0;
@@ -134,6 +138,7 @@ public:
     // Box. Pointers are stable for the lifetime of the registry
     // (Boxes live in unique_ptr).
     Box* observe(in_addr_t client_ip,
+                 in_addr_t server_ip,
                  in_port_t client_world_port,
                  in_port_t server_world_port,
                  qint64    now_ms);
@@ -162,6 +167,30 @@ public:
     // SessionRequest target (client_ip, server_port). Used to bind a
     // freshly-observed zone tuple to the box that's about to use it.
     // nullptr if no box is expecting a zone connection to that endpoint.
+    // Is any tracked box's client this IP? Lets callers tell EQ traffic we
+    // failed to attribute apart from the unrelated UDP a broad capture filter
+    // sweeps up, so a diagnostic can stay quiet about the latter.
+    bool hasClient(in_addr_t client_ip) const;
+
+    // Could this address be a zone server for some tracked box? An EQ client
+    // also opens SOE sessions to patcher/telemetry services (and a capture
+    // sweeps up unrelated UDP entirely), none of which share the world
+    // server's subnet — so this keeps diagnostics about unbindable ZONE
+    // traffic from crying wolf over traffic that was never a zone session.
+    bool looksLikeZoneServer(in_addr_t server_ip) const;
+
+    // Fallback for a zone SessionRequest that no box CLAIMED: the most
+    // recently world-active unbound box for this client, if it was active
+    // within `window_ms`. OP_ZoneServerInfo is the authoritative binding
+    // signal, but its id rotates every patch and while it is unmapped nothing
+    // binds at all; a client opens its zone socket within a second of the
+    // world handshake, so recency + client_ip is a usable stand-in.
+    // Deliberately NOT consulted while any box expects the port.
+    Box* lookupByRecentWorld(in_addr_t client_ip,
+                             in_addr_t server_ip,
+                             qint64 now_ms,
+                             qint64 window_ms);
+
     Box* lookupByExpectedZone(in_addr_t client_ip,
                               in_addr_t server_ip,
                               in_port_t server_zone_port);

@@ -26,6 +26,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QSet>
 #include <QPointer>
 #include <QTimer>
 #include <vector>
@@ -218,6 +219,18 @@ class EQPacket : public QObject
    in_addr_t m_client_addr;
    qint64 m_currentPacketTimeMs = 0;
    int m_undeclaredGateSizes = 0;
+
+   // Zone 5-tuples already warned about as unbound (see dispatchPacket). One
+   // warning per tuple, capped — an unbindable session emits thousands of
+   // packets and the point is a pointer, not a flood.
+   QSet<quint64> m_unboundZoneWarned;
+   static constexpr int kMaxUnboundZoneWarnings = 4;
+
+   // How recently a box must have been world-active for the no-announced-port
+   // zone binding fallback to claim its SessionRequest. Generous: a client
+   // opens the zone socket within ~300ms of the world handshake, and the only
+   // competing candidates are same-host boxes.
+   static constexpr qint64 kZoneBindWindowMs = 15000;
 
    uint16_t m_arqSeqGiveUp;
    QString m_device;

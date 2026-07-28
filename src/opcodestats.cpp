@@ -82,8 +82,11 @@ QString formatDirs(const QHash<uint8_t,int>& dirs)
 } // namespace
 
 OpcodeStatsLogger::OpcodeStatsLogger(EQPacket* packet, const QString& outPath,
+                                     bool allSessions,
                                      QObject* parent)
     : QObject(parent)
+    , m_packet(packet)
+    , m_allSessions(allSessions)
     , m_outPath(outPath)
 {
     // The bool "unknown" overload is the one that fires; bind to it
@@ -196,6 +199,19 @@ void OpcodeStatsLogger::writeReport()
     out << "# during this run. Use to spot id=\"ffff\" opcodes by matching\n";
     out << "# their payload sizes against known-struct sizes (see candidate\n";
     out << "# matches at the bottom).\n\n";
+
+    // A zero zone tally reads as "the daemon decoded nothing", but the far
+    // likelier cause is session scoping: recon follows the PRIMARY box, which
+    // is whichever world session was seen first, and a client that zones opens
+    // a fresh world socket each time — so the primary may never zone at all.
+    if (m_zone.isEmpty() && !m_allSessions && m_packet &&
+        m_packet->boxRegistry().size() > 1) {
+        out << "# NOTE: 0 zone opcodes, but " << m_packet->boxRegistry().size()
+            << " boxes were seen and this report is scoped to the primary\n"
+            << "# box. That box may never have zoned. Re-run with"
+            << " --dump-all-sessions before concluding\n"
+            << "# that zone decode is broken.\n\n";
+    }
 
     dump(m_zone, "zone");
     dump(m_world, "world");

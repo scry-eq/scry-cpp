@@ -44,6 +44,7 @@ QString Box::summary() const
 }
 
 Box* BoxRegistry::observe(in_addr_t client_ip,
+                          in_addr_t server_ip,
                           in_port_t client_world_port,
                           in_port_t server_world_port,
                           qint64    now_ms)
@@ -52,6 +53,7 @@ Box* BoxRegistry::observe(in_addr_t client_ip,
                                  client_world_port,
                                  server_world_port)) {
         hit->last_seen_ms = now_ms;
+        hit->server_world_ip = server_ip;
         ++hit->packet_count;
         return hit;
     }
@@ -60,6 +62,7 @@ Box* BoxRegistry::observe(in_addr_t client_ip,
     b->client_ip = client_ip;
     b->client_world_port = client_world_port;
     b->server_world_port = server_world_port;
+    b->server_world_ip = server_ip;
     b->first_seen_ms = now_ms;
     b->last_seen_ms = now_ms;
     b->packet_count = 1;
@@ -314,6 +317,50 @@ Box* BoxRegistry::lookupBoundZone(in_addr_t client_ip,
         }
     }
     return nullptr;
+}
+
+bool BoxRegistry::hasClient(in_addr_t client_ip) const
+{
+    for (const auto& b : m_boxes)
+        if (b->client_ip == client_ip) return true;
+    return false;
+}
+
+bool BoxRegistry::looksLikeZoneServer(in_addr_t server_ip) const
+{
+    for (const auto& b : m_boxes) {
+        if (b->server_world_ip == 0) continue;
+        if (((b->server_world_ip ^ server_ip) & htonl(0xFFFFFF00)) == 0)
+            return true;
+    }
+    return false;
+}
+
+Box* BoxRegistry::lookupByRecentWorld(in_addr_t client_ip,
+                                      in_addr_t server_ip,
+                                      qint64 now_ms,
+                                      qint64 window_ms)
+{
+    Box* best = nullptr;
+    for (auto& b : m_boxes) {
+        if (b->client_ip != client_ip) continue;
+        // Same guard as the expected-zone path: never steal a box that is
+        // already decoding a live zone session.
+        if (b->zone_client_port != 0) continue;
+        // Must have actually done a world handshake — that is what makes it a
+        // box about to zone rather than an artifact.
+        if (b->client_world_port == 0) continue;
+        // An EQ client opens several unrelated SOE sessions (patcher,
+        // telemetry) that also start with a SessionRequest. The zone server
+        // shares the world server's subnet; those services do not. Without
+        // this the fallback binds the first one it sees and burns the box's
+        // binding, so the real zone session is dropped when it opens.
+        if (b->server_world_ip == 0) continue;
+        if (((b->server_world_ip ^ server_ip) & htonl(0xFFFFFF00)) != 0) continue;
+        if (now_ms - b->last_seen_ms > window_ms) continue;
+        if (!best || b->last_seen_ms > best->last_seen_ms) best = b.get();
+    }
+    return best;
 }
 
 Box* BoxRegistry::lookupByExpectedZone(in_addr_t client_ip,

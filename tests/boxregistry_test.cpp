@@ -26,6 +26,7 @@ namespace {
 // one world server port (the :9016 case that motivated multibox).
 constexpr in_addr_t kClientIp = 0x0a0d0008;  // 10.13.0.8
 constexpr in_port_t kSrvPort  = 0x789c;      // htons(9016)-ish; value only
+constexpr in_addr_t kServerIp = 0x0a0d00cd;  // the world server this box handshook with
 
 in_port_t cport(uint16_t p) { return htons(p); }
 }
@@ -60,7 +61,7 @@ private slots:
 void BoxRegistryTest::observeCreatesPrimary()
 {
   BoxRegistry reg;
-  Box* b = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
+  Box* b = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
   QVERIFY(b != nullptr);
   QVERIFY(b->is_primary);
   QCOMPARE(b->packet_count, quint64(1));
@@ -74,8 +75,8 @@ void BoxRegistryTest::observeCreatesPrimary()
 void BoxRegistryTest::observeSameTupleUpdates()
 {
   BoxRegistry reg;
-  Box* a = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
-  Box* b = reg.observe(kClientIp, cport(1000), kSrvPort, 2);
+  Box* a = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
+  Box* b = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 2);
   QCOMPARE(a, b);                                // same Box, not a new one
   QCOMPARE(b->packet_count, quint64(2));
   QCOMPARE(reg.size(), size_t(1));
@@ -84,8 +85,8 @@ void BoxRegistryTest::observeSameTupleUpdates()
 void BoxRegistryTest::observeDistinctCreatesSecond()
 {
   BoxRegistry reg;
-  Box* a = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
-  Box* b = reg.observe(kClientIp, cport(1001), kSrvPort, 2);
+  Box* a = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
+  Box* b = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 2);
   QVERIFY(a != b);
   QVERIFY(a->is_primary);
   QVERIFY(!b->is_primary);                       // only the first is primary
@@ -96,7 +97,7 @@ void BoxRegistryTest::observeDistinctCreatesSecond()
 void BoxRegistryTest::lookupByWorldFindsAndMisses()
 {
   BoxRegistry reg;
-  Box* a = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
+  Box* a = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
   QCOMPARE(reg.lookupByWorld(kClientIp, cport(1000), kSrvPort), a);
   QVERIFY(reg.lookupByWorld(kClientIp, cport(9999), kSrvPort) == nullptr);
 }
@@ -104,7 +105,7 @@ void BoxRegistryTest::lookupByWorldFindsAndMisses()
 void BoxRegistryTest::promoteByNameStampsHashId()
 {
   BoxRegistry reg;
-  Box* b = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
+  Box* b = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
   const QString placeholder = b->box_id;
 
   Box* parent = reg.promoteByName(b, QStringLiteral("Alpha"));
@@ -121,8 +122,8 @@ void BoxRegistryTest::promoteByNameStampsHashId()
 void BoxRegistryTest::promoteByNameMergesRelog()
 {
   BoxRegistry reg;
-  Box* first  = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
-  Box* second = reg.observe(kClientIp, cport(1001), kSrvPort, 2);
+  Box* first  = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
+  Box* second = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 2);
   reg.promoteByName(first,  QStringLiteral("Alpha"));
 
   // Same character re-handshakes on a new world socket (zone change).
@@ -137,8 +138,8 @@ void BoxRegistryTest::promoteByNameMergesRelog()
 void BoxRegistryTest::currentBoxForReturnsLatest()
 {
   BoxRegistry reg;
-  Box* first  = reg.observe(kClientIp, cport(1000), kSrvPort, 10);
-  Box* second = reg.observe(kClientIp, cport(1001), kSrvPort, 20);  // later
+  Box* first  = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 10);
+  Box* second = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 20);  // later
   reg.promoteByName(first,  QStringLiteral("Alpha"));
   reg.promoteByName(second, QStringLiteral("Alpha"));
 
@@ -152,13 +153,13 @@ void BoxRegistryTest::adoptActiveFromStalePlaceholder()
   BoxRegistry reg;
   // First box is a partial/dead session that never resolves a character
   // (daemon started mid-session) — it's active but stays a placeholder.
-  Box* stale = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
+  Box* stale = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
   QCOMPARE(reg.activeCharacterId(), stale->box_id);
 
   // A real distinct character then decodes on another box. Because the
   // active box is an unpromoted placeholder, the registry adopts the newly
   // decoded character as active (else SessionAdapter streams an empty box).
-  Box* real = reg.observe(kClientIp, cport(1001), kSrvPort, 2);
+  Box* real = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 2);
   reg.promoteByName(real, QStringLiteral("Beta"));
   QCOMPARE(reg.activeCharacterId(), real->box_id);
 }
@@ -166,8 +167,8 @@ void BoxRegistryTest::adoptActiveFromStalePlaceholder()
 void BoxRegistryTest::setActiveBoxEmitsChange()
 {
   BoxRegistry reg;
-  Box* a = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
-  Box* b = reg.observe(kClientIp, cport(1001), kSrvPort, 2);
+  Box* a = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
+  Box* b = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 2);
   reg.promoteByName(a, QStringLiteral("Alpha"));
   reg.promoteByName(b, QStringLiteral("Beta"));
 
@@ -194,7 +195,7 @@ void BoxRegistryTest::setActiveBoxEmitsChange()
 void BoxRegistryTest::lookupBoundZoneMatches()
 {
   BoxRegistry reg;
-  Box* a = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
+  Box* a = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
   a->zone_client_port       = cport(5555);
   a->zone_server_port_bound = cport(7000);
 
@@ -213,12 +214,12 @@ void BoxRegistryTest::lookupBoundZoneFindsMergedLiveBox()
   // never recovers; the freed session got grabbed by another same-host box.)
   // Identity grouping is by shared box_id; routing keys on the physical 5-tuple.
   BoxRegistry reg;
-  Box* first = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
+  Box* first = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
   first->first_seen_ms = 1;
   reg.promoteByName(first, QStringLiteral("Alpha"));   // Alpha's parent box
 
   // Alpha zones: fresh world socket -> new box; its zone session binds.
-  Box* zoned = reg.observe(kClientIp, cport(1001), kSrvPort, 2);
+  Box* zoned = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 2);
   zoned->first_seen_ms          = 2;
   zoned->zone_client_port       = cport(5555);
   zoned->zone_server_port_bound = cport(7000);
@@ -244,8 +245,8 @@ void BoxRegistryTest::lookupBoundZoneFindsMergedLiveBox()
 void BoxRegistryTest::lookupByExpectedZoneRecencyAndSkipBound()
 {
   BoxRegistry reg;
-  Box* a = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
-  Box* b = reg.observe(kClientIp, cport(1001), kSrvPort, 2);
+  Box* a = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
+  Box* b = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 2);
 
   // Both await a zone on the same server port (ZoneServerObserver defers IP
   // resolution, so expected_zone_server_ip stays 0 -> port-only match).
@@ -272,7 +273,7 @@ namespace {
 Box* addSession(BoxRegistry& reg, uint16_t port, const QString& name,
                 qint64 firstSeen)
 {
-  Box* b = reg.observe(kClientIp, cport(port), kSrvPort, firstSeen);
+  Box* b = reg.observe(kClientIp, kServerIp, cport(port), kSrvPort, firstSeen);
   b->first_seen_ms = firstSeen;
   reg.promoteByName(b, name);
   return b;
@@ -390,7 +391,7 @@ void BoxRegistryTest::evictStaleDisabledAndNoVictims()
 void BoxRegistryTest::stateStartsPendingUntilPromoted()
 {
   BoxRegistry reg;
-  Box* b = reg.observe(kClientIp, cport(1000), kSrvPort, 1);
+  Box* b = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
   QCOMPARE(b->state, SessionState::Pending);     // observed, still anonymous
   reg.promoteByName(b, QStringLiteral("Alpha"));
   QCOMPARE(b->state, SessionState::Attached);     // name resolved -> live session
@@ -399,13 +400,13 @@ void BoxRegistryTest::stateStartsPendingUntilPromoted()
 void BoxRegistryTest::stateAttachedSupersededOnRelog()
 {
   BoxRegistry reg;
-  Box* first = reg.observe(kClientIp, cport(1000), kSrvPort, 10);
+  Box* first = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 10);
   first->first_seen_ms = 10;
   reg.promoteByName(first, QStringLiteral("Alpha"));
   QCOMPARE(first->state, SessionState::Attached);
 
   // Alpha zones: a newer session promotes and takes over as the live one.
-  Box* second = reg.observe(kClientIp, cport(1001), kSrvPort, 20);
+  Box* second = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 20);
   second->first_seen_ms = 20;
   reg.promoteByName(second, QStringLiteral("Alpha"));
 
@@ -419,13 +420,13 @@ void BoxRegistryTest::charactersViewAndCurrentSessionFor()
 {
   BoxRegistry reg;
   // Alpha with a re-handshake (two sessions), plus a distinct Beta.
-  Box* aP = reg.observe(kClientIp, cport(1000), kSrvPort, 10);
+  Box* aP = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 10);
   aP->first_seen_ms = 10;
   reg.promoteByName(aP, QStringLiteral("Alpha"));
-  Box* aZ = reg.observe(kClientIp, cport(1001), kSrvPort, 20);
+  Box* aZ = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 20);
   aZ->first_seen_ms = 20;
   reg.promoteByName(aZ, QStringLiteral("Alpha"));   // Alpha's live session now
-  Box* bP = reg.observe(kClientIp, cport(1002), kSrvPort, 30);
+  Box* bP = reg.observe(kClientIp, kServerIp, cport(1002), kSrvPort, 30);
   bP->first_seen_ms = 30;
   reg.promoteByName(bP, QStringLiteral("Beta"));
 
