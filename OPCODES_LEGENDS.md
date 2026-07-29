@@ -1758,7 +1758,7 @@ word it rode is now Y — so it reports 0, as upstream also leaves it unmapped.
 Both need the same treatment that worked for the spawn block: solve against
 stationary spawns whose position is known exactly, rather than porting offsets.
 
-#### 2026-07-28 — MobUpdate / NpcMoveUpdate: partial, NOT solved
+#### 2026-07-28 — MobUpdate / NpcMoveUpdate (SUPERSEDED — see the entry below)
 
 Attempted the same ground-truth solve that fixed the spawn block. It did not
 close, and the negative results are worth keeping so the next attempt does not
@@ -1793,3 +1793,39 @@ signed (deltas) or large and slowly-varying (absolutes).
 
 Upstream's offsets still cannot be ported: it documents x at bit 160 (byte 20)
 while these payloads are 14 bytes (MobUpdate) and 15-19 (NpcMoveUpdate).
+
+#### 2026-07-28 — corrected: NpcMoveUpdate was never broken; MobUpdate carries deltas
+
+The entry above is wrong and is kept only to mark the dead end. Both of its
+conclusions came from a **confounded test**: comparing a movement update's
+position against the spawn's ZoneEntry position. Mobs WALK away from where they
+spawn, so that distance grows by design and proves nothing.
+
+**The non-confounded test is trajectory smoothness** on consecutive updates of
+one spawn — as this repo's own CLAUDE.md already says: a real walk decodes to a
+smooth ~8-units/tick path, a wrong bit-extraction gives thousand-unit jumps. One
+run separates them cleanly:
+
+| opcode | median step | p90 | steps >1000u | verdict |
+|---|---|---|---|---|
+| OP_NpcMoveUpdate | 14.9u | 30.1u | 0% | correct, and always was |
+| OP_MobUpdate | 0.0u | 727u | 5% | wrong |
+
+**OP_NpcMoveUpdate needs no change.** Our layout already matches upstream's
+`npcMoveUpdateEQL` exactly — spawnId@0 BE, 6-bit specifier@32, sign+magnitude
+19-bit at 38/57/76, heading@95, and the same wire→map transpose.
+
+**OP_MobUpdate carries DELTAS, not positions.** Decoded against spawns whose
+true position is known, its fields read in the hundreds where truth is in the
+thousands: spawn 11619 is at (3847,-1183,69) while the packet yields ~(186,15,5)
+under either field labelling. No scan for an absolute coordinate could have
+succeeded. Its bit positions have been realigned to upstream's
+`spawnPositionUpdateEQL` (x 0..18, z 19..37, 7-bit gap, y 45..63 — the gap is
+what the old binding omitted), but consumers still treat the values as absolute,
+so this is the next piece of work: apply them as deltas against the tracked
+position, which is what upstream's own npcMoveUpdate path does for its velocity
+lines.
+
+**Method note for next time:** check MAGNITUDE before hunting offsets. One print
+of decoded-vs-true would have shown "hundreds vs thousands" immediately and
+skipped every offset scan.
