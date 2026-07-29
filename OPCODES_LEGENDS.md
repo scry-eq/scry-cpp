@@ -1897,3 +1897,42 @@ if one flips they both do.
 Do not re-derive this from statistics; the reference is MobUpdate, and upstream's
 `fillSpawnStruct` is the authority for the walk itself (our equipment branch is
 already byte-identical to it).
+
+#### 2026-07-28 — RESOLVED: both position paths swapped and verified
+
+Applied the transpose to the spawn record (`seq-backend-eql/src/lib.rs`) and,
+after measuring, to the self position (`player_self_pos.rs`) as well.
+
+Spawn record, tail-relative:
+
+```
+len-95 -> y      len-91 -> z      len-83 -> x
+```
+
+Self position (`playerSelfPosStruct`): `x @6`, `z @10`, `y @34` — the two
+horizontal fields swapped from what was there.
+
+Verification, both paths, over the 07/28 capture:
+
+| path | before | after |
+|------|--------|-------|
+| NPC ZoneEntry vs its MobUpdate within 400 packets (n=3216) | median 2752.1u, 0% within 10u | **median 0.0u, 99% within 10u** |
+| player's own ZoneEntry vs `OP_ClientUpdate` (n=30) | exactly transposed every time | **agree to the unit** (18/30 exact; the rest are the known double-announce phantom, not an axis error) |
+
+Heading needed NO change. It was calibrated in the breadcrumb frame, and a
+transpose mirrors bearings, so it was re-measured against the corrected self
+position: decoded heading matches `atan2(dy, dx)` directly at median 2.1° error,
+89% within 20° (n=6338). The mirrored alternative `atan2(dx, dy)` is 86° off, so
+the existing `HEADING_UNITS = 2048` compass with no inversion stands.
+
+Everything downstream of the axis labels was already right — the packed-word
+offsets, the 19-bit sign extension, the ÷8 fixed point, the MobUpdate bit
+layout, the spawn-id read. The bug was two labels, and it cost a whole
+investigation because the one position source used as ground truth (the
+breadcrumb) was the one source that disagrees with the map frame.
+
+Tier-2 `check.sh` passes twice in a row after re-recording the eql golden.
+Recording recipe matters: a non-live target namespaces its guild cache at
+`~/.showeq/<target>/tmp/guilds2.dat`, so clearing the flat live path leaves the
+eql cache warm and the golden bakes in the warm-cache guild-tag timing, which
+then deterministically fails against check.sh's cold run.
