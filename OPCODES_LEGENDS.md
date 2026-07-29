@@ -1684,3 +1684,35 @@ of the dword at 22 (2048/circle), replacing the locally-bounded 15-bit read. The
 SENSE remains ours and measured — compass, not inverted — because upstream's
 player.cpp contradicts its own struct on the offset, and a spin capture backs
 the struct.
+
+#### 2026-07-28 — date-filtered the upstream adoption
+
+Only entries upstream dates `07/28/26` were re-hunted for this patch — 70 of
+its ~250 mapped rows. The rest carry dates from 2004-2023, legacy leftovers
+never re-verified for EQL. All 51 ids adopted here came from the 07/28 set (the
+older rows agree with what we already inherited from legacy, so they never
+changed anything).
+
+Separately, **26 of our own entries carried pre-patch provenance and have been
+returned to `ffff`**: every one fires ZERO times across the 440k-packet capture
+on the current patch. The world set rotated too — upstream's patch remaps the
+ZONE set only, so its world table is as stale as ours was. Retiring them is not
+cosmetic: a stale id is live ammunition the moment a rotated opcode lands on it.
+
+This also corrects a claim in the entry above. Of the 34 ids that "agreed" with
+upstream, only the **17 derived here from captures** are real validation; the
+other 17 agreed because BOTH tables carried the same stale legacy value.
+Agreement with an unverified source is not evidence.
+
+#### Code fixes ported from upstream (legends `7612d72`)
+
+- **Loadout swap re-creates the spawn.** Legends does delete-then-readd, so the
+  embedded record IS the re-add; surfacing only the changed fields drops the
+  spawn and the next position update resurrects it as "Unknown".
+- **Melee sentinel.** eql's action2 marks "no spell" as -1; the backend arm cast
+  that to u32, so 5447 of 6542 combat events reached consumers as spell id
+  4294967295 against a contract of `0 = melee`.
+- **Spell-id width** needed no change — our eql paths already read them wide,
+  and this wire confirms upstream's rationale (BeginCast tops out at 74073).
+- Not ported: the buff-window caster filter (our BuffList event is already
+  per-owner), and the statlist SIGFPE / Qt4 guards (legacy-UI only).

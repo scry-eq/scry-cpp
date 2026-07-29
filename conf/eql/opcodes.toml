@@ -286,10 +286,10 @@ comment = "SpawnAppearanceCode"
   sizechecktype = "match"
 
 [[zone]]
-id      = "4170"
+id      = "ffff"
 name    = "OP_SpawnAppearance2"
 updated = "2026-07-14"
-comment = "EQ Legends extended appearance (24B) — byte-identical to Live spawnAppearance2Struct {u32 spawnId, u32 type, u32 value, u8[12] pad}. Confirmed 2026-07-08: 55 spawn ids, type set {5,6,8,22,26,...} matches Live's {5,6,8,22,26,36,42}; type->value fits (type 6->100/110/115, type 43->0/1/2 flag). Wired S>C to the neutral SpawnShell::updateSpawnLock (acts on type 0x2c mob-lock; no-op on other types). C>S half (ClickBuffOff, type 0x24) acknowledged, unwired. See OPCODES_LEGENDS.md"
+comment = "STALE post-07/28: id 4170 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: EQ Legends extended appearance (24B) — byte-identical to Live spawnAppearance2Struct {u32 spawnId, u32 type, u32 value, u8[12] pad}. Confirmed 2026-07-08: 55 spawn ids, type set {5,6,8,22,26,...} matches Live's {5,6,8,22,26,36,42}; type->value fits (type 6->100/110/115, type 43->0/1/2 flag). Wired S>C to the neutral SpawnShell::updateSpawnLock (acts on type 0x2c mob-lock; no-op on other types). C>S half (ClickBuffOff, type 0x24) acknowledged, unwired. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "server"
@@ -669,11 +669,11 @@ comment = "Per-spawn active-buff list, resent at zone-in + on every buff change 
   sizechecktype = "none"
 
 [[zone]]
-id      = "713a"
+id      = "ffff"
 name    = "OP_BuffList2"
 priority = 6
 updated = "2026-07-14"
-comment = "Buff-list variant — same format + handler as OP_BuffList (73e2); see it for the record layout."
+comment = "STALE post-07/28: id 713a carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Buff-list variant — same format + handler as OP_BuffList (73e2); see it for the record layout."
 
   [[zone.payloads]]
   dir           = "server"
@@ -681,11 +681,11 @@ comment = "Buff-list variant — same format + handler as OP_BuffList (73e2); se
   sizechecktype = "none"
 
 [[zone]]
-id      = "5c47"
+id      = "ffff"
 name    = "OP_BuffList3"
 priority = 6
 updated = "2026-07-14"
-comment = "Buff-list variant — same format + handler as OP_BuffList (73e2); see it for the record layout."
+comment = "STALE post-07/28: id 5c47 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Buff-list variant — same format + handler as OP_BuffList (73e2); see it for the record layout."
 
   [[zone.payloads]]
   dir           = "server"
@@ -693,11 +693,11 @@ comment = "Buff-list variant — same format + handler as OP_BuffList (73e2); se
   sizechecktype = "none"
 
 [[zone]]
-id      = "7d73"
+id      = "ffff"
 name    = "OP_Damage"
 priority = 6
 updated = "2026-07-16"
-comment = "Combat floating-text feed (S>C), NAMED-INERT — NOT wired: the combat log already comes from OP_Action2 (0x5446, structured); this is the client's display-text subset and would duplicate it. Layout: {u32 sourceSpawn@0, u8 type@4, u32 targetSpawn@5, u32 msgCategory@9, NUL-terminated tail}. type table: 5=normal damage (tail=amount 5-413), 6=CRITICAL (big/rare, up to ~1020), 7=fixed-value damage ~197 (DoT tick), 8=misc damage, 3/4=non-damage (empty tail — miss/absorb), 0/1=spell event (tail=spell link + name). @9 is a filter/color id keyed to event KIND (15566=damage, 15562=miss, spell=12478/439/…), constant within damage — so crit is the TYPE byte (6), not @9. Kept for a future floating-combat-text overlay."
+comment = "STALE post-07/28: id 7d73 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Combat floating-text feed (S>C), NAMED-INERT — NOT wired: the combat log already comes from OP_Action2 (0x5446, structured); this is the client's display-text subset and would duplicate it. Layout: {u32 sourceSpawn@0, u8 type@4, u32 targetSpawn@5, u32 msgCategory@9, NUL-terminated tail}. type table: 5=normal damage (tail=amount 5-413), 6=CRITICAL (big/rare, up to ~1020), 7=fixed-value damage ~197 (DoT tick), 8=misc damage, 3/4=non-damage (empty tail — miss/absorb), 0/1=spell event (tail=spell link + name). @9 is a filter/color id keyed to event KIND (15566=damage, 15562=miss, spell=12478/439/…), constant within damage — so crit is the TYPE byte (6), not @9. Kept for a future floating-combat-text overlay."
 
   [[zone.payloads]]
   dir           = "server"
@@ -802,11 +802,11 @@ comment = "eql corpse loot window: {u16, u32=900, u32 corpseId@6, u32 count@10, 
   sizechecktype = "none"
 
 [[zone]]
-id      = "4d77"
+id      = "ffff"
 name    = "OP_Unknown4"
 priority = 4
 updated = "2026-07-19"
-comment = "NOT money — was misnamed OP_MoneyUpdate until 2026-07-19; the real one is 0x6414. 12B {u32 @0, u32=1, u32=42}, S>C, fires on a 60s timer (26 fires at 60.0s +/-0.9s across one 26min capture), so it is a heartbeat, not an event. Field @0 read 0 in 13 of 26 fires while the character carried 9,275,933 copper, and otherwise drifted in a narrow 11649..12098 band unrelated to the purse — it is not a coin total in any denomination. Deliberately UNWIRED. Meaning of @0 still unknown."
+comment = "STALE post-07/28: id 4d77 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: NOT money — was misnamed OP_MoneyUpdate until 2026-07-19; the real one is 0x6414. 12B {u32 @0, u32=1, u32=42}, S>C, fires on a 60s timer (26 fires at 60.0s +/-0.9s across one 26min capture), so it is a heartbeat, not an event. Field @0 read 0 in 13 of 26 fires while the character carried 9,275,933 copper, and otherwise drifted in a narrow 11649..12098 band unrelated to the purse — it is not a coin total in any denomination. Deliberately UNWIRED. Meaning of @0 still unknown."
 
   [[zone.payloads]]
   dir           = "server"
@@ -814,11 +814,11 @@ comment = "NOT money — was misnamed OP_MoneyUpdate until 2026-07-19; the real 
   sizechecktype = "none"
 
 [[zone]]
-id      = "7d1c"
+id      = "ffff"
 name    = "OP_LootTransaction"
 priority = 7
 updated = "2026-07-19"
-comment = "Subcode-multiplexed corpse-loot channel; the client requests a loot action and the server confirms. Subcodes (u16@0) seen in a 26min capture: 3 (C 2B / S 6B request+ack, purpose unknown), 6 (C 25B, the loot request), 5 (S 16B, layout unmapped), 7 (S 36B, the confirmation, decoded). The 36B confirmation echoes the request body and appends the proceeds: {u16 subcode=7@0, u16=1@2, u32 itemId@4, u32 slot@8, u32 corpseId@12, u32 quantity@16, u32 requestSeq@20, u16@24, u32 coinCopper@26, u8[6]=0@30}. WIRE-VERIFIED: across 24 confirmations the 18 non-zero @26 values matched exactly and in full the 18 amounts the server separately stated as English text (\"...and sold it for 3 gold, 5 silver and 7 copper\" = 357), and all 18 distinct corpseIds are spawns that both died and appear as a loot_drops corpse id. Decoded by parse_loot_transaction -> EqlDispatch::lootTransaction -> Player::adjustMoney + proto LootTransaction; this replaced parsing the sale wording out of OP_LootMessage. NOTE legacy showeq maps this id as a death/combat record (deathRecordEQLStruct {sourceId, skillOrDamage, targetId, combatSeq}) and discards it. That reading does not survive the capture: the record is client-initiated, every target was looted rather than merely killed, its trailing field is coin, and its \"always 1\" field @16 also takes the value 2. Kills are covered separately by OP_Death (0x36bf): 47 fires -> 47 spawn_killed, versus 24 of these."
+comment = "STALE post-07/28: id 7d1c carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Subcode-multiplexed corpse-loot channel; the client requests a loot action and the server confirms. Subcodes (u16@0) seen in a 26min capture: 3 (C 2B / S 6B request+ack, purpose unknown), 6 (C 25B, the loot request), 5 (S 16B, layout unmapped), 7 (S 36B, the confirmation, decoded). The 36B confirmation echoes the request body and appends the proceeds: {u16 subcode=7@0, u16=1@2, u32 itemId@4, u32 slot@8, u32 corpseId@12, u32 quantity@16, u32 requestSeq@20, u16@24, u32 coinCopper@26, u8[6]=0@30}. WIRE-VERIFIED: across 24 confirmations the 18 non-zero @26 values matched exactly and in full the 18 amounts the server separately stated as English text (\"...and sold it for 3 gold, 5 silver and 7 copper\" = 357), and all 18 distinct corpseIds are spawns that both died and appear as a loot_drops corpse id. Decoded by parse_loot_transaction -> EqlDispatch::lootTransaction -> Player::adjustMoney + proto LootTransaction; this replaced parsing the sale wording out of OP_LootMessage. NOTE legacy showeq maps this id as a death/combat record (deathRecordEQLStruct {sourceId, skillOrDamage, targetId, combatSeq}) and discards it. That reading does not survive the capture: the record is client-initiated, every target was looted rather than merely killed, its trailing field is coin, and its \"always 1\" field @16 also takes the value 2. Kills are covered separately by OP_Death (0x36bf): 47 fires -> 47 spawn_killed, versus 24 of these."
 
   [[zone.payloads]]
   # Fires BOTH ways — the client half is the loot REQUEST (subcodes 3/6); only the server confirmation is decoded, so the wire() binding stays DIR_Server.
@@ -1126,12 +1126,12 @@ comment = "old CorpseLocCode:"
   sizechecktype = "match"
 
 [[zone]]
-id      = "0b66"
+id      = "ffff"
 name    = "OP_ItemPacket"
 priority = -1
 priority_note = "noHandler"
 updated = "2026-07-14"
-comment = "EQ Legends bulk item transfer (S>C, ~1.1KB-19KB, sent on zone-in). u32@4 = item count N, then N item records ~1122-1130b each (16-char serial + name×2 + Trophy/Benefit descriptor + stats; item-id candidate = first u32). IDENTIFIED, NOT DECODED — the record layout (3-class fields etc.) is future work, and the Legends format differs from Live's itemPacketStruct, so this is intentionally NOT wired to the itemCache sink. See OPCODES_LEGENDS.md."
+comment = "STALE post-07/28: id 0b66 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: EQ Legends bulk item transfer (S>C, ~1.1KB-19KB, sent on zone-in). u32@4 = item count N, then N item records ~1122-1130b each (16-char serial + name×2 + Trophy/Benefit descriptor + stats; item-id candidate = first u32). IDENTIFIED, NOT DECODED — the record layout (3-class fields etc.) is future work, and the Legends format differs from Live's itemPacketStruct, so this is intentionally NOT wired to the itemCache sink. See OPCODES_LEGENDS.md."
 
   [[zone.payloads]]
   dir           = "server"
@@ -1408,12 +1408,12 @@ comment = "Fellowship information - 2576 bytes"
   sizechecktype = "none"
 
 [[zone]]
-id      = "729e"
+id      = "ffff"
 name    = "OP_ExpandedGuildInfo"
 priority = 0
 priority_note = "noHandler"
 updated = "2026-07-16"
-comment = "Guild ranks and other misc guild data - Variable length"
+comment = "STALE post-07/28: id 729e carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Guild ranks and other misc guild data - Variable length"
 
   [[zone.payloads]]
   dir           = "server"
@@ -2732,9 +2732,9 @@ comment = "07/07 rotation (community f-patch id, daemon-confirmed): C>S 4B corps
   sizechecktype = "none"
 
 [[world]]
-id      = "2efb"
+id      = "ffff"
 name    = "OP_GuildList"
-comment = "GuildListCode - S>C ~14KB at login, full server guild roster (list of guild-name strings). Confirmed 2026-05-27 (login-charmgmt): inline guild names in a 14176b login packet."
+comment = "STALE post-07/28: id 2efb carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: GuildListCode - S>C ~14KB at login, full server guild roster (list of guild-name strings). Confirmed 2026-05-27 (login-charmgmt): inline guild names in a 14176b login packet."
 
   [[world.payloads]]
   dir           = "server"
@@ -2742,9 +2742,9 @@ comment = "GuildListCode - S>C ~14KB at login, full server guild roster (list of
   sizechecktype = "none"
 
 [[world]]
-id      = "f8e0"
+id      = "ffff"
 name    = "OP_MOTD"
-comment = "MOTDCode - server message of the day, S>C world-stream post-EnterWorld. Confirmed 2026-05-27 (login-charmgmt): 154b payload = readable MOTD text (\"Greetings Norrathians! ...\")."
+comment = "STALE post-07/28: id f8e0 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: MOTDCode - server message of the day, S>C world-stream post-EnterWorld. Confirmed 2026-05-27 (login-charmgmt): 154b payload = readable MOTD text (\"Greetings Norrathians! ...\")."
 
   [[world.payloads]]
   dir           = "server"
@@ -2752,28 +2752,28 @@ comment = "MOTDCode - server message of the day, S>C world-stream post-EnterWorl
   sizechecktype = "none"
 
 [[world]]
-id      = "204f"
+id      = "ffff"
 name    = "OP_SendLoginInfo"
 updated = "2026-07-16"
-comment = "Client starting world session by asking for login information. Live: 464b C>S, first packet of every world session (5/5 confirmations)."
+comment = "STALE post-07/28: id 204f carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Client starting world session by asking for login information. Live: 464b C>S, first packet of every world session (5/5 confirmations)."
 
 [[world]]
-id      = "b537"
+id      = "ffff"
 updated = "2026-07-16"
 name    = "OP_LogServer"
-comment = "Live candidate: S>C 24b (0x7f8e), fires immediately after OP_SendLoginInfo in the handshake band."
+comment = "STALE post-07/28: id b537 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Live candidate: S>C 24b (0x7f8e), fires immediately after OP_SendLoginInfo in the handshake band."
 
 [[world]]
-id      = "b8cc"
+id      = "ffff"
 updated = "2026-07-16"
 name    = "OP_ApproveWorld"
-comment = "Live candidate: small S>C in handshake band; not isolated yet."
+comment = "STALE post-07/28: id b8cc carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Live candidate: small S>C in handshake band; not isolated yet."
 
 [[world]]
-id      = "0935"
+id      = "ffff"
 name    = "OP_EnterWorld"
 updated = "2026-07-16"
-comment = "Client tells world server to enter world with selected char. EQ Legends: 72b C>S, char name (zero-padded) at offset 0. Re-found 2026-07-16 after the 07/14 rotation left it unmapped (ffff): dump-payload of a 12-zone capture gave 0x0935 = 11×72B C>S (one per same-socket zone re-entry) + 11×5B S>C ack, and all 11 carry the SAME constant char-name @0 (NUL-term) — clinched. NOTE the trailer is no longer 0xffffffff (now a small value ~0x0b), so no struct is cast; the handler only needs the trigger. Prior ids 9bdc/26bf were stale pre-rotation guesses (never on the current wire). Mapping this makes NamePromoter fire on eql (matches by opcode name + 72b len), naming the box at the WORLD handshake — earlier than the own-spawn adoption fallback."
+comment = "STALE post-07/28: id 0935 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Client tells world server to enter world with selected char. EQ Legends: 72b C>S, char name (zero-padded) at offset 0. Re-found 2026-07-16 after the 07/14 rotation left it unmapped (ffff): dump-payload of a 12-zone capture gave 0x0935 = 11×72B C>S (one per same-socket zone re-entry) + 11×5B S>C ack, and all 11 carry the SAME constant char-name @0 (NUL-term) — clinched. NOTE the trailer is no longer 0xffffffff (now a small value ~0x0b), so no struct is cast; the handler only needs the trigger. Prior ids 9bdc/26bf were stale pre-rotation guesses (never on the current wire). Mapping this makes NamePromoter fire on eql (matches by opcode name + 72b len), naming the box at the WORLD handshake — earlier than the own-spawn adoption fallback."
 
   # C>S 72B enter-world (login + every in-place session re-entry). Bound so
   # EqlDispatch::enterWorld can reset the box + re-snapshot on a private-instance
@@ -2791,52 +2791,52 @@ comment = "Client tells world server to enter world with selected char. EQ Legen
   sizechecktype = "none"
 
 [[world]]
-id      = "6bcf"
+id      = "ffff"
 name    = "OP_ExpansionInfo"
 updated = "2026-07-16"
-comment = "Which expansions user has. Live: 64b fixed S>C in the post-LogServer / pre-ApproveWorld handshake band (5/5 confirmations)."
+comment = "STALE post-07/28: id 6bcf carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Which expansions user has. Live: 64b fixed S>C in the post-LogServer / pre-ApproveWorld handshake band (5/5 confirmations)."
 
 [[world]]
-id      = "7fc9"
+id      = "ffff"
 name    = "OP_SendCharInfo"
 updated = "2026-07-16"
-comment = "Send all chars visible @ char select. Live: 14176b S>C (variable with character roster size), fires once early in world handshake."
+comment = "STALE post-07/28: id 7fc9 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Send all chars visible @ char select. Live: 14176b S>C (variable with character roster size), fires once early in world handshake."
 
 [[world]]
-id      = "2de1"
+id      = "ffff"
 name    = "OP_SendSpellChecksum"
 updated = "2026-07-16"
-comment = "Contains a snippet of spell data. Live: 2056b C>S, payload tail shows caret-delimited spell-data text (matches spells_us.txt format). Capture-order position 2 of 4 in the post-handshake checksum burst."
+comment = "STALE post-07/28: id 2de1 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Contains a snippet of spell data. Live: 2056b C>S, payload tail shows caret-delimited spell-data text (matches spells_us.txt format). Capture-order position 2 of 4 in the post-handshake checksum burst."
 
 [[world]]
-id      = "44d9"
+id      = "ffff"
 name    = "OP_SendExeChecksum"
 updated = "2026-07-16"
-comment = "Client-side eqgame.exe checksum sample. Live: 2056b C>S, payload tail shows binary code-style content. Capture-order position 1 of 4 in the post-handshake checksum burst."
+comment = "STALE post-07/28: id 44d9 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Client-side eqgame.exe checksum sample. Live: 2056b C>S, payload tail shows binary code-style content. Capture-order position 1 of 4 in the post-handshake checksum burst."
 
 [[world]]
-id      = "289c"
+id      = "ffff"
 name    = "OP_SendBaseDataChecksum"
 updated = "2026-07-16"
-comment = "Client-side base-data file sample. Live: 2056b C>S, payload tail shows caret-delimited text records. Capture-order position 3 of 4 in the post-handshake checksum burst. Mapping to BaseData (vs another text-format file) inferred by elimination + position."
+comment = "STALE post-07/28: id 289c carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Client-side base-data file sample. Live: 2056b C>S, payload tail shows caret-delimited text records. Capture-order position 3 of 4 in the post-handshake checksum burst. Mapping to BaseData (vs another text-format file) inferred by elimination + position."
 
 [[world]]
-id      = "a958"
+id      = "ffff"
 name    = "OP_SendSkillCapsChecksum"
 updated = "2026-07-16"
-comment = "Client-side skillcaps checksum. Live: 64b C>S, opaque hash-style payload. Capture-order position 4 of 4 in the post-handshake checksum burst — the only one not at 2056b, fits the smaller skillcaps data table."
+comment = "STALE post-07/28: id a958 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Client-side skillcaps checksum. Live: 64b C>S, opaque hash-style payload. Capture-order position 4 of 4 in the post-handshake checksum burst — the only one not at 2056b, fits the smaller skillcaps data table."
 
 [[world]]
-id      = "8eaa"
+id      = "ffff"
 updated = "2026-07-14"
 name    = "OP_SetChatServer"
-comment = "Legacy chatserver tuple. May be obsolete on Live — handshake capture shows only the SetChatServer2 catalog (no 56b S>C tuple observed, unlike Test)."
+comment = "STALE post-07/28: id 8eaa carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Legacy chatserver tuple. May be obsolete on Live — handshake capture shows only the SetChatServer2 catalog (no 56b S>C tuple observed, unlike Test)."
 
 [[world]]
-id      = "f22b"
+id      = "ffff"
 name    = "OP_SetChatServer2"
 updated = "2026-07-16"
-comment = "Secondary chat / account / commerce service catalog. Live: 1464b S>C in handshake band (3/3 confirmations); ~18 plaintext Daybreak service URLs."
+comment = "STALE post-07/28: id f22b carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Secondary chat / account / commerce service catalog. Live: 1464b S>C in handshake band (3/3 confirmations); ~18 plaintext Daybreak service URLs."
 
 [[world]]
 id      = "4b8f"
@@ -2850,28 +2850,28 @@ comment = "Re-mapped for the 07/28 rotation - carries the zone server hostname a
   sizechecktype = "match"
 
 [[world]]
-id      = "fc46"
+id      = "ffff"
 name    = "OP_WorldComplete"
 updated = "2026-07-16"
-comment = "Client telling world server it is done. Live: 0b C>S, last C>S packet of session immediately after OP_ZoneServerInfo. World replies by disconnecting. 2/2 confirmations."
+comment = "STALE post-07/28: id fc46 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Client telling world server it is done. Live: 0b C>S, last C>S packet of session immediately after OP_ZoneServerInfo. World replies by disconnecting. 2/2 confirmations."
 
 [[world]]
-id      = "48f9"
+id      = "ffff"
 name    = "OP_DeleteCharacter"
 updated = "2026-07-16"
-comment = "Delete character @ char select. Live: 68b C>S world, name@offset 0. Re-confirmed post-2026-05-22 patch (login-charmgmt): 1 C>S fire carrying the deleted char name."
+comment = "STALE post-07/28: id 48f9 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Delete character @ char select. Live: 68b C>S world, name@offset 0. Re-confirmed post-2026-05-22 patch (login-charmgmt): 1 C>S fire carrying the deleted char name."
 
 [[world]]
-id      = "08d0"
+id      = "ffff"
 name    = "OP_CharacterCreate"
 updated = "2026-07-16"
-comment = "Create character @ char select. Live: 168b C>S world (name[64] + gender/race/class/deity/appearance fields), fires once per submitted creation right after OP_ApproveName response. Re-confirmed post-2026-05-22 patch (login-charmgmt)."
+comment = "STALE post-07/28: id 08d0 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Create character @ char select. Live: 168b C>S world (name[64] + gender/race/class/deity/appearance fields), fires once per submitted creation right after OP_ApproveName response. Re-confirmed post-2026-05-22 patch (login-charmgmt)."
 
 [[world]]
-id      = "a24a"
+id      = "ffff"
 name    = "OP_ApproveName"
 updated = "2026-07-16"
-comment = "Approving new character name @ char creation. Live: 84b C>S name candidate, 1b S>C status (taken vs available). Re-confirmed post-2026-05-22 patch (login-charmgmt): fires right before OP_CharacterCreate."
+comment = "STALE post-07/28: id a24a carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Approving new character name @ char creation. Live: 84b C>S name candidate, 1b S>C status (taken vs available). Re-confirmed post-2026-05-22 patch (login-charmgmt): fires right before OP_CharacterCreate."
 
 [[world]]
 id      = "ffff"

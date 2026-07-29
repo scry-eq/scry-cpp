@@ -92,8 +92,8 @@
         <comment>SpawnAppearanceCode</comment>
         <payload dir="both" typename="spawnAppearanceStruct" sizechecktype="match"/>
     </opcode>
-    <opcode id="4170" name="OP_SpawnAppearance2" updated="07/14/26">
-        <comment>EQ Legends extended appearance (24B) — byte-identical to Live spawnAppearance2Struct {u32 spawnId, u32 type, u32 value, u8[12] pad}. Confirmed 2026-07-08: 55 spawn ids, type set {5,6,8,22,26,...} matches Live's {5,6,8,22,26,36,42}; type->value fits (type 6->100/110/115, type 43->0/1/2 flag). Wired S>C to the neutral SpawnShell::updateSpawnLock (acts on type 0x2c mob-lock; no-op on other types). C>S half (ClickBuffOff, type 0x24) acknowledged, unwired. See OPCODES_LEGENDS.md</comment>
+    <opcode id="ffff" name="OP_SpawnAppearance2" updated="07/14/26">
+        <comment>STALE post-07/28: id 4170 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: EQ Legends extended appearance (24B) — byte-identical to Live spawnAppearance2Struct {u32 spawnId, u32 type, u32 value, u8[12] pad}. Confirmed 2026-07-08: 55 spawn ids, type set {5,6,8,22,26,...} matches Live's {5,6,8,22,26,36,42}; type->value fits (type 6->100/110/115, type 43->0/1/2 flag). Wired S>C to the neutral SpawnShell::updateSpawnLock (acts on type 0x2c mob-lock; no-op on other types). C>S half (ClickBuffOff, type 0x24) acknowledged, unwired. See OPCODES_LEGENDS.md</comment>
         <payload dir="server" typename="spawnAppearance2Struct" sizechecktype="match"/>
         <payload dir="client" typename="uint8_t" sizechecktype="none"/>
     </opcode>
@@ -221,16 +221,16 @@
         <comment>Per-spawn active-buff list, resent at zone-in + on every buff change with REAL server-side remaining durations. Xerxes 07/14 map: OP_BuffList/2/3 = 73e2/713a/5c47, all the same format + handler. Variable size: u32 spawnId, u32 (seq/ts), u8 flag=1, u8 count, u8[5] pad, then count records {u32 spellId, u32=1, i32 remainingTicks, u32=0} + NUL caster name + slot (u32 between records, u16 on the final). remainingTicks&lt;=0 = permanent. Wired → SpellShell::buffList; owner by findability (self → buff panel, findable mob → target effects).</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
-    <opcode id="713a" name="OP_BuffList2" updated="07/14/26" priority="6">
-        <comment>Buff-list variant — same format + handler as OP_BuffList (73e2); see it for the record layout.</comment>
+    <opcode id="ffff" name="OP_BuffList2" updated="07/14/26" priority="6">
+        <comment>STALE post-07/28: id 713a carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Buff-list variant — same format + handler as OP_BuffList (73e2); see it for the record layout.</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
-    <opcode id="5c47" name="OP_BuffList3" updated="07/14/26" priority="6">
-        <comment>Buff-list variant — same format + handler as OP_BuffList (73e2); see it for the record layout.</comment>
+    <opcode id="ffff" name="OP_BuffList3" updated="07/14/26" priority="6">
+        <comment>STALE post-07/28: id 5c47 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Buff-list variant — same format + handler as OP_BuffList (73e2); see it for the record layout.</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
-    <opcode id="7d73" name="OP_Damage" updated="07/16/26" priority="6">
-        <comment>Combat floating-text feed (S>C), NAMED-INERT — NOT wired: the combat log already comes from OP_Action2 (0x5446, structured); this is the client's display-text subset and would duplicate it. Layout: {u32 sourceSpawn@0, u8 type@4, u32 targetSpawn@5, u32 msgCategory@9, NUL-terminated tail}. type table: 5=normal damage (tail=amount 5-413), 6=CRITICAL (big/rare, up to ~1020), 7=fixed-value damage ~197 (DoT tick), 8=misc damage, 3/4=non-damage (empty tail — miss/absorb), 0/1=spell event (tail=spell link + name). @9 is a filter/color id keyed to event KIND (15566=damage, 15562=miss, spell=12478/439/…), constant within damage — so crit is the TYPE byte (6), not @9. Kept for a future floating-combat-text overlay.</comment>
+    <opcode id="ffff" name="OP_Damage" updated="07/16/26" priority="6">
+        <comment>STALE post-07/28: id 7d73 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Combat floating-text feed (S>C), NAMED-INERT — NOT wired: the combat log already comes from OP_Action2 (0x5446, structured); this is the client's display-text subset and would duplicate it. Layout: {u32 sourceSpawn@0, u8 type@4, u32 targetSpawn@5, u32 msgCategory@9, NUL-terminated tail}. type table: 5=normal damage (tail=amount 5-413), 6=CRITICAL (big/rare, up to ~1020), 7=fixed-value damage ~197 (DoT tick), 8=misc damage, 3/4=non-damage (empty tail — miss/absorb), 0/1=spell event (tail=spell link + name). @9 is a filter/color id keyed to event KIND (15566=damage, 15562=miss, spell=12478/439/…), constant within damage — so crit is the TYPE byte (6), not @9. Kept for a future floating-combat-text overlay.</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="2c36" name="OP_BeginCast" updated="07/28/26" priority="5">
@@ -266,12 +266,12 @@
         <comment>eql corpse loot window: {u16, u32=900, u32 corpseId@6, u32 count@10, NUL-term corpse name@14, then `count` item entries each with a 0x12 item link}. Decoded by parse_loot_drops (item name = link past 197-hex header) -> MessageShell::lootDrops -> LootDrops proto.</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
-    <opcode id="4d77" name="OP_Unknown4" updated="07/19/26" priority="4">
-        <comment>NOT money — was misnamed OP_MoneyUpdate until 2026-07-19; the real one is 0x6414. 12B {u32 @0, u32=1, u32=42}, S>C, fires on a 60s timer (26 fires at 60.0s +/-0.9s across one 26min capture), so it is a heartbeat, not an event. Field @0 read 0 in 13 of 26 fires while the character carried 9,275,933 copper, and otherwise drifted in a narrow 11649..12098 band unrelated to the purse — it is not a coin total in any denomination. Deliberately UNWIRED. Meaning of @0 still unknown.</comment>
+    <opcode id="ffff" name="OP_Unknown4" updated="07/19/26" priority="4">
+        <comment>STALE post-07/28: id 4d77 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: NOT money — was misnamed OP_MoneyUpdate until 2026-07-19; the real one is 0x6414. 12B {u32 @0, u32=1, u32=42}, S>C, fires on a 60s timer (26 fires at 60.0s +/-0.9s across one 26min capture), so it is a heartbeat, not an event. Field @0 read 0 in 13 of 26 fires while the character carried 9,275,933 copper, and otherwise drifted in a narrow 11649..12098 band unrelated to the purse — it is not a coin total in any denomination. Deliberately UNWIRED. Meaning of @0 still unknown.</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
-    <opcode id="7d1c" name="OP_LootTransaction" updated="07/19/26" priority="7">
-        <comment>Subcode-multiplexed corpse-loot channel; the client requests a loot action and the server confirms. Subcodes (u16@0) seen in a 26min capture: 3 (C 2B / S 6B request+ack, purpose unknown), 6 (C 25B, the loot request), 5 (S 16B, layout unmapped), 7 (S 36B, the confirmation, decoded). The 36B confirmation echoes the request body and appends the proceeds: {u16 subcode=7@0, u16=1@2, u32 itemId@4, u32 slot@8, u32 corpseId@12, u32 quantity@16, u32 requestSeq@20, u16@24, u32 coinCopper@26, u8[6]=0@30}. WIRE-VERIFIED: across 24 confirmations the 18 non-zero @26 values matched exactly and in full the 18 amounts the server separately stated as English text ("...and sold it for 3 gold, 5 silver and 7 copper" = 357), and all 18 distinct corpseIds are spawns that both died and appear as a loot_drops corpse id. Decoded by parse_loot_transaction -> EqlDispatch::lootTransaction -> Player::adjustMoney + proto LootTransaction; this replaced parsing the sale wording out of OP_LootMessage. NOTE legacy showeq maps this id as a death/combat record (deathRecordEQLStruct {sourceId, skillOrDamage, targetId, combatSeq}) and discards it. That reading does not survive the capture: the record is client-initiated, every target was looted rather than merely killed, its trailing field is coin, and its "always 1" field @16 also takes the value 2. Kills are covered separately by OP_Death (0x36bf): 47 fires -> 47 spawn_killed, versus 24 of these.</comment>
+    <opcode id="ffff" name="OP_LootTransaction" updated="07/19/26" priority="7">
+        <comment>STALE post-07/28: id 7d1c carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Subcode-multiplexed corpse-loot channel; the client requests a loot action and the server confirms. Subcodes (u16@0) seen in a 26min capture: 3 (C 2B / S 6B request+ack, purpose unknown), 6 (C 25B, the loot request), 5 (S 16B, layout unmapped), 7 (S 36B, the confirmation, decoded). The 36B confirmation echoes the request body and appends the proceeds: {u16 subcode=7@0, u16=1@2, u32 itemId@4, u32 slot@8, u32 corpseId@12, u32 quantity@16, u32 requestSeq@20, u16@24, u32 coinCopper@26, u8[6]=0@30}. WIRE-VERIFIED: across 24 confirmations the 18 non-zero @26 values matched exactly and in full the 18 amounts the server separately stated as English text ("...and sold it for 3 gold, 5 silver and 7 copper" = 357), and all 18 distinct corpseIds are spawns that both died and appear as a loot_drops corpse id. Decoded by parse_loot_transaction -> EqlDispatch::lootTransaction -> Player::adjustMoney + proto LootTransaction; this replaced parsing the sale wording out of OP_LootMessage. NOTE legacy showeq maps this id as a death/combat record (deathRecordEQLStruct {sourceId, skillOrDamage, targetId, combatSeq}) and discards it. That reading does not survive the capture: the record is client-initiated, every target was looted rather than merely killed, its trailing field is coin, and its "always 1" field @16 also takes the value 2. Kills are covered separately by OP_Death (0x36bf): 47 fires -> 47 spawn_killed, versus 24 of these.</comment>
         <payload dir="both" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="03c3" name="OP_MoneyUpdate" updated="07/28/26" priority="4">
@@ -379,8 +379,8 @@
         <comment>old CorpseLocCode:</comment>
         <payload dir="server" typename="corpseLocStruct" sizechecktype="match"/>
     </opcode>
-    <opcode id="0b66" name="OP_ItemPacket" updated="07/14/26" priority="-1">
-        <comment>EQ Legends bulk item transfer (S>C, ~1.1KB-19KB, sent on zone-in). u32@4 = item count N, then N item records ~1122-1130b each (16-char serial + name×2 + Trophy/Benefit descriptor + stats; item-id candidate = first u32). IDENTIFIED, NOT DECODED — the record layout (3-class fields etc.) is future work, and the Legends format differs from Live's itemPacketStruct, so this is intentionally NOT wired to the itemCache sink. See OPCODES_LEGENDS.md.</comment>
+    <opcode id="ffff" name="OP_ItemPacket" updated="07/14/26" priority="-1">
+        <comment>STALE post-07/28: id 0b66 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: EQ Legends bulk item transfer (S>C, ~1.1KB-19KB, sent on zone-in). u32@4 = item count N, then N item records ~1122-1130b each (16-char serial + name×2 + Trophy/Benefit descriptor + stats; item-id candidate = first u32). IDENTIFIED, NOT DECODED — the record layout (3-class fields etc.) is future work, and the Legends format differs from Live's itemPacketStruct, so this is intentionally NOT wired to the itemCache sink. See OPCODES_LEGENDS.md.</comment>
         <priorityNote>noHandler</priorityNote>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
@@ -486,8 +486,8 @@
         <priorityNote>noHandler</priorityNote>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
-    <opcode id="729e" name="OP_ExpandedGuildInfo" updated="07/16/26" priority="0">
-        <comment>Guild ranks and other misc guild data - Variable length</comment>
+    <opcode id="ffff" name="OP_ExpandedGuildInfo" updated="07/16/26" priority="0">
+        <comment>STALE post-07/28: id 729e carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Guild ranks and other misc guild data - Variable length</comment>
         <priorityNote>noHandler</priorityNote>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
