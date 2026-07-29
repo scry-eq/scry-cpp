@@ -1716,3 +1716,44 @@ Agreement with an unverified source is not evidence.
   and this wire confirms upstream's rationale (BeginCast tops out at 74073).
 - Not ported: the buff-window caster filter (our BuffList event is already
   per-owner), and the statlist SIGFPE / Qt4 guards (legacy-UI only).
+
+#### 2026-07-28 — positions were wrong; spawn block re-derived
+
+Prompted by upstream's `spawnStruct posData` change, a cross-check found the
+position sources disagreeing with each other: ZoneEntry vs MobUpdate sat a
+median **3051 units** apart. Names, levels and races decoded fine throughout,
+which is exactly why this went unnoticed.
+
+**Spawn block — FIXED and verified.** The block was rearranged and one word is
+now a PAD that always reads 0; the old layout read it as a coordinate, hence a
+wall of spawns at y=0. Located against the player's own position (the breadcrumb
+is verified ground truth, and the player's own spawn arrives as a ZoneEntry
+record), 30 own-records agreeing on:
+
+```
+lead | X | Z | pad | Y | trail      X @len-95, Z @len-91, Y @len-83
+```
+
+Upstream's struct describes the same 5-word shape including the pad. Verified:
+the player's record now decodes to exactly the breadcrumb position, and y=0
+spawns fall from a wall to 19 of 8198. The spawn FACING did not survive — the
+word it rode is now Y — so it reports 0, as upstream also leaves it unmapped.
+
+**Still wrong — next up:**
+
+- **OP_MobUpdate** sits a median 324 units from the corrected ZoneEntry position
+  of the same spawn (18% within 10 units). Partly confounded by mobs genuinely
+  moving between an entry record and a later update, so re-measure against
+  STATIONARY spawns only (spawns whose entry position never varies) before
+  concluding.
+- **OP_NpcMoveUpdate** is the higher-volume one (113k vs 50k) and is wrong: a
+  bit-offset solve against stationary spawns puts a coordinate at bit 16,
+  immediately after the 16-bit spawn id, where the current parser expects 16
+  bits of padding plus a 6-bit field mask — i.e. the pre-patch BitStream framing
+  is gone. Only one axis was located; x matched nowhere, so the layout is NOT
+  solved. Upstream documents x@bit160 / y@bit64 / z@bit96, but bit 160 is byte
+  20 and our payloads are 15-19 bytes, so its struct describes a longer variant
+  than this wire carries — do not port it blindly.
+
+Both need the same treatment that worked for the spawn block: solve against
+stationary spawns whose position is known exactly, rather than porting offsets.
