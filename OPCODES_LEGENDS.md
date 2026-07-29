@@ -1599,3 +1599,30 @@ between opcodes that all reference a spawn is recoverable from succession
 (zone name is still empty in a replay, so NewZone is the next one to take).
 Below p10 the ladder is untouched — 71 opcodes are actionable in total, the
 other 149 prioritised entries are p-1 and are not hunted.
+
+#### 2026-07-28, continued — NewZone, SelfPos, and a struct that DID drift
+
+- **OP_NewZone = `47f2`** — decode-verified: yields real zone short/long name
+  pairs (`rathemtn`/The Rathe Mountains, then feerrott, innothule, sro, oasis,
+  nro …), 13 fires = one per zone-in. Found by anchoring on zone names the
+  player reported visiting — zone names are plain text on the wire, so a
+  remembered destination is a free anchor. Replays now resolve the zone name.
+- **OP_ZoneServerInfo = `4b8f`** — carries the zone server hostname as a leading
+  string. Load-bearing for the DAEMON (it binds a box's zone stream off this);
+  scry does not need it.
+- **OP_SelfPos = `6323`** — the C>S position-history breadcrumb. Identified by
+  content: it is the only C>S opcode carrying the player's own coordinates, and
+  its records decode to a coherent walking trajectory. NOTE its backend arm
+  parses and then deliberately returns `Ignored`, so "it decoded to nothing" is
+  the CORRECT result here and is not evidence against the mapping.
+
+**OP_ClientUpdate's position fields drifted this patch.** The id at offset 2 is
+right (that is what identified it, in both directions), but the decoded self
+position is a degenerate `{0,0,4}` while the breadcrumb from the same session
+decodes to real coordinates. So the packed position bitfields moved — a reorder
+keeps the struct SIZE identical, so no size check can catch it, exactly as the
+Live 07/15 rotation did.
+
+The re-derivation has ground truth available: `6323` gives the player's real
+position over time, so `5bfd`'s bitfields can be solved against it rather than
+guessed. That is the next piece of work on this backend.

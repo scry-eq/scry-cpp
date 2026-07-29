@@ -11,8 +11,8 @@
         <comment>07/07 rotation; 8B stock timeOfDayStruct byte-identical (wire-verified 8B); advances at EQ game rate</comment>
         <payload dir="server" typename="timeOfDayStruct" sizechecktype="match"/>
     </opcode>
-    <opcode id="65dd" name="OP_NewZone" updated="07/14/26" priority="10">
-        <comment>EQ Legends current zone (S>C, ~340B, once per zone-in). Packed null-terminated short_name + long_name (+ zonefile repeat + binary tail). Confirmed 3-way: guktop/'The City of Guk', nektulos/'Nektulos Forest', unrest/'The Estate of Unrest' — each the correct current zone, each a different length. Decoded by EqlDispatch::newZone -> ZoneMgr::setZoneByName. See OPCODES_LEGENDS.md</comment>
+    <opcode id="47f2" name="OP_NewZone" updated="07/28/26" priority="10">
+        <comment>Re-mapped for the 07/28 rotation - decode-verified: yields real zone short/long names (rathemtn/The Rathe Mountains, feerrott, innothule, sro, oasis, nro); fires 13x = once per zone-in. PRIOR: EQ Legends current zone (S>C, ~340B, once per zone-in). Packed null-terminated short_name + long_name (+ zonefile repeat + binary tail). Confirmed 3-way: guktop/'The City of Guk', nektulos/'Nektulos Forest', unrest/'The Estate of Unrest' — each the correct current zone, each a different length. Decoded by EqlDispatch::newZone -> ZoneMgr::setZoneByName. See OPCODES_LEGENDS.md</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="ffff" name="OP_ZoneBindMarker" updated="07/08/26">
@@ -49,8 +49,8 @@
         <payload dir="client" typename="playerSelfPosStruct" sizechecktype="match"/>
         <payload dir="server" typename="playerSpawnPosStruct" sizechecktype="match"/>
     </opcode>
-    <opcode id="4fb6" name="OP_SelfPos" updated="07/17/26" priority="10">
-        <comment>Second EQL self-pos C>S opcode, distinct from OP_ClientUpdate 0x5188: a position-history breadcrumb — N×17B records {y@0/x@4/z@8 floats, seq@12, u32 ts@13} + 1 trailing byte (18B=1 sample up to 2415B=142). Characterized 2026-07-17 vs a /loc capture (all 3 points exact). Variable size → no fixed struct. Decoder is Rust (parse_self_pos_breadcrumb, exposed via the decode_self_pos_breadcrumb FFI) — opcode mapped + decodable, but intentionally NOT wired to a handler: a movement-trail overlay was built end-to-end then removed (laggy, low value; redundant with 0x5188 for position). Xerxes maps this same id; his playerSelfState len==38 gate skips it. See OPCODES_LEGENDS.md</comment>
+    <opcode id="6323" name="OP_SelfPos" updated="07/28/26" priority="10">
+        <comment>Re-mapped for the 07/28 rotation - C>S position-history breadcrumb: decodes to a coherent walking trajectory in 17-byte records; the only C>S opcode carrying the players own coordinates. PRIOR: Second EQL self-pos C>S opcode, distinct from OP_ClientUpdate 0x5188: a position-history breadcrumb — N×17B records {y@0/x@4/z@8 floats, seq@12, u32 ts@13} + 1 trailing byte (18B=1 sample up to 2415B=142). Characterized 2026-07-17 vs a /loc capture (all 3 points exact). Variable size → no fixed struct. Decoder is Rust (parse_self_pos_breadcrumb, exposed via the decode_self_pos_breadcrumb FFI) — opcode mapped + decodable, but intentionally NOT wired to a handler: a movement-trail overlay was built end-to-end then removed (laggy, low value; redundant with 0x5188 for position). Xerxes maps this same id; his playerSelfState len==38 gate skips it. See OPCODES_LEGENDS.md</comment>
         <payload dir="client" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="5c7f" name="OP_ZoneEntry" updated="07/28/26" priority="10">
