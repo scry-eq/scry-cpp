@@ -1815,11 +1815,15 @@ run separates them cleanly:
 `npcMoveUpdateEQL` exactly — spawnId@0 BE, 6-bit specifier@32, sign+magnitude
 19-bit at 38/57/76, heading@95, and the same wire→map transpose.
 
-**OP_MobUpdate carries DELTAS, not positions.** Decoded against spawns whose
+**OP_MobUpdate: RETRACTED claim.** An earlier revision of this entry said it carries deltas. Decoded against spawns whose
 true position is known, its fields read in the hundreds where truth is in the
 thousands: spawn 11619 is at (3847,-1183,69) while the packet yields ~(186,15,5)
-under either field labelling. No scan for an absolute coordinate could have
-succeeded. Its bit positions have been realigned to upstream's
+under either field labelling — but that comparison was itself confounded (the
+reference was the spawn's ZoneEntry position, which a walking mob has left), and
+a stationary spawn repeats a constant non-zero triple rather than sending zeros,
+which is not delta-like either. A width-19..22 bit search across the whole
+payload finds the true coordinate at NO offset, so the pairing or the reference
+is wrong rather than the semantic. Treat MobUpdate as UNSOLVED, not as deltas. Its bit positions have been realigned to upstream's
 `spawnPositionUpdateEQL` (x 0..18, z 19..37, 7-bit gap, y 45..63 — the gap is
 what the old binding omitted), but consumers still treat the values as absolute,
 so this is the next piece of work: apply them as deltas against the tracked
