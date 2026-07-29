@@ -1757,3 +1757,39 @@ word it rode is now Y — so it reports 0, as upstream also leaves it unmapped.
 
 Both need the same treatment that worked for the spawn block: solve against
 stationary spawns whose position is known exactly, rather than porting offsets.
+
+#### 2026-07-28 — MobUpdate / NpcMoveUpdate: partial, NOT solved
+
+Attempted the same ground-truth solve that fixed the spawn block. It did not
+close, and the negative results are worth keeping so the next attempt does not
+repeat them.
+
+**Method notes.** A "stationary spawn" filter is a trap: requiring a spawn's
+ZoneEntry positions to be identical accepts every spawn that only ever sent ONE
+record, which is nearly all of them (5835 of 6812). Tightening to 3+ identical
+records leaves 8 spawns and 3 usable packets. Time-proximity pairing (an update
+within ~3000 packets of the spawn's ZoneEntry must report a nearby position)
+gives 2500 usable samples and is the better instrument.
+
+**What was found.** For OP_MobUpdate, spawn 11895 (true position -86,-902,-67)
+carries `0xFC6C0000` as the LE u32 at byte 8, and `(w >> 13)` read as a signed
+19-bit x8 value gives **-916 against a true y of -902** — a match inside the
+mob's own drift. That is the same "coordinate in bits 13..31 of a word" packing
+the spawn record used before this patch, so the convention survived even though
+the block moved.
+
+**What was ruled out.** Scanning every bit offset (both bit orders, two's
+complement and sign-magnitude, >>3 and raw) and every byte offset (i16, i16>>3,
+f32) across both opcodes, **x matches nowhere and z only matches coincidentally**
+(z is small-magnitude, so a +/-40 tolerance hits noise constantly — do not trust
+a z-only hit). So x is not a plain absolute coordinate at any offset in these
+payloads under any encoding tried.
+
+**The hypothesis worth testing next:** these may carry DELTAS rather than
+absolute positions, which would explain a high-rate movement opcode and would
+explain why no offset holds an absolute x. Test it cheaply by taking consecutive
+updates for one spawn and checking whether the candidate fields are small and
+signed (deltas) or large and slowly-varying (absolutes).
+
+Upstream's offsets still cannot be ported: it documents x at bit 160 (byte 20)
+while these payloads are 14 bytes (MobUpdate) and 15-19 (NpcMoveUpdate).
