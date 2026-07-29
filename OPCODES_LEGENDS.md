@@ -1989,3 +1989,40 @@ risk for whoever gets a capture with an illusion in it: it is wired
 `spawnIllusionStruct` / `SZC_Match`, which is exactly the gate that was silently
 eating OP_LevelUpdate. If the eql packet is a widened container like that one,
 it will be dropped with no error. Check the wire size before trusting silence.
+
+### 2026-07-28 — OP_Action spell field does NOT truncate (concern retracted)
+
+The open question was whether `OP_Action`'s spell id is wider than the `u16@4`
+we read — the lead being a possible `u32` and an apparent signal at an unaligned
+`u32@3`. Tested all three candidate reads against 3092 OP_Action packets, scored
+by how many distinct values resolve to a real spell-DB name:
+
+| read | valid spell ids |
+|------|-----------------|
+| `u16@4` (what we do) | **101 / 101** — 89/89 in the 64B form, 12/12 in the 88B form |
+| `u32@3` (the old lead) | 133 / 327, max 18962753 — garbage |
+| `u32@4` (the widening) | 74 packets yield values above 65535, none of them spell ids |
+
+`u16@4` is correct and complete. Every distinct id in the capture is a real
+spell, so nothing is being cut — a truncating read would wrap a wide id to a low
+value that either fails to resolve or names the wrong spell, and neither
+happens.
+
+The `u32@3` signal was the artifact it looked like: that read straddles `source`'s
+high byte, the spell, and the field above it.
+
+The `u32@4` failures pin down what the bytes above the spell actually are. `u16@6`
+is `0` in 3018 packets and `1` in 74 — a flag, part of `unknown0006[6]`, NOT a
+high half. Reading a `u32` there folds it in as +65536 (74014 = 65536 + 8478),
+which is exactly the 74 bad values. So the field must NOT be widened to u32.
+
+Upstream agrees on the layout: the legends branch still declares the field at
+offset 4 with the rest of `unknown0006` above it. It declares it `int16_t`, where
+our live/test/eql all use `uint16_t` — the correct choice, since a signed read
+sign-extends any id above 32767. That divergence is deliberate; keep it.
+
+**Separate gap found while checking this** (not fixed here): the daemon wires
+both `OP_Action` payloads to `SpellShell::action`, but `seq-backend-eql`'s
+`Backend` impl has an arm for `OP_Action2` only — there is no neutral event for
+`OP_Action`. Consumers on the neutral contract (scry) therefore see none of
+these 3092 packets. Same shape of gap as OP_LevelUpdate had.

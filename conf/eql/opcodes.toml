@@ -396,7 +396,7 @@ id      = "50e8"
 name    = "OP_Action"
 priority = 7
 updated = "2026-07-28"
-comment = "EQ Legends spell/special action (S>C). Live paired send: 64B actionStruct (n=97/117) + 88B actionAltStruct (n=22/43); target/source u16@0/@2, spell u16@4 (real ids 502/445/821). Sole 64B/88B op. Lights up the already-wired SpellShell::action (both payloads). See OPCODES_LEGENDS.md"
+comment = "EQ Legends spell/special action (S>C). Live paired send: 64B actionStruct (n=97/117) + 88B actionAltStruct (n=22/43); target/source u16@0/@2, spell u16@4 (real ids 502/445/821). Sole 64B/88B op. Lights up the already-wired SpellShell::action (both payloads). spell is u16@4 and does NOT truncate — verified 2026-07-28 over 3092 packets, 101/101 distinct ids resolve to real spell-DB names across both the 64B and 88B forms. Do NOT widen it to u32: u16@6 is a separate flag (1 in 74 of 3092), and a u32@4 read folds it in as +65536. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "both"
