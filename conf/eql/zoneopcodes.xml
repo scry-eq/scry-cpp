@@ -335,9 +335,9 @@
         <payload dir="server" typename="skillIncStruct" sizechecktype="match"/>
     </opcode>
     <opcode id="70c6" name="OP_LevelUpdate" updated="07/28/26" priority="8">
-        <comment>LevelUpUpdateCode</comment>
-        <priorityNote>single sample</priorityNote>
-        <payload dir="server" typename="levelUpUpdateStruct" sizechecktype="match"/>
+        <comment>S>C discrete level-up. 80B widened container whose HEAD is the stock levelUpUpdateStruct (u32 level@0, u32 levelOld@4, u32 exp@8); the rest is unmapped. Size check must be NONE — match would gate on sizeof(levelUpUpdateStruct) and drop every packet. Supersedes the earlier 'eql has no discrete level packet' finding.</comment>
+        <priorityNote>confirmed 2026-07-28: 5 fires, levels 2..6 with levelOld always level-1, matching a 1->6 leveling capture</priorityNote>
+        <payload dir="server" typename="levelUpUpdateStruct" sizechecktype="none"/>
     </opcode>
     <opcode id="2216" name="OP_DzSwitchInfo" updated="07/28/26" priority="-1">
         <comment>Expedition compass etc</comment>

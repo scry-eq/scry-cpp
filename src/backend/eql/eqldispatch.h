@@ -130,8 +130,6 @@ private:
     DbStrings*  m_dbStrings;   // AA titleSID -> name (dbstr type-1); may be empty
     GuildShell* m_guildShell;
     GuildMgr*   m_guildMgr;    // daemon-global guild id->name map
-    // Last regular-exp permille seen (−1 = unseeded); a decrease is a ding.
-    int64_t     m_lastExp = -1;
     // While awaiting the in-zone respawn after the local player's own death,
     // holds the dead self-spawn id (0 = not awaiting). Guards playerUpdateSelf
     // from re-adopting the dead id onto a trailing corpse-side update.

@@ -324,11 +324,14 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_SendAATable", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(eql, &EqlDispatch::sendAATable));
-    // OP_LevelUpdate stays mapped to `ffff` in conf/eql/opcodes.toml — eql has no
-    // discrete level packet (exhaustively confirmed 2026-07-10, OPCODES_LEGENDS.md),
-    // so this never fires; kept wired in case a future patch introduces one.
+    // OP_LevelUpdate: eql DOES have a discrete level packet — the older "no such
+    // packet exists" finding is superseded (see OPCODES_LEGENDS.md). It is an 80B
+    // widened container whose head is the stock levelUpUpdateStruct
+    // (level@0, levelOld@4, exp@8), so SZC_Match would drop every one of them on
+    // the size gate; SZC_None lets it through and updateLevel already clamps its
+    // read to sizeof(levelUpUpdateStruct).
     wire("OP_LevelUpdate", SP_Zone, DIR_Server,
-         "levelUpUpdateStruct", SZC_Match,
+         "levelUpUpdateStruct", SZC_None,
          seqBind(ms.player, &Player::updateLevel));
     wire("OP_SkillUpdate", SP_Zone, DIR_Server,
          "skillIncStruct", SZC_Match,

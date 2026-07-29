@@ -312,30 +312,17 @@ void EqlDispatch::spawnAppearance(const uint8_t* data, size_t len, uint8_t dir)
 
 void EqlDispatch::expUpdate(const uint8_t* data, size_t len, uint8_t dir)
 {
-    // OP_ExpUpdate (0x6801, 16B expUpdateStruct): the regular exp bar. eql sends
-    // NO discrete level-up packet — confirmed exhaustively from the multi-ding
-    // `eqlegends-levelup.vpk` capture (2026-07-10): across all 228 zone opcodes,
-    // no opcode fires only at the dings, and no per-kill opcode / SpawnAppearance
-    // / profile field carries the level increment (full evidence in
-    // OPCODES_LEGENDS.md). The client itself infers a ding from the exp bar:
-    // regular exp climbs monotonically within a level and only ever resets (wraps
-    // to a low value) at a level-up. eql has NO death XP penalty (per-server
-    // design, per user), so a DECREASE is unambiguously a ding — no need to
-    // distinguish it from a death dip. Seed the level from the profile
-    // (setIdentity) and bump it by one on each wrap.
+    // OP_ExpUpdate: the regular exp bar.
+    //
+    // This used to also DERIVE level-ups here, by treating an exp decrease as a
+    // ding — a heuristic adopted only because eql was believed to have no
+    // discrete level packet. It does (OP_LevelUpdate; see wire_eql.cpp and
+    // OPCODES_LEGENDS.md), and that packet carries an absolute level, so the
+    // guess is now both redundant and capable of double-counting a ding against
+    // the authoritative value. Level handling belongs to Player::updateLevel.
     if (dir != DIR_Server)
         return;
 
-    auto out = seq::rust::decode_exp_update(
-        rust::Slice<const uint8_t>{data, len});
-    if (out.ok)
-    {
-        if (m_lastExp >= 0 && out.exp < (uint32_t)m_lastExp)
-            m_player->applyLevel((uint8_t)(m_player->level() + 1));
-        m_lastExp = (int64_t)out.exp;
-    }
-
-    // Preserve the existing exp-bar behavior (exp log + web exp bar).
     m_player->updateExp(data);
 }
 

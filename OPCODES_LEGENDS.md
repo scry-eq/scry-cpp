@@ -1936,3 +1936,56 @@ Recording recipe matters: a non-live target namespaces its guild cache at
 `~/.showeq/<target>/tmp/guilds2.dat`, so clearing the flat live path leaves the
 eql cache warm and the golden bakes in the warm-cache guild-tag timing, which
 then deterministically fails against check.sh's cold run.
+
+### 2026-07-28 — p9/p8 verification of the ids adopted from upstream
+
+Four ids were taken from upstream's 07/28 patch without local confirmation.
+Verified three against `eql-patch28july` by CONTENT (not size); the fourth has
+no data.
+
+**OP_LevelUpdate = `70c6`** (S>C, 5 fires) — CONFIRMED, and it corrects a
+standing wrong conclusion. Reading the payload head as the stock
+`levelUpUpdateStruct` gives:
+
+```
+level=2 levelOld=1   level=3 levelOld=2   level=4 levelOld=3
+level=5 levelOld=4   level=6 levelOld=5
+```
+
+Five consecutive dings with `levelOld == level - 1` every time, against a
+capture of a character leveling 1→6. **eql DOES have a discrete level packet** —
+the earlier "exhaustively confirmed it has none" entry is superseded. It is an
+80B widened container; upstream notes the head is the stock layout, which the
+byte evidence agrees with.
+
+Two consequences:
+
+1. The binding was gated `sizechecktype = "match"` against
+   `sizeof(levelUpUpdateStruct)`, so every one of these was dropped on the size
+   check. Now `none` (upstream made the same change). `Player::updateLevel`
+   already clamps its read to the struct size, so the wide tail is harmless.
+2. `EqlDispatch::expUpdate` was DERIVING dings by treating an exp decrease as a
+   level-up — a heuristic adopted only because the level packet was believed not
+   to exist. Removed. Note this was never *visibly* broken: the heuristic
+   produced the same 1→6 trajectory, so the packet being dropped was invisible
+   in the output. What changes is that an authoritative absolute level now
+   drives it instead of a guess, the ding lands at the real moment rather than
+   at the next exp wrap, and the guess can no longer double-count against the
+   wire value (or mis-fire if eql ever gains a death XP penalty).
+
+**OP_TargetMouse = `3897`** (C>S, 483 fires) — CONFIRMED. Read as
+`clientTargetStruct` (`u32 newTarget`), 260 values resolve to a spawn id
+announced in the same capture and the remaining 223 are all exactly `0`, the
+deselect sentinel. No value fails to be either.
+
+**OP_ClickObject = `23ee`** (S>C, 16 fires) — CONFIRMED. Read as `remDropStruct`
+(`u16 dropId@0`, `u16 spawnId@4`), `dropId` matches a ground drop previously
+announced by OP_GroundSpawn in **16 of 16** records; `spawnId` is either a spawn
+in the capture (the picker) or 0.
+
+**OP_Illusion = `5201`** — NOT VERIFIED. It does not fire once in any capture on
+hand, so there is nothing to check the id or the layout against. Flagging one
+risk for whoever gets a capture with an illusion in it: it is wired
+`spawnIllusionStruct` / `SZC_Match`, which is exactly the gate that was silently
+eating OP_LevelUpdate. If the eql packet is a widened container like that one,
+it will be dropped with no error. Check the wire size before trusting silence.
