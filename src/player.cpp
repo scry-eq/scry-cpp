@@ -1233,11 +1233,11 @@ void Player::applySelfPosition(int16_t px, int16_t py, int16_t pz,
   // compass, so scale down (>>5). Degrees per the Legends 0x5188 C>S @18 bit-8
   // field, /loc-verified S=180/W=270 and a stationary 360-spin capture.
   setHeading((int8_t)((heading >> 5) & 0xFF), 0);
-  // eql's self report carries a 15-bit COMPASS facing (32768 per circle, 0 = N,
+  // eql's self report carries an 11-bit COMPASS facing (2048 per circle, 0 = N,
   // increasing clockwise), so this converts straight to degrees. It is NOT
   // inverted like the spawn headings — calibrated 2026-07-28 against travel
   // direction (see seq-backend-eql player_self_pos::HEADING_UNITS).
-  m_headingDegrees = (heading * 360) >> 15;
+  m_headingDegrees = (heading * 360) >> 11;
   emit headingChanged(m_headingDegrees);
 
   emit posChanged(x(), y(), z(),

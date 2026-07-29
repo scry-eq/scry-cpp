@@ -1648,3 +1648,39 @@ anything id-shaped.
 These need a capture with the action isolated: target a few mobs deliberately,
 pick up a ground item, cast an illusion, and ding. Each becomes a countable
 event with a known time, which is what the priority-10 work had and these lack.
+
+#### 2026-07-28 — reconciled against upstream (legends `7612d72`)
+
+Xerxes published the 07/28 remap. Cross-checking it against the table derived
+here from captures: **17 of 17 independently-derived ids match upstream exactly**
+— ZoneEntry, PlayerProfile, ClientUpdate, MobUpdate, NpcMoveUpdate, HPUpdate,
+Death, RemoveSpawn, DeleteSpawn, Action2, NewZone, GuildsInZoneList,
+NewGuildInZone, CommonMessage, Consider, GroundSpawn, SelfPos. That includes the
+Death → RemoveSpawn → DeleteSpawn assignment, which was derived purely from
+succession (99% of Death ids are later named by both removals, never the
+reverse) with no reference to upstream.
+
+Adopted 51 further ids from upstream for opcodes never re-derived here.
+
+**Three where we differ, and why:**
+
+- **OP_SpawnDoor → took upstream's `3f1b`.** Ours (`639d`) decodes as a door and
+  is a real door-shaped opcode, but upstream's carries 4092/6732-byte payloads =
+  31 and 51 rows of 132, i.e. the zone's door ARRAY. `639d` is single 132-byte
+  rows that a chunking parser accepts just as happily. Recorded as a lead: what
+  is `639d`?
+- **OP_ZoneChange → kept ours (`727c`).** Upstream leaves it unmapped and its
+  `3360` fires ONCE at 484 bytes in a capture containing 13 zone-ins. Ours is
+  exactly 100 bytes (`zoneChangeStruct`: charName[64] + zoneId + instance) with
+  the character name at offset 0, firing 53 times across the transitions on both
+  the world and zone streams.
+- **OP_ZoneServerInfo → kept ours (`4b8f`).** Upstream's `0861` appears zero
+  times in the capture; ours is 130 bytes (`zoneServerInfoStruct`) carrying the
+  zone-server hostname, once per zone-in. Upstream's patch remaps the ZONE set
+  only, so its world table is still pre-patch.
+
+**Field boundaries taken from upstream** for the self-report facing: bits 20..30
+of the dword at 22 (2048/circle), replacing the locally-bounded 15-bit read. The
+SENSE remains ours and measured — compass, not inverted — because upstream's
+player.cpp contradicts its own struct on the offset, and a spin capture backs
+the struct.
