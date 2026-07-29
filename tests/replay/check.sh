@@ -141,7 +141,7 @@ for vpk in "${vpks[@]}"; do
     # events) still fail; only the flap is normalized away. live-guild is a busy
     # Live zone (232-member guild roster + 4 in-zone guilds tagging ~600 spawns).
     case "${name}" in
-      eql-contarget|eqlegends-patch20260714|eql-fighting|live-guild)
+      eql-contarget|eqlegends-patch20260714|eql-fighting|eql-patch28july|live-guild)
         if semdiff="$(python3 "${DAEMON_DIR}/scripts/semantic_diff.py" "${golden}" "${check}" 2>&1)"; then
             echo "PASS ${name} (semantic: ${semdiff})"
             pass=$((pass+1))
