@@ -384,9 +384,13 @@ void SpellShell::buffList(const uint8_t* data, size_t size, uint8_t dir)
                         : m_spawnShell->findID(tSpawn, mobId);
   if (mob)
   {
-    // Mob's own buffs -> target effects keyed by its spawn id. Player-cast DoTs
-    // on the mob (caster == us) stay owned by action()/the timer.
+    // Mob's own buffs -> target effects keyed by its spawn id. The list mixes
+    // them with the ones WE cast on it; only the per-record caster separates
+    // the two, so it decides the attribution here. Player-cast records keep
+    // casterId == the player so the reap below leaves them to action()/the
+    // timer, while still picking up the server's authoritative duration.
     const QString mobName = mob->name();
+    const QString selfName = m_player->name();
     bool addedEff = false;
     for (const auto& e : entries)
     {
@@ -394,6 +398,10 @@ void SpellShell::buffList(const uint8_t* data, size_t size, uint8_t dir)
         continue;
       const bool perm = e.remaining_ticks <= 0;
       const int dur = perm ? SpellItem::PERMANENT_DURATION : e.remaining_ticks * 6;
+      const QString caster =
+          QString::fromLatin1(e.caster.data(), int(e.caster.size()));
+      const uint16_t casterId =
+          (!caster.isEmpty() && caster == selfName) ? uint16_t(m_player->id()) : 0;
       SpellItem* eff = findEffect(e.spell_id, mobId);
       if (eff)
       {
@@ -405,7 +413,8 @@ void SpellShell::buffList(const uint8_t* data, size_t size, uint8_t dir)
       else
       {
         eff = new SpellItem();
-        eff->update(e.spell_id, m_spells->spell(e.spell_id), dur, 0, "Buff",
+        eff->update(e.spell_id, m_spells->spell(e.spell_id), dur, casterId,
+                    caster.isEmpty() ? QStringLiteral("Buff") : caster,
                     mobId, mobName);
         eff->setPermanent(perm);
         eff->setBuffSlot(e.slot);
@@ -469,6 +478,12 @@ void SpellShell::buffList(const uint8_t* data, size_t size, uint8_t dir)
     const int duration =
         permanent ? SpellItem::PERMANENT_DURATION : e.remaining_ticks * 6;
     const Spell* spell = m_spells->spell(e.spell_id);
+    // The player's OWN list shows every buff regardless of who cast it, so no
+    // filter here — the caster is only carried through for display.
+    const QString caster =
+        QString::fromLatin1(e.caster.data(), int(e.caster.size()));
+    const uint16_t casterId =
+        (!caster.isEmpty() && caster == playerName) ? uint16_t(m_player->id()) : 0;
     SpellItem* item = findSpell(e.spell_id, m_player->id(), m_player->name());
     if (item)
     {
@@ -480,7 +495,8 @@ void SpellShell::buffList(const uint8_t* data, size_t size, uint8_t dir)
     else
     {
       item = new SpellItem();
-      item->update(e.spell_id, spell, duration, 0, "Buff",
+      item->update(e.spell_id, spell, duration, casterId,
+                   caster.isEmpty() ? QStringLiteral("Buff") : caster,
                    m_player->id(), m_player->name());
       item->setPermanent(permanent);
       item->setBuffSlot(e.slot);
