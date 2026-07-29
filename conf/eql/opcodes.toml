@@ -482,12 +482,12 @@ comment = "Server putting players into shroud form"
   sizechecktype = "none"
 
 [[zone]]
-id      = "4ca8"
+id      = "727c"
 name    = "OP_ZoneChange"
 priority = 10
 priority_note = "client-only; handler only raises the zoning flag"
-updated = "2026-07-19"
-comment = "CLIENT-ONLY zone-change request, 484B fixed (9 fires in a 26min capture, all C>S, never S>C — a zone transition is a session teardown + new session, so there is no server reply). Carries the player's POSITION and no zone id anywhere, so nothing is decodable here beyond the fact that a transition started; zone identity arrives later via OP_NewZone -> setZoneByName. Cannot use Live's 100B zoneChangeStruct (SZC_Match drops a 484B payload) nor ZoneMgr::zoneChange, which decodes that struct — wired uint8_t/none to EqlDispatch::zoneChange -> ZoneMgr::beginZoning. Layout unmapped beyond the length; legacy showeq gates the same id on a 484B all-unknown struct for the same reason. WHY IT IS SAFE despite the flag gating SpawnShell's stale-zone handlers: the bulk spawn stream does NOT pass one — eql routes OP_ZoneEntry -> EqlDispatch::spawn -> upsertSpawn, which is unguarded (legacy is equivalent: its eql spawns go to SpawnShell::zoneEntry, also unguarded, while the isZoning guards sit on newSpawn, which eql never calls). Of the 7 guarded handlers only 3 are wired on eql (OP_ClickObject was ffff until its 07/24 map to 0x597e; its removal side is C>S-absent in fixtures, so it still fires 0 times inside the windows). Measured across the 9 transitions in one capture: 29 of 3880 OP_NpcMoveUpdate and 0 of 23 OP_GroundSpawn fall inside the windows — i.e. it suppresses a little stale movement during a transition, which is what the flag is for, and touches nothing else."
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - carries the character name and fires at every zone transition on BOTH the world and zone streams, both directions. PRIOR: CLIENT-ONLY zone-change request, 484B fixed (9 fires in a 26min capture, all C>S, never S>C — a zone transition is a session teardown + new session, so there is no server reply). Carries the player's POSITION and no zone id anywhere, so nothing is decodable here beyond the fact that a transition started; zone identity arrives later via OP_NewZone -> setZoneByName. Cannot use Live's 100B zoneChangeStruct (SZC_Match drops a 484B payload) nor ZoneMgr::zoneChange, which decodes that struct — wired uint8_t/none to EqlDispatch::zoneChange -> ZoneMgr::beginZoning. Layout unmapped beyond the length; legacy showeq gates the same id on a 484B all-unknown struct for the same reason. WHY IT IS SAFE despite the flag gating SpawnShell's stale-zone handlers: the bulk spawn stream does NOT pass one — eql routes OP_ZoneEntry -> EqlDispatch::spawn -> upsertSpawn, which is unguarded (legacy is equivalent: its eql spawns go to SpawnShell::zoneEntry, also unguarded, while the isZoning guards sit on newSpawn, which eql never calls). Of the 7 guarded handlers only 3 are wired on eql (OP_ClickObject was ffff until its 07/24 map to 0x597e; its removal side is C>S-absent in fixtures, so it still fires 0 times inside the windows). Measured across the 9 transitions in one capture: 29 of 3880 OP_NpcMoveUpdate and 0 of 23 OP_GroundSpawn fall inside the windows — i.e. it suppresses a little stale movement during a transition, which is what the flag is for, and touches nothing else."
 
   [[zone.payloads]]
   dir           = "both"
@@ -1954,11 +1954,11 @@ comment = "Listing of all guilds. Can be triggered by /lfg search?"
   sizechecktype = "none"
 
 [[zone]]
-id      = "3959"
+id      = "157b"
 name    = "OP_GuildsInZoneList"
 priority = 8
-updated = "2026-07-16"
-comment = "Listing of guild names present in the current zone.  Generally seen on zoning"
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - decode-verified: yields real guild id/name pairs (leading player name, count, then {guild_id, server_id, cstring}). PRIOR: Listing of guild names present in the current zone.  Generally seen on zoning"
 
   [[zone.payloads]]
   dir           = "server"
@@ -2839,10 +2839,10 @@ updated = "2026-07-16"
 comment = "Secondary chat / account / commerce service catalog. Live: 1464b S>C in handshake band (3/3 confirmations); ~18 plaintext Daybreak service URLs."
 
 [[world]]
-id      = "0861"
+id      = "4b8f"
 name    = "OP_ZoneServerInfo"
-updated = "2026-07-14"
-comment = "Zone server connection info. Live: 130b S>C, fires on world->zone handoff (zone server hostname + port). 2/2 confirmations."
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - carries the zone server hostname as a leading string, once per zone-in. PRIOR: Zone server connection info. Live: 130b S>C, fires on world->zone handoff (zone server hostname + port). 2/2 confirmations."
 
   [[world.payloads]]
   dir           = "server"
