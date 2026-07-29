@@ -1833,3 +1833,31 @@ lines.
 **Method note for next time:** check MAGNITUDE before hunting offsets. One print
 of decoded-vs-true would have shown "hundreds vs thousands" immediately and
 skipped every offset scan.
+
+#### 2026-07-28 — ZoneEntry position is right for PCs, WRONG for NPCs
+
+Chasing MobUpdate finally isolated the real fault, and it is not in MobUpdate.
+
+- Its spawn id is sound: `u16 LE @0` lands in the ZoneEntry id set for **100%**
+  of 49728 packets (4986 distinct) against a ~10% random baseline. The pairing
+  used in every earlier comparison was never wrong.
+- Its layout matches upstream's `spawnPositionUpdateEQL`.
+- Yet pairing each zone-entry with a MobUpdate arriving **within 400 packets** —
+  before a mob can have gone anywhere — gives a median separation of **2752
+  units** across 3216 NPC pairs, 0% within 10 units.
+
+Meanwhile the player's OWN zone-entry record decodes to exactly the breadcrumb
+position. So ZoneEntry's position block is landing correctly for a PC and
+incorrectly for NPCs, which points straight at the record walk: the equipment
+section branches on race (humanoid races skip 36 colour bytes and read 9 slots,
+others skip 20 and read 2), and a wrong branch shifts everything after it —
+including the position block.
+
+**This qualifies the earlier "spawn positions fixed and verified" entry: it was
+verified for exactly one spawn type.** The y=0 wall did disappear, so the block
+assignment is right; where it starts is not, for NPCs.
+
+Next: pin the NPC branch the same way the PC case was pinned — take an NPC whose
+position is known from its (fixed-layout, id-verified) MobUpdate and find where
+its coordinates actually sit in the zone-entry record, then correct the walk.
+MobUpdate is the trustworthy reference here, not ZoneEntry.
