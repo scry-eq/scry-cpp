@@ -50,11 +50,11 @@ comment = "EQ Legends bind-point marker (14B S>C, once at zone-in). Carries the 
   sizechecktype = "none"
 
 [[zone]]
-id      = "75dd"
+id      = "639d"
 name    = "OP_SpawnDoor"
 priority = 9
-updated = "2026-07-14"
-comment = "07/07 rotation (community f-patch id, daemon-confirmed bulk door array 1452/2376B). eql door rows are 132B (1452=11*132, 2376=18*132) vs Live doorStruct 136B: first 88B byte-identical to Live's layout (name[32], y/x/z/heading floats + incline u32 @32, 20B field copy, size u32 @72, doorId/opentype/spawnstate/invertstate @80, zonePoint u32 @84), trailing unknown 44B vs Live's 48B. WIRED 2026-07-13: seq-backend-eql owns a 132B parse_door + the doorStruct size override, and newDoorSpawns strides via door_stride(); modulus gates on 132."
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - decode-verified: sequential door ids with OBJ_* object names and sane coords, 132B rows. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed bulk door array 1452/2376B). eql door rows are 132B (1452=11*132, 2376=18*132) vs Live doorStruct 136B: first 88B byte-identical to Live's layout (name[32], y/x/z/heading floats + incline u32 @32, 20B field copy, size u32 @72, doorId/opentype/spawnstate/invertstate @80, zonePoint u32 @84), trailing unknown 44B vs Live's 48B. WIRED 2026-07-13: seq-backend-eql owns a 132B parse_door + the doorStruct size override, and newDoorSpawns strides via door_stride(); modulus gates on 132."
 
   [[zone.payloads]]
   dir           = "server"
@@ -62,11 +62,11 @@ comment = "07/07 rotation (community f-patch id, daemon-confirmed bulk door arra
   sizechecktype = "modulus"
 
 [[zone]]
-id      = "7e02"
+id      = "5331"
 name    = "OP_GroundSpawn"
 priority = 9
-updated = "2026-07-16"
-comment = "07/14 id 0x7e02 (adopted from legacy showeqlegends; the old 0x6360 32B record is superseded). S>C broadcast that spawns the zone's GROUND OBJECTS: static interactable placeables (forge/tradeskill containers, decorative racks, rocks) AND pickup-able ground-loot items you walk over and loot (the earring). 47x across the fight's 12 zones (e.g. IT66=Forge, IT11068=BrownRock) — NOT personal combat loot, which is instanced in EQL and never hits the ground. Variable 61-65B: {u32 dropId, NUL-term actorDef model @4 e.g. IT63_ACTORDEF, fields, f32 x/y/z at nul+29, u32}. C>S copy = the mouse-drop request, filtered by DIR_Server. Decoded by seq-backend-eql parse_ground_spawn -> SpawnShell::newGroundItem. id_file = actorDef model; the readable item name (via OP_ItemPacket 0x4d7e correlation) + tagging static objects vs pickup-loot are future refinements."
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - decode-verified: id_file reads IT###_ACTORDEF, the ground-item actorDef pattern; fires in the zone-in burst. PRIOR: 07/14 id 0x7e02 (adopted from legacy showeqlegends; the old 0x6360 32B record is superseded). S>C broadcast that spawns the zone's GROUND OBJECTS: static interactable placeables (forge/tradeskill containers, decorative racks, rocks) AND pickup-able ground-loot items you walk over and loot (the earring). 47x across the fight's 12 zones (e.g. IT66=Forge, IT11068=BrownRock) — NOT personal combat loot, which is instanced in EQL and never hits the ground. Variable 61-65B: {u32 dropId, NUL-term actorDef model @4 e.g. IT63_ACTORDEF, fields, f32 x/y/z at nul+29, u32}. C>S copy = the mouse-drop request, filtered by DIR_Server. Decoded by seq-backend-eql parse_ground_spawn -> SpawnShell::newGroundItem. id_file = actorDef model; the readable item name (via OP_ItemPacket 0x4d7e correlation) + tagging static objects vs pickup-loot are future refinements."
 
   [[zone.payloads]]
   dir           = "server"
@@ -421,11 +421,11 @@ comment = "Re-mapped for the 07/28 rotation - quotes TWO spawn ids (offsets 0 an
   sizechecktype = "match"
 
 [[zone]]
-id      = "1f81"
+id      = "64c4"
 name    = "OP_Consider"
 priority = 9
-updated = "2026-07-14"
-comment = "EQ Legends /consider (post-2026-07-07 re-map). 24B {u32 self, u32 target, u32 faction, u32 =7} both directions: C>S request has faction=0, S>C reply fills faction (2=warmly, 4=amiably; level comes from the spawn, not here). considerStruct is eql's OWN 24B struct (seq-backend-eql owns it; Live's is 32B) — size-gated on it via the backend size table (struct_size_overrides), decoded by parse_consider into the shared Consider, then the neutral SpawnShell::consMessage. See OPCODES_LEGENDS.md"
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - decode-verified: 24B in BOTH directions (request + response), quoting real spawn ids. PRIOR: EQ Legends /consider (post-2026-07-07 re-map). 24B {u32 self, u32 target, u32 faction, u32 =7} both directions: C>S request has faction=0, S>C reply fills faction (2=warmly, 4=amiably; level comes from the spawn, not here). considerStruct is eql's OWN 24B struct (seq-backend-eql owns it; Live's is 32B) — size-gated on it via the backend size table (struct_size_overrides), decoded by parse_consider into the shared Consider, then the neutral SpawnShell::consMessage. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "both"
@@ -865,11 +865,11 @@ comment = "07/14 id 0x15d0 (was 0x3c0a; rotated AND relaid-out): stock length-pr
   sizechecktype = "none"
 
 [[zone]]
-id      = "7015"
+id      = "37fa"
 name    = "OP_CommonMessage"
 priority = 9
-updated = "2026-07-14"
-comment = "07/07 rotation (community f-patch id, daemon-confirmed): /tell /ooc /shout etc, channelMessageStruct none. Present both dirs (63/71B) in captures. Wired MessageShell::channelMessage."
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - decode-verified: yields real say-channel chat text with the sender name; both directions. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed): /tell /ooc /shout etc, channelMessageStruct none. Present both dirs (63/71B) in captures. Wired MessageShell::channelMessage."
 
   [[zone.payloads]]
   dir           = "both"
@@ -1966,11 +1966,11 @@ comment = "Re-mapped for the 07/28 rotation - decode-verified: yields real guild
   sizechecktype = "none"
 
 [[zone]]
-id      = "6c4c"
+id      = "63a5"
 name    = "OP_NewGuildInZone"
 priority = 8
-updated = "2026-07-16"
-comment = "An additional guild name has appeared in the current zone. Seen when a guilded player enters the current zone"
+updated = "2026-07-28"
+comment = "Re-mapped for the 07/28 rotation - cross-referenced: every payload names a guild already known from the confirmed OP_GuildsInZoneList. PRIOR: An additional guild name has appeared in the current zone. Seen when a guilded player enters the current zone"
 
   [[zone.payloads]]
   dir           = "server"

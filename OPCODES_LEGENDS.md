@@ -1626,3 +1626,25 @@ Live 07/15 rotation did.
 The re-derivation has ground truth available: `6323` gives the player's real
 position over time, so `5bfd`'s bitfields can be solved against it rather than
 guessed. That is the next piece of work on this backend.
+
+#### 2026-07-28 — p9/p8
+
+| opcode | id | evidence |
+|---|---|---|
+| OP_CommonMessage | `37fa` | decode-verified: yields real say-channel chat text with sender; both directions |
+| OP_Consider | `64c4` | decode-verified: 24B in BOTH directions (request + response) quoting real spawn ids |
+| OP_GroundSpawn | `5331` | decode-verified: `id_file` reads `IT###_ACTORDEF`; fires in the zone-in burst where ground items are placed |
+| OP_SpawnDoor | `639d` | decode-verified: sequential door ids, `OBJ_*` names, sane coords, 132B rows (record size unchanged) |
+| OP_NewGuildInZone | `63a5` | cross-referenced: every payload names a guild ALREADY known from the confirmed OP_GuildsInZoneList |
+
+**Still open at p9/p8: OP_ClickObject, OP_TargetMouse, OP_Illusion,
+OP_LevelUpdate.** All four are weakly-constrained: their parsers read a bare id
+(or are absent from this capture), so "it parsed" is worthless and the usual
+cross-references dilute — the ground-item id set is 113 small integers, which
+almost any u32 matches. TargetMouse in particular produced only already-assigned
+opcodes (RemoveSpawn/DeleteSpawn), which is the id-read parser accepting
+anything id-shaped.
+
+These need a capture with the action isolated: target a few mobs deliberately,
+pick up a ground item, cast an illusion, and ding. Each becomes a countable
+event with a known time, which is what the priority-10 work had and these lack.

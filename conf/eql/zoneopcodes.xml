@@ -19,12 +19,12 @@
         <comment>EQ Legends bind-point marker (14B S>C, once at zone-in). Carries the BIND zone id (u32@6), identical across zones (nektulos-vs-upperguk both read 25) — NOT the current zone. Was mis-labeled OP_NewZone until 2026-07-08. Unwired. See OPCODES_LEGENDS.md</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
-    <opcode id="75dd" name="OP_SpawnDoor" updated="07/14/26" priority="9">
-        <comment>07/07 rotation (community f-patch id, daemon-confirmed bulk door array 1452/2376B). eql door rows are 132B (1452=11*132, 2376=18*132) vs Live doorStruct 136B: first 88B byte-identical to Live's layout (name[32], y/x/z/heading floats + incline u32 @32, 20B field copy, size u32 @72, doorId/opentype/spawnstate/invertstate @80, zonePoint u32 @84), trailing unknown 44B vs Live's 48B. WIRED 2026-07-13: seq-backend-eql owns a 132B parse_door + the doorStruct size override, and newDoorSpawns strides via door_stride(); modulus gates on 132.</comment>
+    <opcode id="639d" name="OP_SpawnDoor" updated="07/28/26" priority="9">
+        <comment>Re-mapped for the 07/28 rotation - decode-verified: sequential door ids with OBJ_* object names and sane coords, 132B rows. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed bulk door array 1452/2376B). eql door rows are 132B (1452=11*132, 2376=18*132) vs Live doorStruct 136B: first 88B byte-identical to Live's layout (name[32], y/x/z/heading floats + incline u32 @32, 20B field copy, size u32 @72, doorId/opentype/spawnstate/invertstate @80, zonePoint u32 @84), trailing unknown 44B vs Live's 48B. WIRED 2026-07-13: seq-backend-eql owns a 132B parse_door + the doorStruct size override, and newDoorSpawns strides via door_stride(); modulus gates on 132.</comment>
         <payload dir="server" typename="doorStruct" sizechecktype="modulus"/>
     </opcode>
-    <opcode id="7e02" name="OP_GroundSpawn" updated="07/16/26" priority="9">
-        <comment>07/14 id 0x7e02 (adopted from legacy showeqlegends; the old 0x6360 32B record is superseded). S>C broadcast that spawns the zone's GROUND OBJECTS: static interactable placeables (forge/tradeskill containers, decorative racks, rocks) AND pickup-able ground-loot items you walk over and loot (the earring). 47x across the fight's 12 zones (e.g. IT66=Forge, IT11068=BrownRock) — NOT personal combat loot, which is instanced in EQL and never hits the ground. Variable 61-65B: {u32 dropId, NUL-term actorDef model @4 e.g. IT63_ACTORDEF, fields, f32 x/y/z at nul+29, u32}. C>S copy = the mouse-drop request, filtered by DIR_Server. Decoded by seq-backend-eql parse_ground_spawn -> SpawnShell::newGroundItem. id_file = actorDef model; the readable item name (via OP_ItemPacket 0x4d7e correlation) + tagging static objects vs pickup-loot are future refinements.</comment>
+    <opcode id="5331" name="OP_GroundSpawn" updated="07/28/26" priority="9">
+        <comment>Re-mapped for the 07/28 rotation - decode-verified: id_file reads IT###_ACTORDEF, the ground-item actorDef pattern; fires in the zone-in burst. PRIOR: 07/14 id 0x7e02 (adopted from legacy showeqlegends; the old 0x6360 32B record is superseded). S>C broadcast that spawns the zone's GROUND OBJECTS: static interactable placeables (forge/tradeskill containers, decorative racks, rocks) AND pickup-able ground-loot items you walk over and loot (the earring). 47x across the fight's 12 zones (e.g. IT66=Forge, IT11068=BrownRock) — NOT personal combat loot, which is instanced in EQL and never hits the ground. Variable 61-65B: {u32 dropId, NUL-term actorDef model @4 e.g. IT63_ACTORDEF, fields, f32 x/y/z at nul+29, u32}. C>S copy = the mouse-drop request, filtered by DIR_Server. Decoded by seq-backend-eql parse_ground_spawn -> SpawnShell::newGroundItem. id_file = actorDef model; the readable item name (via OP_ItemPacket 0x4d7e correlation) + tagging static objects vs pickup-loot are future refinements.</comment>
         <payload dir="server" typename="makeDropStruct" sizechecktype="none"/>
         <payload dir="client" typename="uint8_t" sizechecktype="none"/>
     </opcode>
@@ -133,8 +133,8 @@
         <comment>Re-mapped for the 07/28 rotation - quotes TWO spawn ids (offsets 0 and 2) - the source/target pair. PRIOR: EQ Legends melee combat / damage-resolution stream (S>C, 48B fixed, n=481/968). Byte-identical to Live action2Struct: target u16@0, source u16@2, damage i32@8, spell i32@20 (-1=melee), type u8@40; @24-39 = knockback floats. Sole 48B S>C op; cross-val upperguk+fulllogin. Lights up the already-wired CombatRouter::action2. See OPCODES_LEGENDS.md</comment>
         <payload dir="both" typename="action2Struct" sizechecktype="match"/>
     </opcode>
-    <opcode id="1f81" name="OP_Consider" updated="07/14/26" priority="9">
-        <comment>EQ Legends /consider (post-2026-07-07 re-map). 24B {u32 self, u32 target, u32 faction, u32 =7} both directions: C>S request has faction=0, S>C reply fills faction (2=warmly, 4=amiably; level comes from the spawn, not here). considerStruct is eql's OWN 24B struct (seq-backend-eql owns it; Live's is 32B) — size-gated on it via the backend size table (struct_size_overrides), decoded by parse_consider into the shared Consider, then the neutral SpawnShell::consMessage. See OPCODES_LEGENDS.md</comment>
+    <opcode id="64c4" name="OP_Consider" updated="07/28/26" priority="9">
+        <comment>Re-mapped for the 07/28 rotation - decode-verified: 24B in BOTH directions (request + response), quoting real spawn ids. PRIOR: EQ Legends /consider (post-2026-07-07 re-map). 24B {u32 self, u32 target, u32 faction, u32 =7} both directions: C>S request has faction=0, S>C reply fills faction (2=warmly, 4=amiably; level comes from the spawn, not here). considerStruct is eql's OWN 24B struct (seq-backend-eql owns it; Live's is 32B) — size-gated on it via the backend size table (struct_size_overrides), decoded by parse_consider into the shared Consider, then the neutral SpawnShell::consMessage. See OPCODES_LEGENDS.md</comment>
         <payload dir="both" typename="considerStruct" sizechecktype="match"/>
     </opcode>
     <opcode id="3ef7" name="OP_TargetMouse" updated="07/14/26" priority="9">
@@ -286,8 +286,8 @@
         <comment>07/14 id 0x15d0 (was 0x3c0a; rotated AND relaid-out): stock length-prefixed FormattedMessage — {u32@0=0, u8@4=0, u32@5=formatId (eqstr_us.txt id), u32@9=msgType/chatColor, @13=length-prefixed [u32 len][bytes] arg slots}. Same arg blob EQStr::formatMessage consumes on Live. Decoded by seq-backend-eql parse_formatted_message (formatId@5, args cleaned) -> MessageShell::formattedMessageEQL interpolates via EQStr + emits chat. Resolves readable msgs incl. level-ups/exp/AA/combat/spell. The old 3c0a flat layout (spellId@0/formatId@9/caret@13) is retired.</comment>
         <payload dir="server" typename="formattedMessageStruct" sizechecktype="none"/>
     </opcode>
-    <opcode id="7015" name="OP_CommonMessage" updated="07/14/26" priority="9">
-        <comment>07/07 rotation (community f-patch id, daemon-confirmed): /tell /ooc /shout etc, channelMessageStruct none. Present both dirs (63/71B) in captures. Wired MessageShell::channelMessage.</comment>
+    <opcode id="37fa" name="OP_CommonMessage" updated="07/28/26" priority="9">
+        <comment>Re-mapped for the 07/28 rotation - decode-verified: yields real say-channel chat text with the sender name; both directions. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed): /tell /ooc /shout etc, channelMessageStruct none. Present both dirs (63/71B) in captures. Wired MessageShell::channelMessage.</comment>
         <payload dir="both" typename="channelMessageStruct" sizechecktype="none"/>
     </opcode>
     <opcode id="2189" name="OP_SpecialMesg" updated="07/16/26" priority="4">
@@ -700,8 +700,8 @@
         <comment>Re-mapped for the 07/28 rotation - decode-verified: yields real guild id/name pairs (leading player name, count, then {guild_id, server_id, cstring}). PRIOR: Listing of guild names present in the current zone.  Generally seen on zoning</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
-    <opcode id="6c4c" name="OP_NewGuildInZone" updated="07/16/26" priority="8">
-        <comment>An additional guild name has appeared in the current zone. Seen when a guilded player enters the current zone</comment>
+    <opcode id="63a5" name="OP_NewGuildInZone" updated="07/28/26" priority="8">
+        <comment>Re-mapped for the 07/28 rotation - cross-referenced: every payload names a guild already known from the confirmed OP_GuildsInZoneList. PRIOR: An additional guild name has appeared in the current zone. Seen when a guilded player enters the current zone</comment>
         <payload dir="server" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="ffff" name="OP_LFGGetMatchesRequest" updated="11/28/12" priority="-1">
