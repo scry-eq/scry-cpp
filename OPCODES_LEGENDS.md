@@ -1861,3 +1861,39 @@ Next: pin the NPC branch the same way the PC case was pinned — take an NPC who
 position is known from its (fixed-layout, id-verified) MobUpdate and find where
 its coordinates actually sit in the zone-entry record, then correct the walk.
 MobUpdate is the trustworthy reference here, not ZoneEntry.
+
+#### 2026-07-28 — ANSWER: ZoneEntry's x/y are transposed relative to MobUpdate
+
+Tail-scan of 3216 NPC zone-entry records, using each spawn's MobUpdate position
+as truth (MobUpdate is id-verified at 100% and has a fixed layout, so it is the
+trustworthy reference — not ZoneEntry):
+
+```
+len-95 -> y   (398 hits)
+len-91 -> z   (385)
+len-83 -> x   (398)
+```
+
+Our parser currently reads len-95 as X and len-83 as Y — **exactly swapped**.
+That single transposition explains every unresolved symptom: the 2752-unit
+NPC disagreement, why no offset scan found "x" (it was there, under the other
+name), and why MobUpdate looked broken when it never was.
+
+The PC measurement that produced the current assignment was taken against the
+BREADCRUMB, which reports in /loc order (y first, then x). So the breadcrumb's
+axis labels are transposed relative to the wire/map frame that MobUpdate and the
+spawn record use — the PC position was self-consistent with the breadcrumb and
+inconsistent with everything else. This is the same transpose upstream flags as
+ambiguous in spawnStruct posData ("assigning y to word0 and x to word3 rotates
+the dots to align with the zone map").
+
+**The fix is to swap x and y in the spawn record's position read** so ZoneEntry
+agrees with MobUpdate. Then re-check BOTH: NPC agreement with MobUpdate should
+collapse from 2752 units to near zero, and the self-position path (which was
+verified in the breadcrumb frame) must be re-checked for the same transpose —
+`player_self_pos.rs` and the breadcrumb parser label their axes the same way, so
+if one flips they both do.
+
+Do not re-derive this from statistics; the reference is MobUpdate, and upstream's
+`fillSpawnStruct` is the authority for the walk itself (our equipment branch is
+already byte-identical to it).
