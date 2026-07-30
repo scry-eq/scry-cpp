@@ -49,8 +49,8 @@
     <opcode id="ffff" name="OP_SetChatServer2" updated="07/16/26">
         <comment>STALE post-07/28: id f22b carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Secondary chat / account / commerce service catalog. Live: 1464b S>C in handshake band (3/3 confirmations); ~18 plaintext Daybreak service URLs.</comment>
     </opcode>
-    <opcode id="4b8f" name="OP_ZoneServerInfo" updated="07/28/26">
-        <comment>Re-mapped for the 07/28 rotation - carries the zone server hostname as a leading string, once per zone-in. PRIOR: Zone server connection info. Live: 130b S>C, fires on world->zone handoff (zone server hostname + port). 2/2 confirmations.</comment>
+    <opcode id="5171" name="OP_ZoneServerInfo" updated="07/29/26">
+        <comment>Re-mapped for the 07/29 rotation (was 4b8f) - 130b S>C world, zone server hostname as a leading string, structure byte-identical to the prior mapping. PRIOR: Re-mapped for the 07/28 rotation - carries the zone server hostname as a leading string, once per zone-in. PRIOR: Zone server connection info. Live: 130b S>C, fires on world->zone handoff (zone server hostname + port). 2/2 confirmations.</comment>
         <payload dir="server" typename="zoneServerInfoStruct" sizechecktype="match"/>
     </opcode>
     <opcode id="ffff" name="OP_WorldComplete" updated="07/16/26">

@@ -2026,3 +2026,183 @@ both `OP_Action` payloads to `SpellShell::action`, but `seq-backend-eql`'s
 `Backend` impl has an arm for `OP_Action2` only — there is no neutral event for
 `OP_Action`. Consumers on the neutral contract (scry) therefore see none of
 these 3092 packets. Same shape of gap as OP_LevelUpdate had.
+
+### 2026-07-29 — EQL rotated the whole opcode table again (p10 tier re-mapped)
+
+EQ Legends patched on 07/29, one day after the 07/28 rotation, and renumbered
+**every** application opcode. Measured on a capture of a fresh login plus several
+zone-ins: **zone 145 distinct / 0 known, world 38 distinct / 0 known.**
+
+The daemon itself was healthy throughout — capture, pcap filter and the SOE
+stream layer all worked (sessions decrypted, fragments reassembled, app packets
+emerged at correct sizes and directions). Only the ids were stale. The control
+that proves this: replaying the previous day's capture through the same build
+still decoded 217 zone opcodes clean.
+
+**Presenting symptom**, worth recognising on sight: zoning logged
+`SessionDisconnect detected, awaiting next zone session` and then went silent
+forever. `OP_ZoneServerInfo` no longer decoded, so no box learned the zone server
+port and the next zone session could never bind. It reads like a BoxRegistry
+routing bug and is not one — check known-vs-unknown in `--opcode-stats` before
+touching routing code.
+
+**Why this was a real rotation and not a coincidence.** Aligning the world
+handshake by (direction, size, wire order) against the previous day: 12
+size-matched packets, **0 kept their id**. The handshake also gained 13 packet
+sizes with no prior-day counterpart (12976, 305, 164, 92, 80, 72, 64, 60, …), so
+the protocol changed shape rather than merely renumbering. Per-session
+obfuscation was ruled out: the prior capture holds 13 separate world sessions
+over 2+ hours and 12 of 13 share a byte-identical id sequence, so ids were stable
+before the patch and are not session-keyed.
+
+**Confirmed p10 mappings** (prior id → 07/29 id), each anchored on content, never
+on size alone:
+
+| opcode | was | now | evidence |
+|--------|-----|-----|----------|
+| OP_ZoneEntry | 5c7f | **5aaf** | NUL-terminated spawn name at 0, title string at the same offset as before; layout byte-identical. 902 records, 493 distinct ids |
+| OP_NewZone | 47f2 | **0a2e** | leads short name, long name, short name again — prior-day shape |
+| OP_ZoneChange | 727c | **439a** | char-name field at 0 plus identical constant block at 0x20 |
+| OP_PlayerProfile | 50e5 | **014a** | 40546b once per zone-in; head byte-identical at 0x14, 0x24, 0x30 |
+| OP_MobUpdate | 26d8 | **4eda** | 14b, spawn id at 0 in 229/229, cross-referenced to the ZoneEntry id set |
+| OP_HPUpdate | 3139 | **0daa** | size histogram matches exactly (6/21/37/53/7/5); id at 0 in 246/246 |
+| OP_NpcMoveUpdate | 3e7b | **2f15** | histogram 18/17/15 matches; no byte-aligned id, as expected for the BitStream |
+| OP_SpawnAppearance | 384f | **03f8** | 24b, id at 0 in 96% of 157 |
+| OP_RemoveSpawn | 27cb | **0113** | 5b (+4b variant), id at 0 in 61/61 |
+| OP_DeleteSpawn | 1856 | **1f3d** | 4b bare id — u32 high half zero 39/39, low half a known id 37/39; rules out OP_Animation, same size but non-zero bytes 2-3 |
+| OP_SelfPos | 6323 | **16ac** | every length is exactly 1 + N×17 (N = 1, 3, 85, 133, 320) — the breadcrumb fingerprint |
+| OP_ClientUpdate | 5bfd | **5380** | id at 0 in the S>C form (146/146), at 2 in the C>S form (161/161) |
+| OP_ZoneServerInfo | 4b8f | **5171** | world, 130b, zone server hostname as leading string, structure byte-identical |
+
+Every remaining previously-mapped id (57 of them) was reset to `ffff` with its
+prior id preserved in the comment. Zero of those stale ids collided with an id
+active on the new wire *in this capture*, so nothing was actively mis-firing —
+but 57 wrong ids against ~174 live ones is a collision waiting to happen, and a
+mapped-but-wrong id mis-decodes silently.
+
+**Structs did not drift, with one exception.** Every confirmed opcode above
+decodes on its existing struct — the patch renumbered without reshaping. The
+exception is `OP_ClientUpdate`, which grew **+4 bytes in each direction**
+(S>C 24→28, C>S 38→42) and rearranged **both** bodies — no prior-day offset
+survives in either direction. Its geometry was left un-derived on the first pass
+and the size gate deliberately dropped these; both are now solved — see the
+follow-up section below.
+
+**Verified end to end**: zone binding restored (`expects zone server port …`),
+zone name and map resolve, and a recorded golden carries 907 spawn_added, 2187
+spawn_updated, 40 spawn_removed, 28 player_stats and 3 zone_changed.
+
+**Pre-existing bug surfaced, not introduced here.** eql `OP_SpawnAppearance` is
+24 bytes on the wire but its `SZC_Match` gate inherits Live's
+`sizeof(spawnAppearanceStruct)` = 8, so every fire is dropped. The prior day's
+capture shows 10232 fires, all discarded — this opcode has never decoded on eql.
+Read as the wide layout (`u32 spawnId@0, u32 type@4, u32 value@8`, 12b pad) the
+157 fires here give 44 valid spawn ids, 12 distinct types {22, 43, 5, 6, 26, 41,
+8, 3, …}, values {0, 1, 7, 100, 110} and an all-zero tail in 134/157. Read as
+legacy's `u16/u16/u32` shape, `type` is **0 in all 157 packets** with the real
+type values landing in `parameter` — the identical failure signature recorded for
+Live on 07/28. So eql's OP_SpawnAppearance carries the wide record that we named
+`spawnAppearance2Struct` for Live's separate 24-byte opcode; on eql there is only
+the one opcode and it is already the wide form. Fixing it means pointing the eql
+payload at that layout; the 12 `type` values are still uninterpreted, so confirm
+their semantics against a second capture first.
+
+**Not re-mapped** — everything below p10. 132 zone opcodes remain unknown. Size-
+shape matching against the prior table produces leads for ~65 of them but
+collides badly (three separate ids all "match" 12-byte OP_SimpleMessage, and the
+highest-volume opcode OP_ZoneEntry scores below threshold because many distinct
+sizes dilute the overlap), so those leads are ordering hints only.
+
+### 2026-07-29 (follow-up) — OP_ClientUpdate geometry re-derived, both directions
+
+Same zone-in capture as the section above. The first pass mapped the id but left
+the size gate dropping every packet because neither body's layout was known. Both
+are now solved and wired; the gate passes and the position channel is live again.
+
+**The method that worked was cross-referencing, not brute force.** Three earlier
+attempts failed and are worth recording so they are not retried:
+
+- *Against ZoneEntry spawn-time positions* — wrong by construction. This opcode
+  broadcasts spawns that are **moving**, so their current position no longer
+  matches the position they entered the zone at. Zero hits, correctly.
+- *Range-plausibility scan* — vacuous. The capture spans three zones, so the
+  global coordinate bound covers nearly the whole 19-bit field and every offset
+  looks "plausible".
+- *Trajectory smoothness alone* — underpowered here. Only 12 spawns have ≥4
+  samples, and the sweep's top ranks saturate on constant fields (a spawn-id
+  window scores a perfect 0 units/sec). It only becomes decisive once constant
+  fields are excluded and same-millisecond duplicate samples are filtered out.
+
+What settled it: **OP_MobUpdate and OP_NpcMoveUpdate were untouched by this
+patch**, so they stand as map-frame ground truth for the same spawns at the same
+moments. Score each candidate window against them and the answer falls out.
+
+**S>C, 28 bytes** — `u16 spawnId@0`, `u16 0@2`, then each coord in the **low 19
+bits** (signed, ×8) of its own word: **z@4, x@8, y@12**, plus a 13-bit compass
+heading at bit 8 of the `@20` word. The upper 13 bits of the z and y words carry
+something velocity-shaped; on the x word they read 0 in all 146 samples.
+
+| axis | window | median err vs ground truth | runner-up |
+|------|--------|---------------------------|-----------|
+| z | bit 32 (byte 4) | **0.00** | 37.25 |
+| x | bit 64 (byte 8) | **0.38** | 54.38 |
+| y | bit 96 (byte 12) | **0.50** | 697.00 |
+
+Two independent checks agree. Decoded `z` spans a 144-unit terrain band
+(−92.12 … 51.75) where a wrong window spans the whole 19-bit field. And per-spawn
+tracks imply 0.9–1.6 units/sec median with **0 of 51** steps above 100 u/s, versus
+a median of 2031 u/s for the runner-up set. The longest track (32 samples) decodes
+to a textbook walk: smooth 2–14 unit steps with `z` climbing steadily uphill, and
+one 21 u/s leg across a 10-second gap.
+
+**C>S, 42 bytes** — `u16 ctr@0`, `u16 spawnId@2`, floats **gameY@10, gameX@22,
+gameZ@34**, and an 11-bit compass heading in the low bits at `@26`. Pinned by
+range-matching against the `OP_SelfPos` breadcrumb, which reports the player's
+real path: over 161 reports the field ranges match the breadcrumb's per-axis
+ranges essentially exactly (@10 −1559.64…2552.56 vs −1559.64…2552.56; @22
+−197.76…296.00 vs −199.73…296.00; @34 −84.30…−43.72 vs −84.68…−43.38). Every
+other float in the packet spans at most ±2 (the velocities) or sits near 0.
+
+**The X-vs-Y assignment was settled physically, not from field labels.** The
+breadcrumb reports in `/loc` order, which transposes against the map frame — the
+exact trap that produced a silently-swapped read in an earlier patch. Instead:
+position updates are range-limited, so the player must sit inside the cloud of
+spawns the server is streaming them. Under `@10 = y, @22 = x` the player is within
+300 units of a visible spawn in **490 of 518** samples (median 104); transposed,
+**0 of 518** (median 946).
+
+Heading was located the same way — a running player faces where they go, so each
+movement leg's bearing *is* the facing. 11 bits at `@26` scores a 6.8° median over
+46 legs (S>C: 13 bits at bit 8 of `@20`, 3.8° over 26 player legs). Both are
+compass values needing **no** inversion, unlike the `heading_deg` convention the
+mob/npc streams use. The velocities were **not** located and deliberately read 0
+rather than reusing a stale offset, which would smear the marker between updates;
+candidates are the three small-range floats at `@14`, `@18` and `@30`.
+
+**A spawnId returned to the C>S body at offset 2 — but do not adopt from it.**
+The 38B bodies between 07/14 and 07/29 carried none, and its return initially
+looked like a fix for the death-respawn gap (an in-zone respawn issues a new
+self-id and sends no self `OP_ZoneEntry`, so name-match alone can never re-adopt).
+It is not. The field carries the **phantom twin's** id, not the live copy's: it
+read 15707 / 15719 across the capture while name-match adopted 15701 / 15715, and
+dumping `OP_ZoneEntry` shows each pair sharing one name — eql's live-plus-phantom
+double-announce, the twin's id a few higher, and also what self *stats* are keyed
+to. Adopting it would pin the player to the hidden phantom and leave the live copy
+loose in the spawn list. The gap therefore stays open; closing it needs the
+twin → live mapping that only the ZoneEntry pair establishes.
+
+**Useful for the next rotation**: the 07/29 C>S body is close to the **pre-07/14**
+42B form, which also carried `spawnId@2` and `gameY@10` (it had `gameX@18` / `z@30`,
+i.e. those two sit 4 bytes later now). The 38B bodies in between were the outlier.
+Check the older 42B layout before assuming a from-scratch rearrangement.
+
+**Verified end to end**: the size-mismatch warnings for this opcode are gone in
+both directions, and the recorded golden gains exactly **+307 spawn_updated**
+(2187 → 2494) — precisely the 146 S>C + 161 C>S packets in the capture — with
+every other event kind unchanged. `check.sh` passes on three consecutive runs.
+
+**Fixed alongside**: `Player::applySelfPosition` scaled the 8-bit compass as
+`heading >> 5`, left over from when this field was read as 13 bits; against the
+11-bit field that squeezed a full turn into the low quarter of the range. Now
+`>> 3`. No user-visible effect — `protoencoder` takes the Player's
+`headingDegrees` (already 11-bit correct) and never this — but the two must agree.
