@@ -488,8 +488,12 @@ void EQPacketStream::dispatchPacket(const uint8_t* data, size_t len,
     }
 
  #ifdef PACKET_PAYLOAD_SIZE_DIAG
-    if (!found && !opcodeEntry->isEmpty())
+    const quint64 mismatchKey =
+        (quint64(opcodeEntry->opcode()) << 32) | quint64(len);
+    if (!found && !opcodeEntry->isEmpty() &&
+        !m_sizeMismatchWarned.contains(mismatchKey))
     {
+      m_sizeMismatchWarned.insert(mismatchKey);
       QString tempStr;
       tempStr = QString::asprintf("%s  (%#04x) (dataLen: %lu) doesn't match:",
               opcodeEntry->name().toLatin1().data(),
@@ -513,6 +517,7 @@ void EQPacketStream::dispatchPacket(const uint8_t* data, size_t len,
 	}
       }
 
+      tempStr += " (first occurrence; repeats at this length suppressed)";
       seqWarn(tempStr.toLatin1().data());
     }
 #endif // PACKET_PAYLOAD_SIZE_DIAG

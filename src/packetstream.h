@@ -26,6 +26,7 @@
 
 #include <QObject>
 #include <QHash>
+#include <QSet>
 #include <map>
 #include <memory>
 #include <utility>
@@ -177,6 +178,12 @@ class EQPacketStream : public QObject
   int m_packetCount;
   uint8_t m_session_tracking_enabled;
   bool m_muted = false;
+
+  // Payload-size-mismatch warnings, deduped on (opcode, length). A gated
+  // opcode mismatches on EVERY packet, so warning per-packet buries the log
+  // (thousands of lines for one position opcode). The fact is what matters,
+  // not the count — report each distinct pair once per stream.
+  QSet<quint64> m_sizeMismatchWarned;
 
   // ARQ cache handling
   EQPacketMap m_cache;
