@@ -2103,9 +2103,51 @@ legacy's `u16/u16/u32` shape, `type` is **0 in all 157 packets** with the real
 type values landing in `parameter` — the identical failure signature recorded for
 Live on 07/28. So eql's OP_SpawnAppearance carries the wide record that we named
 `spawnAppearance2Struct` for Live's separate 24-byte opcode; on eql there is only
-the one opcode and it is already the wide form. Fixing it means pointing the eql
-payload at that layout; the 12 `type` values are still uninterpreted, so confirm
-their semantics against a second capture first.
+the one opcode and it is already the wide form. **Fixed 2026-07-30 — see below.**
+
+### 2026-07-30 — OP_SpawnAppearance: backend-owned gate size + eql's own layout
+
+Two bugs were stacked here, and neither is visible while the other stands.
+
+*The gate.* `spawnAppearanceStruct` had no `size_overrides()` entry in
+`seq-backend-eql`, so a mapped `SZC_Match` opcode silently inherited the compiled
+Live `sizeof` of 8 against a 24-byte wire and dropped every packet. The fix is
+**not** to re-point the payload at a Live struct name — eql gate sizes are
+backend-owned, and the size now comes from the eql parser's own `PAYLOAD_LEN`.
+The daemon's `--strict-gate-sizes` audit already flagged this opcode by name with
+that exact instruction; it was the only one outstanding, so the de-piggyback
+invariant holds everywhere else. **Run that flag as part of post-patch
+verification** — grepping the log for `NOT bound` / `doesn't match` does not
+surface this class, because a dropped packet is the *absence* of a symptom.
+
+*The parser.* `seq-backend-eql`'s vendored `spawn_appearance.rs` read the pinned
+Live binding's narrow `{u16 spawnId, u16 type, u32 parameter}` shape. Correcting
+only the gate would have handed 24 bytes to a parser that wants 8, so both had to
+move together. It now reads eql's own wire off `&[u8]` with no Live binding.
+
+*The wiring.* The opcode was bound to `SpawnShell::updateSpawnAppearance`, which
+applies Live's type semantics to eql's own type numbering — masked all along by
+the drop. It now goes to `EqlDispatch::spawnAppearance`, which already
+implemented the wide record for the (now unmapped) `OP_SpawnAppearance2`, and
+that handler decodes through eql's Rust parser instead of casting Live's
+`spawnAppearance2Struct`.
+
+**Cross-checked against upstream's legends branch**, which solved the same
+problem a third way: it declares a separate `spawnEventEQLStruct` rather than
+reusing either Live name, and leaves Live's 8-byte struct untouched. Its layout is
+field-for-field identical to what was measured here (`u32 spawnId / u32 type /
+u32 value / u32 params[3]`), which is independent confirmation. Upstream also
+labels five types — 6 = position, 13 = anon, 22 = periodic tick, 36 = LFG,
+41 = timestamp. We keep the neutral `spawnAppearanceStruct` name instead of
+upstream's, because eql compiles against Live's `everquest.h` here and a
+per-backend size override is how this tree expresses divergence without adding a
+struct; only type 6 (pose: 110 sit / 100 stand / 111 duck) is wired.
+
+**Verified**: `--strict-gate-sizes` goes 1 flagged → 0, the last size-mismatch
+warning disappears (the log is now clean of both classes), and the golden gains
+5 `spawn_updated` from the 6 type-6 pose packets in the capture (3 sit, 3 stand;
+the sixth is for a spawn not in the list). `check.sh` green on three consecutive
+runs, `ctest` 10/10, `cargo test --workspace` green.
 
 **Not re-mapped** — everything below p10. 132 zone opcodes remain unknown. Size-
 shape matching against the prior table produces leads for ~65 of them but
