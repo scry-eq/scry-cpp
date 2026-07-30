@@ -2248,3 +2248,49 @@ every other event kind unchanged. `check.sh` passes on three consecutive runs.
 11-bit field that squeezed a full turn into the low quarter of the range. Now
 `>> 3`. No user-visible effect — `protoencoder` takes the Player's
 `headingDegrees` (already 11-bit correct) and never this — but the two must agree.
+
+### 2026-07-30 — OP_ZoneEntry: spawn positions were landing tens of thousands of units off
+
+Every eql spawn was placed wrong on the map. Surfaced while sanity-checking the
+golden during the OP_ClientUpdate work: decoded `mapX` spanned ±32768 — the whole
+19-bit field — and `mapZ` ±2577, neither of which is a zone.
+
+The 07/29 rotation moved the position block **again** (07/28 had already moved
+it). The coordinates are now the **first three of the six words, in packet order
+Z, X, Y**. The old read skipped the first as a lead word and took the next two as
+Y and Z, so every spawn's decoded Y was really its X and its decoded Z its real Y,
+with X coming from a word that reads ~0 — the whole triple shifted one word right.
+Note the block did NOT change size, so no size gate could catch this; it is the
+same class of silent mis-decode as the 07/15 position rotation.
+
+Worst-axis error against ground truth, over the 234 spawns in the capture that
+also appear in a position stream:
+
+| | median | p90 | within 5u | decoded mapX | decoded mapZ |
+|---|---|---|---|---|---|
+| before | 10506 | 25884 | 0.0% | −32768 … 32641 | −2577 … 2382 |
+| after | **8.4** | 140 | **49.6%** | −1747 … 2653 | −122 … 173 |
+
+The residual is NPC wander between a spawn's ZoneEntry (a spawn-time position) and
+its later position samples — not decode error. Spawns confirmed stationary decode
+near-exact.
+
+**Two methodological points, both of which produced wrong answers first:**
+
+- *Scope ground truth to one zone visit.* The capture crosses three (tox →
+  erudnext → tox) and **EQ reuses spawn ids per zone**, so a global id→position
+  map merges different mobs and fabricates matches. An unscoped search returned a
+  confident 33.5% hit rate on an offset that is simply wrong.
+- *Score per axis, not on a summed error.* A joint score over x+y+z is dominated
+  by the wanderers and hides the correct offset entirely — the first tail scan
+  reported "no anchor scores under 50" for an anchor that was in the list.
+
+With those fixed, the located records agree unanimously on the ordering (**67/67
+ZXY**) and on a tail offset of **len-103** (63/67). Block-relative offsets scatter
+(227, 371, 215, 383, …), confirming the block tracks the record tail even though
+the parser reaches it by a sequential walk — the tail length varies with the
+title/suffix string block, so the walk is still the right mechanism.
+
+**Where to look first next rotation**: this block has now moved on three
+consecutive patches (07/14, 07/28, 07/29) while keeping its size, and the axis
+ordering changed each time. Re-derive it on every patch; never assume it held.
