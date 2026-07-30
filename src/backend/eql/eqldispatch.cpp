@@ -328,17 +328,25 @@ void EqlDispatch::expUpdate(const uint8_t* data, size_t len, uint8_t dir)
 
 void EqlDispatch::playerUpdateSelf(const uint8_t* data, size_t len, uint8_t dir)
 {
-    // OP_ClientUpdate (0x5188) C>S 38B self-position. Re-cracked 2026-07-14 vs a
-    // /loc ground-truth capture: IEEE floats gameX@14 / gameY@26 / gameZ@10 +
-    // the 13-bit heading@18 bit-8 (re-cracked 2026-07-15 vs a stationary 360-spin;
-    // the earlier "low 12b" read was wrong). Unlike the pre-07/14 42B form it carries NO spawnId,
-    // so this can no longer adopt/re-adopt the self-id — that comes from
-    // SpawnShell::zoneEntry name-match (fires on real zone-ins / EnterWorld
-    // re-entry). Consequence: eql's in-zone death respawn (which sends no self
-    // OP_ZoneEntry) has no self-id recovery source post-patch — a known gap (the
-    // death()/enterWorld() severs below still run; m_awaitingRespawnFromId is now
-    // dormant). A C>S packet is by definition the local player, so once we hold a
-    // self-id we apply straight to m_player. See OPCODES_LEGENDS.md.
+    // OP_ClientUpdate C>S 42B self-position, re-derived 2026-07-29 (the rotation
+    // grew it 38B -> 42B and rearranged the body): u16 spawnId@2, IEEE floats
+    // gameY@10 / gameX@22 / gameZ@34, 11-bit compass heading in the low bits at
+    // @26. See player_self_pos.rs for how each was pinned.
+    //
+    // A self spawn id is BACK on the wire at offset 2 (the 38B bodies between
+    // 07/14 and 07/29 carried none). It is deliberately NOT used to adopt, and
+    // that is the whole point of this note: the id it carries is the PHANTOM
+    // TWIN's, not the live copy's. Measured on a 3-zone capture — the field held
+    // 15707 / 15719 while zoneEntry name-match adopted 15701 / 15715, and dumping
+    // OP_ZoneEntry shows each pair sharing one name, i.e. exactly eql's
+    // live-plus-phantom double-announce (the twin's id sits a few higher, and is
+    // also what self stats are keyed to). Setting m_player to it would pin us to
+    // the hidden phantom and leave the live copy loose in the spawn list.
+    //
+    // So the death-respawn gap stays open: an in-zone respawn issues a new id
+    // pair and sends no self OP_ZoneEntry, and this field alone cannot say which
+    // half of the pair is live. Closing it needs the twin -> live mapping, which
+    // only the ZoneEntry pair establishes (m_selfTracker::alt_id / is_self).
     if (dir != DIR_Client)
         return;
     auto out = seq::rust::decode_player_self_pos(
@@ -348,11 +356,10 @@ void EqlDispatch::playerUpdateSelf(const uint8_t* data, size_t len, uint8_t dir)
     if (m_player->id() == 0)
         return;   // self-id not adopted yet (awaiting zoneEntry name-match)
 
-    // Position, 13-bit heading, and velocity are authoritative on every packet.
-    // Deltas cracked 2026-07-17 (run-south-then-west /loc capture): deltaY@6,
-    // deltaX@22, deltaZ@30, ±~2.26 units/tick = full run speed — see
-    // player_self_pos.rs. delta_heading (turn rate) is still 0: its bits sit in
-    // the heading word (turnrate:11) but aren't extracted yet.
+    // Position and heading are authoritative on every packet. The velocities are
+    // NOT located for this patch and the parser surfaces 0 for them rather than
+    // reading a stale offset (which would smear the marker between updates) —
+    // see player_self_pos.rs. delta_heading has no wire field.
     m_player->applySelfPosition(int16_t(out.x), int16_t(out.y), int16_t(out.z),
                                 int16_t(out.delta_x), int16_t(out.delta_y),
                                 int16_t(out.delta_z), out.heading, 0.0f);
@@ -433,10 +440,11 @@ void EqlDispatch::enterWorld(const uint8_t*, size_t, uint8_t dir)
 
 void EqlDispatch::playerUpdateOther(const uint8_t* data, size_t len, uint8_t dir)
 {
-    // OP_ClientUpdate (0x5188) S>C, 24B: the position broadcast for spawns OTHER
-    // than the local player (players + some NPCs). Same size as Live's 24B
-    // playerSpawnPosStruct — eql packs each coord in the LOW 19 bits of a u32
-    // (×8 fixed-point), decoded by this backend's own parse_player_spawn_pos.
+    // OP_ClientUpdate S>C, 28B: the position broadcast for spawns OTHER than the
+    // local player (players + some NPCs). eql packs each coord in the LOW 19 bits
+    // of its own u32 (×8 fixed-point) — z@4, x@8, y@12 as re-derived 2026-07-29
+    // against the untouched OP_MobUpdate / OP_NpcMoveUpdate streams — decoded by
+    // this backend's own parse_player_spawn_pos.
     // The parser surfaces raw 19-bit values; apply >> 3 here for the 1/8-unit →
     // integer conversion (as Live's SpawnShell::playerUpdate does). Position
     // only → the neutral SpawnShell::moveSpawn, the same path OP_MobUpdate uses;

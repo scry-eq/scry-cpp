@@ -1229,10 +1229,12 @@ void Player::applySelfPosition(int16_t px, int16_t py, int16_t pz,
   m_validPos = true;
   updateLast();
 
-  // heading is the 13-bit wire facing (8192 per circle); m_heading is an 8-bit
-  // compass, so scale down (>>5). Degrees per the Legends 0x5188 C>S @18 bit-8
-  // field, /loc-verified S=180/W=270 and a stationary 360-spin capture.
-  setHeading((int8_t)((heading >> 5) & 0xFF), 0);
+  // heading is the 11-bit wire facing (2048 per circle); m_heading is an 8-bit
+  // compass, so scale down (>>3). This said >>5 until 2026-07-29, left over from
+  // when the field was read as 13 bits — it squeezed a full turn into the low
+  // quarter of the 8-bit range. Harmless in practice (protoencoder takes the
+  // Player's headingDegrees below, never this), but the two must agree.
+  setHeading((int8_t)((heading >> 3) & 0xFF), 0);
   // eql's self report carries an 11-bit COMPASS facing (2048 per circle, 0 = N,
   // increasing clockwise), so this converts straight to degrees. It is NOT
   // inverted like the spawn headings — calibrated 2026-07-28 against travel
