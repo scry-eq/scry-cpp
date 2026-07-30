@@ -346,9 +346,16 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_Illusion", SP_Zone, DIR_Server | DIR_Client,
          "spawnIllusionStruct", SZC_Match,
          seqBind(ms.spawnShell, &SpawnShell::illusionSpawn));
+    // OP_SpawnAppearance carries eql's WIDE 24B record ({u32 spawnId, u32 type,
+    // u32 value}), not Live's 8B struct, and its type numbering is its own — so
+    // it must NOT go to SpawnShell::updateSpawnAppearance, which applies Live's
+    // type semantics. It went there until 2026-07-30 and decoded nothing at all,
+    // because the gate was inheriting Live's sizeof(spawnAppearanceStruct)=8
+    // against a 24-byte wire. The gate size is now declared by
+    // seq-backend-eql::size_overrides and the bytes go to eql's own handler.
     wire("OP_SpawnAppearance", SP_Zone, DIR_Server | DIR_Client,
          "spawnAppearanceStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::updateSpawnAppearance));
+         seqBind(eql, &EqlDispatch::spawnAppearance));
     // OP_Death: mob deaths take the shared Live corpse path, but the player's OWN
     // death needs eql-specific respawn handling (EQL respawns in-zone with a new
     // self-id and sends no player-reinit OP_ZoneEntry), so route through

@@ -300,14 +300,20 @@ void EqlDispatch::spawnAppearance(const uint8_t* data, size_t len, uint8_t dir)
     //
     // Type 0x2c (mob lock) is handled separately by SpawnShell::updateSpawnLock,
     // which is wired to this same opcode and shared with Live.
+    //
+    // Decoded by eql's OWN Rust parser rather than a cast through Live's
+    // spawnAppearance2Struct: the two happen to share a layout today, but a Live
+    // struct edit must not be able to reach eql's wire (and this handler now also
+    // serves OP_SpawnAppearance, whose Live struct is a different shape entirely).
     (void)dir;
-    if (len < 12)
+    auto out = seq::rust::decode_spawn_appearance(
+        rust::Slice<const uint8_t>{data, len});
+    if (!out.ok)
         return;
-    const auto* sa = reinterpret_cast<const spawnAppearance2Struct*>(data);
-    if (sa->type != 6)
+    if (out.kind != 6)
         return;
-    m_spawnShell->updateSpawnAnimation((uint16_t)sa->spawnId,
-                                       (uint8_t)sa->value);
+    m_spawnShell->updateSpawnAnimation((uint16_t)out.spawn_id,
+                                       (uint8_t)out.parameter);
 }
 
 void EqlDispatch::expUpdate(const uint8_t* data, size_t len, uint8_t dir)
