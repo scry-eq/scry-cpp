@@ -732,8 +732,8 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2
 id      = "224f"
 name    = "OP_CastSpell"
 priority = 5
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 155e) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/09 l-patch: the player's own cast request (C>S, 40B) = stock startCastStruct {i32 gemSlot@0, u32 spellId@4, u8[10]@8, u32 targetId@18, ...} + 1 trailing byte. Carries the target, so casts show in the spell-timer window immediately with the target. Wired → SpellShell::selfStartSpellCast; 40B via a startCastStruct size override (see seq-backend-eql size_overrides)."
+updated = "2026-08-03"
+comment = "VALIDATED LOCALLY 2026-08-03 and gate size corrected 40 -> 44. The id from upstream legends b769446 is CONFIRMED correct: 10 captured C>S fires decoded to spell ids 15 / 235 / 191, matching the three spells actually cast. Wire is a fixed 44B, not the 40 inherited from Live's startCastStruct, so every packet had been silently size-dropped (visible only as a doesn't-match warning because nothing consumes it). slot@0 / spellId@4 / targetId@18 KEPT their offsets - the record grew at the tail, adding a per-spell constant u32 at @22 (same value on every cast of a given spell, role unmapped); targetId is 0 on an untargeted cast. Size is now eql-owned via start_cast::PAYLOAD_LEN. NOTE this opcode is deliberately NOT wired on any backend - cast-start buff insertion caused premature fading and put mob-targeted spells in the player's own buff list; the authoritative bar is OP_BuffList. PRIOR: 07/29 re-map from upstream, unvalidated locally (not present in our 07/29 capture). PRIOR: 07/09 l-patch, C>S stock startCastStruct + 1 trailing byte."
 
   [[zone.payloads]]
   dir           = "client"
