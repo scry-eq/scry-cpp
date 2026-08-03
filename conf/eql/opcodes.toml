@@ -202,8 +202,8 @@ comment = "Re-mapped for the 07/29 rotation (was 3e7b) - size histogram 18/17/15
 id      = "4eda"
 name    = "OP_MobUpdate"
 priority = 10
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 26d8) - 14b; spawn id at offset 0 in 229/229 fires, cross-referenced against the OP_ZoneEntry id set. PRIOR: Re-mapped for the 07/28 rotation - spawn id at offset 0; 38301 fires, second-highest rate in the capture. PRIOR: EQ Legends per-mob position update (S>C, 14B). Byte-identical to Live spawnPositionUpdate (packed y:19/z:19/u3:7/x:19/heading:12 fixed-point x8, spawnId u16@0 + 2 zero bytes); decoded by the shared decode_mob_update. The earlier i16-offset read (Y@4/8, Z@6/64, X@10) was a truncated window of these bitfields — the source of the 8192-unit north<->south Y wrap. See OPCODES_LEGENDS.md."
+updated = "2026-08-03"
+comment = "X/Y TRANSPOSE FIXED 2026-08-03: packed u64 @4 is Live's order y:19 / z:19 / u3:7 gap / x:19 (x8). The 07/28 rewrite had x and y reversed, taken from upstream's spawnPositionUpdateEQL which contradicts its own Live struct. The 07/29 id re-map validated size + spawn-id offset only, never the layout, so it survived. Evidence in OPCODES_LEGENDS.md. Re-mapped 07/29 (was 26d8) - 14b, spawn id @0 in 229/229. PRIOR: 07/28 re-map, spawn id @0, 38301 fires. PRIOR: per-mob position update S>C 14B; the old i16-offset read (Y@4/8, Z@6/64, X@10) was a truncated window of these bitfields - the 8192-unit north<->south Y wrap."
 
   # Byte-identical to Live spawnPositionUpdate (sizeof==14) → size-gate on it
   # directly; decode via the shared Rust decode_mob_update.

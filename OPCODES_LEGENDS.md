@@ -1758,184 +1758,16 @@ word it rode is now Y — so it reports 0, as upstream also leaves it unmapped.
 Both need the same treatment that worked for the spawn block: solve against
 stationary spawns whose position is known exactly, rather than porting offsets.
 
-#### 2026-07-28 — MobUpdate / NpcMoveUpdate (SUPERSEDED — see the entry below)
+#### 2026-07-28 — position entries removed (they were wrong)
 
-Attempted the same ground-truth solve that fixed the spawn block. It did not
-close, and the negative results are worth keeping so the next attempt does not
-repeat them.
+Five entries covering the 07/28 MobUpdate / ZoneEntry position work were deleted
+on 2026-08-03. They concluded that "ZoneEntry's x/y are transposed relative to
+MobUpdate" and swapped the spawn record and the self position to match. ZoneEntry
+was never relative to MobUpdate — MobUpdate was simply mislabelled, so every
+conclusion drawn against it as ground truth was wrong, and the chain is misleading
+enough that keeping it costs more than it documents. See the 2026-08-03 entry at
+the end of this file for what the packets actually say.
 
-**Method notes.** A "stationary spawn" filter is a trap: requiring a spawn's
-ZoneEntry positions to be identical accepts every spawn that only ever sent ONE
-record, which is nearly all of them (5835 of 6812). Tightening to 3+ identical
-records leaves 8 spawns and 3 usable packets. Time-proximity pairing (an update
-within ~3000 packets of the spawn's ZoneEntry must report a nearby position)
-gives 2500 usable samples and is the better instrument.
-
-**What was found.** For OP_MobUpdate, spawn 11895 (true position -86,-902,-67)
-carries `0xFC6C0000` as the LE u32 at byte 8, and `(w >> 13)` read as a signed
-19-bit x8 value gives **-916 against a true y of -902** — a match inside the
-mob's own drift. That is the same "coordinate in bits 13..31 of a word" packing
-the spawn record used before this patch, so the convention survived even though
-the block moved.
-
-**What was ruled out.** Scanning every bit offset (both bit orders, two's
-complement and sign-magnitude, >>3 and raw) and every byte offset (i16, i16>>3,
-f32) across both opcodes, **x matches nowhere and z only matches coincidentally**
-(z is small-magnitude, so a +/-40 tolerance hits noise constantly — do not trust
-a z-only hit). So x is not a plain absolute coordinate at any offset in these
-payloads under any encoding tried.
-
-**The hypothesis worth testing next:** these may carry DELTAS rather than
-absolute positions, which would explain a high-rate movement opcode and would
-explain why no offset holds an absolute x. Test it cheaply by taking consecutive
-updates for one spawn and checking whether the candidate fields are small and
-signed (deltas) or large and slowly-varying (absolutes).
-
-Upstream's offsets still cannot be ported: it documents x at bit 160 (byte 20)
-while these payloads are 14 bytes (MobUpdate) and 15-19 (NpcMoveUpdate).
-
-#### 2026-07-28 — corrected: NpcMoveUpdate was never broken; MobUpdate carries deltas
-
-The entry above is wrong and is kept only to mark the dead end. Both of its
-conclusions came from a **confounded test**: comparing a movement update's
-position against the spawn's ZoneEntry position. Mobs WALK away from where they
-spawn, so that distance grows by design and proves nothing.
-
-**The non-confounded test is trajectory smoothness** on consecutive updates of
-one spawn — as this repo's own CLAUDE.md already says: a real walk decodes to a
-smooth ~8-units/tick path, a wrong bit-extraction gives thousand-unit jumps. One
-run separates them cleanly:
-
-| opcode | median step | p90 | steps >1000u | verdict |
-|---|---|---|---|---|
-| OP_NpcMoveUpdate | 14.9u | 30.1u | 0% | correct, and always was |
-| OP_MobUpdate | 0.0u | 727u | 5% | wrong |
-
-**OP_NpcMoveUpdate needs no change.** Our layout already matches upstream's
-`npcMoveUpdateEQL` exactly — spawnId@0 BE, 6-bit specifier@32, sign+magnitude
-19-bit at 38/57/76, heading@95, and the same wire→map transpose.
-
-**OP_MobUpdate: RETRACTED claim.** An earlier revision of this entry said it carries deltas. Decoded against spawns whose
-true position is known, its fields read in the hundreds where truth is in the
-thousands: spawn 11619 is at (3847,-1183,69) while the packet yields ~(186,15,5)
-under either field labelling — but that comparison was itself confounded (the
-reference was the spawn's ZoneEntry position, which a walking mob has left), and
-a stationary spawn repeats a constant non-zero triple rather than sending zeros,
-which is not delta-like either. A width-19..22 bit search across the whole
-payload finds the true coordinate at NO offset, so the pairing or the reference
-is wrong rather than the semantic. Treat MobUpdate as UNSOLVED, not as deltas. Its bit positions have been realigned to upstream's
-`spawnPositionUpdateEQL` (x 0..18, z 19..37, 7-bit gap, y 45..63 — the gap is
-what the old binding omitted), but consumers still treat the values as absolute,
-so this is the next piece of work: apply them as deltas against the tracked
-position, which is what upstream's own npcMoveUpdate path does for its velocity
-lines.
-
-**Method note for next time:** check MAGNITUDE before hunting offsets. One print
-of decoded-vs-true would have shown "hundreds vs thousands" immediately and
-skipped every offset scan.
-
-#### 2026-07-28 — ZoneEntry position is right for PCs, WRONG for NPCs
-
-Chasing MobUpdate finally isolated the real fault, and it is not in MobUpdate.
-
-- Its spawn id is sound: `u16 LE @0` lands in the ZoneEntry id set for **100%**
-  of 49728 packets (4986 distinct) against a ~10% random baseline. The pairing
-  used in every earlier comparison was never wrong.
-- Its layout matches upstream's `spawnPositionUpdateEQL`.
-- Yet pairing each zone-entry with a MobUpdate arriving **within 400 packets** —
-  before a mob can have gone anywhere — gives a median separation of **2752
-  units** across 3216 NPC pairs, 0% within 10 units.
-
-Meanwhile the player's OWN zone-entry record decodes to exactly the breadcrumb
-position. So ZoneEntry's position block is landing correctly for a PC and
-incorrectly for NPCs, which points straight at the record walk: the equipment
-section branches on race (humanoid races skip 36 colour bytes and read 9 slots,
-others skip 20 and read 2), and a wrong branch shifts everything after it —
-including the position block.
-
-**This qualifies the earlier "spawn positions fixed and verified" entry: it was
-verified for exactly one spawn type.** The y=0 wall did disappear, so the block
-assignment is right; where it starts is not, for NPCs.
-
-Next: pin the NPC branch the same way the PC case was pinned — take an NPC whose
-position is known from its (fixed-layout, id-verified) MobUpdate and find where
-its coordinates actually sit in the zone-entry record, then correct the walk.
-MobUpdate is the trustworthy reference here, not ZoneEntry.
-
-#### 2026-07-28 — ANSWER: ZoneEntry's x/y are transposed relative to MobUpdate
-
-Tail-scan of 3216 NPC zone-entry records, using each spawn's MobUpdate position
-as truth (MobUpdate is id-verified at 100% and has a fixed layout, so it is the
-trustworthy reference — not ZoneEntry):
-
-```
-len-95 -> y   (398 hits)
-len-91 -> z   (385)
-len-83 -> x   (398)
-```
-
-Our parser currently reads len-95 as X and len-83 as Y — **exactly swapped**.
-That single transposition explains every unresolved symptom: the 2752-unit
-NPC disagreement, why no offset scan found "x" (it was there, under the other
-name), and why MobUpdate looked broken when it never was.
-
-The PC measurement that produced the current assignment was taken against the
-BREADCRUMB, which reports in /loc order (y first, then x). So the breadcrumb's
-axis labels are transposed relative to the wire/map frame that MobUpdate and the
-spawn record use — the PC position was self-consistent with the breadcrumb and
-inconsistent with everything else. This is the same transpose upstream flags as
-ambiguous in spawnStruct posData ("assigning y to word0 and x to word3 rotates
-the dots to align with the zone map").
-
-**The fix is to swap x and y in the spawn record's position read** so ZoneEntry
-agrees with MobUpdate. Then re-check BOTH: NPC agreement with MobUpdate should
-collapse from 2752 units to near zero, and the self-position path (which was
-verified in the breadcrumb frame) must be re-checked for the same transpose —
-`player_self_pos.rs` and the breadcrumb parser label their axes the same way, so
-if one flips they both do.
-
-Do not re-derive this from statistics; the reference is MobUpdate, and upstream's
-`fillSpawnStruct` is the authority for the walk itself (our equipment branch is
-already byte-identical to it).
-
-#### 2026-07-28 — RESOLVED: both position paths swapped and verified
-
-Applied the transpose to the spawn record (`seq-backend-eql/src/lib.rs`) and,
-after measuring, to the self position (`player_self_pos.rs`) as well.
-
-Spawn record, tail-relative:
-
-```
-len-95 -> y      len-91 -> z      len-83 -> x
-```
-
-Self position (`playerSelfPosStruct`): `x @6`, `z @10`, `y @34` — the two
-horizontal fields swapped from what was there.
-
-Verification, both paths, over the 07/28 capture:
-
-| path | before | after |
-|------|--------|-------|
-| NPC ZoneEntry vs its MobUpdate within 400 packets (n=3216) | median 2752.1u, 0% within 10u | **median 0.0u, 99% within 10u** |
-| player's own ZoneEntry vs `OP_ClientUpdate` (n=30) | exactly transposed every time | **agree to the unit** (18/30 exact; the rest are the known double-announce phantom, not an axis error) |
-
-Heading needed NO change. It was calibrated in the breadcrumb frame, and a
-transpose mirrors bearings, so it was re-measured against the corrected self
-position: decoded heading matches `atan2(dy, dx)` directly at median 2.1° error,
-89% within 20° (n=6338). The mirrored alternative `atan2(dx, dy)` is 86° off, so
-the existing `HEADING_UNITS = 2048` compass with no inversion stands.
-
-Everything downstream of the axis labels was already right — the packed-word
-offsets, the 19-bit sign extension, the ÷8 fixed point, the MobUpdate bit
-layout, the spawn-id read. The bug was two labels, and it cost a whole
-investigation because the one position source used as ground truth (the
-breadcrumb) was the one source that disagrees with the map frame.
-
-Tier-2 `check.sh` passes twice in a row after re-recording the eql golden.
-Recording recipe matters: a non-live target namespaces its guild cache at
-`~/.showeq/<target>/tmp/guilds2.dat`, so clearing the flat live path leaves the
-eql cache warm and the golden bakes in the warm-cache guild-tag timing, which
-then deterministically fails against check.sh's cold run.
 
 ### 2026-07-28 — p9/p8 verification of the ids adopted from upstream
 
@@ -2294,3 +2126,64 @@ title/suffix string block, so the walk is still the right mechanism.
 **Where to look first next rotation**: this block has now moved on three
 consecutive patches (07/14, 07/28, 07/29) while keeping its size, and the axis
 ordering changed each time. Re-derive it on every patch; never assume it held.
+
+### 2026-08-03 — OP_MobUpdate x/y were transposed; ZoneEntry was right all along
+
+Reported as "mobs showing up outside the normal areas". Only SOME mobs: the ones
+that had moved. A mob sat correctly on the map until its first OP_MobUpdate, then
+snapped to a transposed position and stayed there.
+
+**Ground truth used: the brewall map geometry**, which the daemon already loads
+and ships in the golden. It is independent of every wire derivation, which is
+exactly what this problem needed — the 07/28 work went wrong by using one
+position stream as the reference for another. Scoring each spawn against the
+nearest map-line vertex, over the 8 flip/swap variants:
+
+| spawn set | identity | swap(x,y) |
+|---|---|---|
+| 170 NPCs never moved (position from OP_ZoneEntry) | **median 8u, 97% within 50u** | 803u |
+| 69 NPCs that had moved | 731u | **median 8u, 100% within 50u** |
+| player (OP_ClientUpdate C>S) | **24u** | 1196u |
+| spawn points (OP_ZoneEntry) | **4–12u** | 1164–1351u |
+
+So ZoneEntry and the self position are correct as they ship; one update stream
+transposes. Attributed by decoding the raw payloads off `eql-patch29july.vpk` and
+scoring each candidate field per axis against the spawn-struct position:
+
+| stream | field | vs true X | vs true Y | verdict |
+|---|---|---|---|---|
+| OP_MobUpdate `4eda` | bits 0..18 | 1442 | **0** | is **Y** (parser called it x) |
+| | bits 19..37 | 730 | 1727 | is Z (0 vs true Z) |
+| | bits 45..63 | **0** | 1442 | is **X** (parser called it y) |
+| OP_NpcMoveUpdate `2f15` | slot 1 | 1737 | **45** | is Y — as shipped, correct |
+| | slot 2 | **64** | 1676 | is X — as shipped, correct |
+| OP_ClientUpdate S>C `5380` | @8 | **28** | 2035 | is X — as shipped, correct |
+| | @12 | 2035 | **47** | is Y — as shipped, correct |
+
+Exact per-packet agreement with `bits0=Y, bits45=X`: **11 of 16** (the other 5 are
+mobs that walked a few units between their spawn record and the update). With the
+shipped `bits0=X, bits45=Y`: **0 of 16**.
+
+**Root cause.** The 07/28 rewrite took the field order from upstream's
+`spawnPositionUpdateEQL` (legends `7612d72`), which labels bits 0..18 x and bits
+45..63 y — the reverse of its own Live `spawnPositionUpdate` (`y:19, z:19, u3:7,
+x:19`). eql's packets follow the LIVE order. That mislabel was then used as the
+reference to "correct" ZoneEntry and the self position, transposing both to match
+it; the 07/29 and 07/30 rotations re-derived those two against real ground truth
+and fixed them, but MobUpdate only had its **id** re-mapped (`26d8` → `4eda`,
+validated on size + spawn-id-at-offset-0), never its internal layout — so it was
+left as the only stream still carrying the 07/28 mislabel.
+
+Fix is one line each in `seq-backend-eql/src/mob_update.rs`: `y = field(0)`,
+`x = field(45)`. Regression guard: `decodes_a_captured_update` pins the axes to
+real wire bytes, and `each_coordinate_reads_from_its_own_field` now uses a
+distinct value per axis so a transpose fails loudly (the old test used the same
+shape for both and could not catch this).
+
+**Upstream:** `spawnPositionUpdateEQL` is wrong in the legends branch and its
+"Verified against spawn-struct positions on 21/25 wire packets" note does not
+hold here — queue a correction.
+
+**Method note.** Prefer a reference that is not itself a wire derivation. The map
+geometry settled in one pass what three rounds of stream-vs-stream comparison got
+backwards, because two streams can agree with each other and both be wrong.
