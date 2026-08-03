@@ -359,8 +359,20 @@ void EqlDispatch::playerUpdateSelf(const uint8_t* data, size_t len, uint8_t dir)
         rust::Slice<const uint8_t>{data, len});
     if (!out.ok)
         return;
+    // Mid-session attach (sniffer started, or restarted, while already in a
+    // zone) never witnesses OP_PlayerProfile or the OP_ZoneEntry burst, so the
+    // name match above can never fire and the player stays invisible until they
+    // zone — position dead, and stat-sync unattributable because the tracker
+    // knows no id. This report is the client's OWN, so its id is ours by
+    // construction; the tracker decides what that is worth (provisional only,
+    // never displacing a name-matched live copy) and remembers it so the eql
+    // stat channel resolves as self. With a self already adopted the same call
+    // just learns which id is the twin.
+    if (m_selfTracker->observe_self_pos(out.spawn_id) == 1 && m_player->id() == 0)
+        m_player->setPlayerID(out.spawn_id);
+
     if (m_player->id() == 0)
-        return;   // self-id not adopted yet (awaiting zoneEntry name-match)
+        return;   // still unresolved (no id on the wire this patch)
 
     // Position and heading are authoritative on every packet. The velocities are
     // NOT located for this patch and the parser surfaces 0 for them rather than
@@ -508,7 +520,12 @@ bool EqlDispatch::consumeSelfSpawn(const QString& name, uint16_t id)
     // Re-homing runs playerChangedID, which drops any stray copy from the list
     // and re-snapshots the client. The twin is simply swallowed.
     if (routing == 1)
+    {
+        // A name match is authoritative: it supersedes any id adopted
+        // provisionally from the C>S self-report while we had nothing better.
+        m_selfTracker->take_retired_provisional();
         m_player->setPlayerID(id);
+    }
 
     // eql keys the self's stats to the twin id, and the stat packet carrying the
     // real maxima can arrive BEFORE the record that identifies that id — in some
