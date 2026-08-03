@@ -2164,15 +2164,21 @@ Exact per-packet agreement with `bits0=Y, bits45=X`: **11 of 16** (the other 5 a
 mobs that walked a few units between their spawn record and the update). With the
 shipped `bits0=X, bits45=Y`: **0 of 16**.
 
-**Root cause.** The 07/28 rewrite took the field order from upstream's
-`spawnPositionUpdateEQL` (legends `7612d72`), which labels bits 0..18 x and bits
-45..63 y — the reverse of its own Live `spawnPositionUpdate` (`y:19, z:19, u3:7,
-x:19`). eql's packets follow the LIVE order. That mislabel was then used as the
-reference to "correct" ZoneEntry and the self position, transposing both to match
-it; the 07/29 and 07/30 rotations re-derived those two against real ground truth
-and fixed them, but MobUpdate only had its **id** re-mapped (`26d8` → `4eda`,
-validated on size + spawn-id-at-offset-0), never its internal layout — so it was
-left as the only stream still carrying the 07/28 mislabel.
+**Root cause: we ported half a two-part convention.** Upstream's
+`spawnPositionUpdateEQL` (legends `7612d72`) names its bitfields in the **wire
+frame** — x at bits 0..18, y at 45..63 — and undoes the transposition **at the
+call site**: `SpawnShell::updateSpawns` passes `updates->y` as x and `updates->x`
+as y ("same EQ Legends x/y transposition as the spawn struct"), and
+`npcMoveUpdateEQL` does the same. **Upstream decodes correctly.** The 07/28
+rewrite adopted their struct labels without their call-site swap, and our parsers
+name fields in the MAP frame, so the labels landed reversed.
+
+That reversed read was then used as the reference to "correct" ZoneEntry and the
+self position, transposing both to match it. The 07/29 and 07/30 rotations
+re-derived those two against real ground truth and fixed them, but MobUpdate only
+had its **id** re-mapped (`26d8` → `4eda`, validated on size +
+spawn-id-at-offset-0), never its internal layout — leaving it the only stream
+still carrying the 07/28 error.
 
 Fix is one line each in `seq-backend-eql/src/mob_update.rs`: `y = field(0)`,
 `x = field(45)`. Regression guard: `decodes_a_captured_update` pins the axes to
@@ -2180,10 +2186,16 @@ real wire bytes, and `each_coordinate_reads_from_its_own_field` now uses a
 distinct value per axis so a transpose fails loudly (the old test used the same
 shape for both and could not catch this).
 
-**Upstream:** `spawnPositionUpdateEQL` is wrong in the legends branch and its
-"Verified against spawn-struct positions on 21/25 wire packets" note does not
-hold here — queue a correction.
+**Upstream needs nothing.** An earlier revision of this entry claimed
+`spawnPositionUpdateEQL` was wrong and queued a patch for Xerxes. It is not wrong
+— reading the consumer rather than only `everquest.h` shows the point-of-use
+swap. Retracted; nothing to submit.
 
-**Method note.** Prefer a reference that is not itself a wire derivation. The map
-geometry settled in one pass what three rounds of stream-vs-stream comparison got
-backwards, because two streams can agree with each other and both be wrong.
+**Two method notes.**
+
+- Prefer a reference that is not itself a wire derivation. The map geometry
+  settled in one pass what three rounds of stream-vs-stream comparison got
+  backwards, because two streams can agree with each other and both be wrong.
+- When porting a position struct from the legends branch, read `spawnshell.cpp`
+  as well as `everquest.h`. A field named `x` there may be delivered as y, and
+  taking the struct without the call site ports half a convention.
