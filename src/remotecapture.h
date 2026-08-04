@@ -25,6 +25,7 @@
 
 #include <cstdint>
 #include <atomic>
+#include <vector>
 
 #include <QString>
 
@@ -70,7 +71,8 @@ class RemoteCaptureThread : public PacketCaptureProviderThread
         static void* loop(void* param);
         void run();                              // connect → handshake → pump, with backoff
         int  connectToAgent();                   // returns socket fd, or -1
-        bool sendClientHello(int fd);            // SEQC filter request
+        bool sendClientHello(int fd);            // ClientHello filter request
+        bool readMsg(int fd, uint8_t& type, std::vector<uint8_t>& payload);   // one envelope
         bool readHello(int fd);                  // SEQA link_type / snaplen / filter
         uint64_t pumpFrames(int fd);             // read frames → packetCache until EOF/error
         bool readFull(int fd, void* buf, size_t n);

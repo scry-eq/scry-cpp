@@ -36,16 +36,27 @@
 #include "diagnosticmessages.h"
 
 //----------------------------------------------------------------------
-// SEQA wire protocol (mirrors seq-agent's src/proto.rs). All ints little-endian.
-//   ClientHello (daemon -> agent): "SEQC" ver(1) flags(1) filt_len(u16) filter
-//   Hello       (agent -> daemon): "SEQA" ver(1) flags(1) link_type(i32)
-//                                   snaplen(u32) filt_len(u16) filter
-//   Frame       (agent -> daemon): ts_micros(u64) caplen(u32) origlen(u32) data
+// SEQA v2 wire protocol (mirrors seq-agent's src/proto.rs, the normative spec).
+// All ints little-endian. Every message carries a uniform length-prefixed
+// envelope, so an unknown type is skipped by its length instead of desyncing
+// the stream:
+//   Envelope: magic[2]="SQ" ver(1)=2 type(1) len(u32) payload[len]
+//     type 1 Frame       (agent->daemon) ts_micros(u64) origlen(u32) data[len-12]
+//     type 2 ClientHello (daemon->agent) filter[len]
+//     type 3 Hello       (agent->daemon) link_type(i32) snaplen(u32) filter[len-8]
+// The captured length is len-12 rather than a field of its own, so it cannot
+// contradict the bytes that follow.
 namespace {
-constexpr uint8_t SEQ_VERSION = 1;
+constexpr uint8_t SEQ_VERSION = 2;
+constexpr uint8_t SEQ_TYPE_FRAME = 1;
+constexpr uint8_t SEQ_TYPE_CLIENT_HELLO = 2;
+constexpr uint8_t SEQ_TYPE_HELLO = 3;
+constexpr size_t SEQ_ENVELOPE_LEN = 8;
+constexpr size_t SEQ_FRAME_PREFIX = 12;   // ts_micros + origlen
+constexpr size_t SEQ_HELLO_PREFIX = 8;    // link_type + snaplen
 constexpr uint32_t SEQ_MAX_CAPLEN = 262144;   // reject absurd frame lengths
+constexpr uint32_t SEQ_MAX_PAYLOAD = SEQ_MAX_CAPLEN + SEQ_FRAME_PREFIX;
 
-inline uint16_t rdU16(const uint8_t* p) { return (uint16_t)p[0] | ((uint16_t)p[1] << 8); }
 inline uint32_t rdU32(const uint8_t* p)
 {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
@@ -214,16 +225,16 @@ int RemoteCaptureThread::connectToAgent()
 bool RemoteCaptureThread::sendClientHello(int fd)
 {
     const QByteArray filter = m_filter.toUtf8();
-    if (filter.size() > 0xffff)
+    if ((uint32_t)filter.size() > SEQ_MAX_PAYLOAD)
         return false;
 
     QByteArray msg;
-    msg.append("SEQC", 4);
+    msg.append("SQ", 2);
     msg.append((char)SEQ_VERSION);
-    msg.append((char)0);                       // flags
-    const uint16_t flen = (uint16_t)filter.size();
-    msg.append((char)(flen & 0xff));
-    msg.append((char)((flen >> 8) & 0xff));
+    msg.append((char)SEQ_TYPE_CLIENT_HELLO);
+    const uint32_t len = (uint32_t)filter.size();
+    for (int i = 0; i < 4; ++i)
+        msg.append((char)((len >> (8 * i)) & 0xff));
     msg.append(filter);
 
     size_t off = 0;
@@ -242,30 +253,55 @@ bool RemoteCaptureThread::sendClientHello(int fd)
     return true;
 }
 
-bool RemoteCaptureThread::readHello(int fd)
+// Read one envelope + its payload. `payload` is reused across calls so the
+// frame loop doesn't reallocate per packet.
+bool RemoteCaptureThread::readMsg(int fd, uint8_t& type, std::vector<uint8_t>& payload)
 {
-    // Fixed prefix: magic(4) ver(1) flags(1) link_type(4) snaplen(4) filt_len(2).
-    uint8_t h[16];
-    if (!readFull(fd, h, sizeof(h)))
+    uint8_t env[SEQ_ENVELOPE_LEN];
+    if (!readFull(fd, env, sizeof(env)))
         return false;
-    if (memcmp(h, "SEQA", 4) != 0)
+    if (env[0] != 'S' || env[1] != 'Q')
     {
         seqWarn("RemoteCapture: bad SEQA magic from agent");
         return false;
     }
-    if (h[4] != SEQ_VERSION)
+    if (env[2] != SEQ_VERSION)
     {
-        seqWarn("RemoteCapture: unsupported SEQA version %u", h[4]);
+        seqWarn("RemoteCapture: unsupported SEQA version %u (expected %u)", env[2], SEQ_VERSION);
         return false;
     }
-    m_linkType = (int32_t)rdU32(h + 6);
-    const uint16_t flen = rdU16(h + 14);
-    if (flen)
+    type = env[3];
+    const uint32_t len = rdU32(env + 4);
+    if (len > SEQ_MAX_PAYLOAD)
     {
-        std::vector<uint8_t> f(flen);
-        if (!readFull(fd, f.data(), flen))
-            return false;
+        seqWarn("RemoteCapture: SEQA payload %u out of range; dropping link", len);
+        return false;
     }
+    payload.resize(len);
+    return len == 0 || readFull(fd, payload.data(), len);
+}
+
+bool RemoteCaptureThread::readHello(int fd)
+{
+    std::vector<uint8_t> payload;
+    uint8_t type = 0;
+
+    // Anything ahead of the Hello is skipped by its envelope length rather than
+    // treated as fatal — that tolerance is why the envelope exists.
+    do
+    {
+        if (!readMsg(fd, type, payload))
+            return false;
+        if (type != SEQ_TYPE_HELLO)
+            seqDebug("RemoteCapture: skipping SEQA type %u before hello", type);
+    } while (type != SEQ_TYPE_HELLO);
+
+    if (payload.size() < SEQ_HELLO_PREFIX)
+    {
+        seqWarn("RemoteCapture: SEQA hello shorter than its header");
+        return false;
+    }
+    m_linkType = (int32_t)rdU32(payload.data());
 
     // The decode pipeline strips a fixed 14-byte Ethernet header per frame, so
     // anything but DLT_EN10MB decodes to garbage (same constraint as the offline
@@ -279,23 +315,27 @@ bool RemoteCaptureThread::readHello(int fd)
 
 uint64_t RemoteCaptureThread::pumpFrames(int fd)
 {
-    std::vector<uint8_t> data(SEQ_MAX_CAPLEN);
+    std::vector<uint8_t> payload;
     uint64_t frames = 0;
     while (!m_stop.load())
     {
-        uint8_t fh[16];   // ts_micros(8) caplen(4) origlen(4)
-        if (!readFull(fd, fh, sizeof(fh)))
+        uint8_t type = 0;
+        if (!readMsg(fd, type, payload))
             return frames;
-        const uint64_t tsMicros = rdU64(fh);
-        const uint32_t caplen = rdU32(fh + 8);
-        if (caplen == 0 || caplen > SEQ_MAX_CAPLEN)
+        if (type != SEQ_TYPE_FRAME)
+            continue;   // a type this build predates; already consumed
+
+        if (payload.size() < SEQ_FRAME_PREFIX)
         {
-            seqWarn("RemoteCapture: frame caplen %u out of range; dropping link", caplen);
+            seqWarn("RemoteCapture: SEQA frame shorter than its header; dropping link");
             return frames;
         }
-        if (!readFull(fd, data.data(), caplen))
-            return frames;
-        enqueue(data.data(), caplen, (int64_t)(tsMicros / 1000));
+        const uint64_t tsMicros = rdU64(payload.data());
+        const size_t caplen = payload.size() - SEQ_FRAME_PREFIX;
+        if (caplen == 0)
+            continue;
+        enqueue(payload.data() + SEQ_FRAME_PREFIX, (uint32_t)caplen,
+                (int64_t)(tsMicros / 1000));
         ++frames;
     }
     return frames;
