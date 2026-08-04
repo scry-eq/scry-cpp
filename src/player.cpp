@@ -1235,11 +1235,10 @@ void Player::applySelfPosition(int16_t px, int16_t py, int16_t pz,
   // quarter of the 8-bit range. Harmless in practice (protoencoder takes the
   // Player's headingDegrees below, never this), but the two must agree.
   setHeading((int8_t)((heading >> 3) & 0xFF), 0);
-  // eql's self report carries an 11-bit COMPASS facing (2048 per circle, 0 = N,
-  // increasing clockwise), so this converts straight to degrees. It is NOT
-  // inverted like the spawn headings — calibrated 2026-07-28 against travel
-  // direction (see seq-backend-eql player_self_pos::HEADING_UNITS).
-  m_headingDegrees = (heading * 360) >> 11;
+  // 11-bit facing (2048 per circle), inverted like every other heading —
+  // matching upstream legends' `360 - ((h2048 * 360) >> 11)`. Uninverted it
+  // mirrors: a left turn rotates the marker right.
+  m_headingDegrees = (360 - ((heading * 360) >> 11)) % 360;
   emit headingChanged(m_headingDegrees);
 
   emit posChanged(x(), y(), z(),
