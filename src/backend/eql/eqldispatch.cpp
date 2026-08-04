@@ -201,14 +201,24 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
     // empty only when the block can't be found). The parser also recovers the
     // surname + current zone/position/guild, but those stay unused here: the
     // current zone comes from OP_NewZone (newZone() below) and position from
-    // OP_ClientUpdate, both authoritative. Nothing on the eql zone path fires a
-    // reset, so what we set here survives the later OP_NewZone.
+    // OP_ClientUpdate, both authoritative.
     if (dir != DIR_Server)
         return;
     auto out = seq::rust::decode_player_profile(
         rust::Slice<const uint8_t>{data, len});
     if (!out.ok)
         return;
+
+    // The per-zone spawn reset. eql sends this once per zone-in and BEFORE the
+    // OP_ZoneEntry burst, which is what makes it the usable trigger: OP_NewZone
+    // lands after the burst and would wipe it. Previously the only reset was
+    // the fresh box BoxRegistry mints per zone session, so a session whose
+    // world handshake was never captured (no OP_ZoneServerInfo -> zone sessions
+    // bound "by world recency") stopped resetting entirely and piled every zone
+    // into one list — 1900+ spawns and stale records under recycled ids.
+    m_spawnShell->clear();
+    m_player->setID(0);
+    m_selfTracker->reset();
     // Name first: setPlayerName only stores it (+ signals the box picker); the
     // setIdentity() below then emits changeItem(tSpawnChangedALL) carrying the
     // new name. An empty name (anchor block not found) leaves box-naming to
