@@ -148,9 +148,10 @@ over-long declaration would not warn; it would just hand the parser a short
 buffer. We keep `PAYLOAD_LEN = 42`.
 
 Heading location moved but **width, scale and sense are unchanged**, so the
-existing downstream inversion carries over untouched. The 2.14° travel-bearing
-fit pins the *location* only — per this module's own standing note, the *sense*
-must be calibrated on a TURN, since facing-vs-bearing cannot see a mirror.
+existing downstream inversion carried over untouched — **confirmed in-game
+2026-08-05**, the reticle tracks the turn rather than mirroring it. The 2.14°
+travel-bearing fit pins the *location* only: the sense must be calibrated on a
+TURN, since facing-vs-bearing shares the frame and cannot see a mirror.
 
 ### Still open
 
