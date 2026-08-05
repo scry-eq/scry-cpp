@@ -32,6 +32,133 @@ Server topology (Daybreak netblock `69.174.201.x`): login `:15900`, world
   class-data blocks — don't assume the single-`class_` layout of Live
   `charProfileStruct`. Watch for triplicated class/level fields.
 
+## ⚠ PATCHED 2026-08-04 — FIFTH full opcode rotation; p10 + p9 CLOSED
+
+Fifth full rotation (07/07, 07/14, 07/28, 07/29, 08/04). Against a same-day
+capture (Toxxulia Forest → Paineel → The Hole, with targets and cons) the whole
+table read **zone 131 distinct / 0 known, world 15 / 0 known**. All 71 mapped
+ids were reset to `ffff` before anything was re-imported; prior ids are kept in
+each entry's comment.
+
+Upstream shipped 6.4.25.1 the same day (**51 opcodes re-derived** + position
+struct updates). Their table was ported and then validated per-opcode; two p10/p9
+opcodes they had **not** re-derived were hunted here.
+
+### The trap this rotation: upstream's un-re-derived rows
+
+Upstream's ChangeLog defers "situational opcodes (Group\*, WearChange, LootDrops,
+Random, AA, Inspect) to a later update", and their file still carries those rows
+at their **07/29** ids. Measured against the 08/04 capture, **all 16 fire zero
+times** — they are dead ids sitting in a current-looking file:
+
+`16ac 784e 3b21 4155 03ce 0cb5 5767 587b 6711 612d 3ed1 3a86 6426 0ad1 3989 4037`
+
+A whole-file port imports every one of them as a live mapping. **`updated="08/04/26"`
+is the discriminator** — filter on it, and leave everything else `ffff`.
+Their **world table is untouched entirely** (all rows dated 07/07–07/14/26), so
+`OP_ZoneServerInfo` had to be hunted too.
+
+### Recon note — the scoped-stats trap cost us the p9 evidence
+
+The first pass read the fixture's paired `.opcodestats.txt`, which was recorded
+**primary-box scoped**. EQL opens a fresh world socket per zone-in, so every
+zone-in-shaped opcode showed exactly one fire across three zones, and
+`OP_Consider` / `OP_GroundSpawn` showed **zero** — indistinguishable from "the
+capture doesn't contain cons". Re-running with `--dump-all-sessions` took zone
+opcodes 131 → 177 distinct and surfaced all of it. Always re-run unscoped before
+concluding an opcode is absent.
+
+### Independent shape prediction vs upstream (pre-registered)
+
+Before reading upstream's table, each old id's fingerprint (size histogram +
+direction split + count rank) was aligned against the 08/04 unknowns. That
+predicted **10 of 12** p10 ids, all confirmed identical to upstream's independent
+derivation. The two misses were the informative ones: `OP_PlayerProfile` had no
+shape candidate (it is a single 44979 B fire), and `OP_SelfPos` was a miss
+*because upstream is stale there* — the shape lead was right and their id was
+dead. Agreement between two independent derivations is corroboration; each
+disagreement was resolved against the packet.
+
+### Confirmed — p10 (12/12)
+
+| opcode | id | content anchor that confirmed it |
+|---|---|---|
+| OP_ZoneEntry | `44cb` | 883 fires; spawn ids reappear in the movement/HP/despawn streams |
+| OP_PlayerProfile | `3e67` | 3 fires of 44979 B = exactly 3 zone-ins |
+| OP_NewZone | `2570` | 3 fires carrying *different* zone names: `Toxxulia Forest`, `paineel`/`Paineel`, `hole`/`The Ruins of Old Paineel` |
+| OP_ZoneChange | `4ab5` | 2 C>S fires of 484 B = exactly the 2 transitions |
+| OP_ClientUpdate | `5b7d` | C>S 42 B ×703 + S>C 24 B ×993; both bodies re-derived (below) |
+| OP_SelfPos | `61cb` | **hunted.** The ONLY opcode in the capture whose every payload length is `1 + N*17` (18/35/52/1684/1905/2143 → N 1/2/3/99/112/126), C>S only, zero competitors; 96 records decode to a continuous walk (median step 0.38u, **0 discontinuities in 95 steps**) |
+| OP_MobUpdate | `0a2a` | u16@0 yields 301 sane spawn ids; used as position ground truth |
+| OP_NpcMoveUpdate | `6c7b` | 2785 fires, 18/17/15 B — the bitstream fingerprint |
+| OP_HPUpdate | `6854` | 6/21/37/53/7 B multi-size fingerprint |
+| OP_SpawnAppearance | `6ef4` | 413 fires at the wide 24 B record, both directions |
+| OP_DeleteSpawn | `20a9` | ids overlap the OP_MobUpdate id set |
+| OP_RemoveSpawn | `048a` | 5 B ×84 + 4 B ×2, ids in the live set |
+
+### Confirmed — p9 (6/6) and world
+
+| opcode | id | content anchor |
+|---|---|---|
+| OP_TargetMouse | `4b90` | **hunted.** 18 C>S fires of 4 B; **5/5** distinct nonzero values are live spawn ids (cross-referenced against OP_MobUpdate's 301-id set), `0` = deselect. Competitors killed by the same test: `785f` scored **0/7**, `6cfb` is all zeros |
+| OP_Consider | `4635` | 8 fires (4 C>S + 4 S>C) at 24 B; the 8 decoded con events name spawn ids `4227/3561/3685/3627` — **the same mobs OP_TargetMouse independently reported targeting** |
+| OP_SpawnDoor | `1333` | 3 fires, one per zone |
+| OP_GroundSpawn | `77d1` | 7 fires, 62/63 B |
+| OP_CommonMessage | `0b3c` | 25 fires, variable; chat decodes as readable text |
+| OP_ClickObject | `2d39` | ported from upstream; **zero fires in this capture** (no objects were clicked) — unvalidated, flagged |
+| OP_ZoneServerInfo (world) | `5718` | **hunted.** 3 fires decoding to `lvseqns-livz10/livz09.everquestlegends.com` ports **2966/2779/1761** — exactly the three the daemon's own BoxRegistry fallback reported guessing (`no box announced port N`), in order. Mapping it drove that warning 3 → 0 |
+
+### Structs re-derived
+
+**`playerSpawnPosStruct` (S>C other-PC position): 28 B → 24 B.** An exhaustive
+scan of **all 173 candidate 19-bit windows** independently picked the same three
+upstream did — each the global best for its axis:
+
+```
+/*0000*/ u16 spawnId | u16 spawnId2
+/*0004*/ u32 { x:19 (LOW, signed) | hi:13 }
+/*0008*/ u32 unknown
+/*0012*/ u32 { lo:13 | z:19 (HIGH, signed) }      <- z is high, unlike x/y
+/*0016*/ u32 { y:19 (LOW, signed) | heading:11 @bit19 | hi:2 }
+/*0020*/ u32 unknown
+```
+
+Validated non-confoundedly: per-spawn trajectory smoothness over 931 steps gives
+a **4.00-unit median** (p90 21.6, 4 steps >500u); an x/y-transposed control
+scores 6× worse against ground truth. Heading is **11-bit** (narrowed from 13) at
+bit 19 of the @16 word — the bits upstream labels `deltaY` — scoring **5.77°**
+median against travel bearing over 448 legs (next-best window 25.8°, random ~90°).
+
+Do not judge this opcode by absolute error against OP_MobUpdate: it carries
+*other PCs* while MobUpdate carries NPCs, so only 57 of 993 records overlap a
+ground-truth track at all.
+
+**`playerSelfPosStruct` (C>S self position): stayed 42 B, body rearranged** —
+so no size gate could catch it. Offsets moved `y@10/x@22/heading@26/z@34` →
+**`y@18 / heading@22 / z@30 / x@38`**. Pinned by range-matching each float
+against the (independently re-confirmed) `OP_SelfPos` breadcrumb: @18
+`[-2627.32, 1086.62]` vs breadcrumb Y `[-2627.32, 1086.62]`, @38 vs X, @30 vs Z;
+the old offsets now read zero or ±4. A captured self-report decodes to **0.0000
+units** from a breadcrumb point — cross-opcode agreement between two totally
+different encodings.
+
+⚠ **Upstream declares this struct 44 B** (`tail[2]` past `x`). The wire is
+**42 B** — 703 C>S bodies, none at 44. Both payloads are gated `none`, so the
+over-long declaration would not warn; it would just hand the parser a short
+buffer. We keep `PAYLOAD_LEN = 42`.
+
+Heading location moved but **width, scale and sense are unchanged**, so the
+existing downstream inversion carries over untouched. The 2.14° travel-bearing
+fit pins the *location* only — per this module's own standing note, the *sense*
+must be calibrated on a TURN, since facing-vs-bearing cannot see a mirror.
+
+### Still open
+
+- `OP_ClickObject 2d39` — ported, no fires to validate against.
+- `OP_BuffList 6481` — mapped, but 176 B does not match its struct; p6, deferred.
+- The 16 stale-upstream ids above stay `ffff` until upstream ships their update
+  or we hunt them; they need a capture exercising group/loot/random/AA/inspect.
+
 ## ⚠ PATCHED 2026-07-14 — SECOND full opcode re-map (IDs rotated AGAIN), IN PROGRESS
 
 EQL patched again 2026-07-14 and did **another full app-opcode id rotation** — every

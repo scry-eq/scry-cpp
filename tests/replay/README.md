@@ -49,6 +49,29 @@ goldens against another build without reconfiguring.
 The files are gitignored (globs recurse into the subdirs), so moving a fixture
 between targets is a plain local `mv`, not a tracked change.
 
+## Retiring a fixture after an opcode rotation
+
+On a target whose server rotates its opcode table (EQL does this most patches),
+a capture recorded **before** the rotation can no longer be validated against
+the current table — its bytes carry ids the table no longer maps. Such a fixture
+does not fail because of a regression; it fails because it is unreadable, and
+re-recording its golden is actively harmful: the new golden encodes "decodes
+almost nothing", so the fixture goes **green while proving the table is broken
+for those bytes**.
+
+Measured on the 2026-08-04 EQL rotation: `eql-patch29july` went 3822 envelopes →
+22, and `eql-zone-transition` 34472 → 88.
+
+So retire pre-rotation fixtures rather than re-recording their goldens. Delete
+them once the current patch has its own capture — a fixture that can no longer
+be decoded has no regression value, and keeping dead `.vpk`s around invites
+exactly the mistaken re-record above. (If you want to keep one for reference,
+`<target>/retired/` works: `check.sh` globs `<target>/*.vpk` non-recursively, so
+a subdir drops it from the sweep.)
+
+A rotation therefore normally leaves exactly one active fixture — the current
+patch's capture — until more are recorded.
+
 ---
 
 ## Capturing a fresh fixture
