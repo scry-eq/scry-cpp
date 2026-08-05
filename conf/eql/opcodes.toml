@@ -3,11 +3,11 @@
 # from this file by tools/toml_to_xml.py (run via CMake on build).
 
 [[zone]]
-id      = "014a"
+id      = "3e67"
 name    = "OP_PlayerProfile"
 priority = 10
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 50e5) - 40546b S>C, once per zone-in; head byte-identical to the prior mapping at offsets 0x14, 0x24 and 0x30. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: the eql profile parser yields the capture character name; 13 fires = 13 zone-ins. PRIOR: 07/14 rotation (was 0x62f0): the ~43KB char profile S>C, once at enter-world. Content-confirmed (carries the char name + identity). This is the self-id/name source — decoded by parse_player_profile (anchor-scan for name), which drives SpawnShell::zoneEntry name-match to adopt the self-spawn id. EQ Legends char profile: hdr race@21/class@25/level@33; bind@39; name via anchor-scan. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 014a) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation (was 50e5) - 40546b S>C, once per zone-in; head byte-identical to the prior mapping at offsets 0x14, 0x24 and 0x30. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: the eql profile parser yields the capture character name; 13 fires = 13 zone-ins. PRIOR: 07/14 rotation (was 0x62f0): the ~43KB char profile S>C, once at enter-world. Content-confirmed (carries the char name + identity). This is the self-id/name source — decoded by parse_player_profile (anchor-scan for name), which drives SpawnShell::zoneEntry name-match to adopt the self-spawn id. EQ Legends char profile: hdr race@21/class@25/level@33; bind@39; name via anchor-scan. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "server"
@@ -15,11 +15,11 @@ comment = "Re-mapped for the 07/29 rotation (was 50e5) - 40546b S>C, once per zo
   sizechecktype = "none"
 
 [[zone]]
-id      = "5920"
+id      = "33aa"
 name    = "OP_TimeOfDay"
 priority = 3
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7377) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=8:3. PRIOR: 07/07 rotation; 8B stock timeOfDayStruct byte-identical (wire-verified 8B); advances at EQ game rate"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 5920) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7377) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=8:3. PRIOR: 07/07 rotation; 8B stock timeOfDayStruct byte-identical (wire-verified 8B); advances at EQ game rate"
 
   [[zone.payloads]]
   dir           = "server"
@@ -27,11 +27,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7
   sizechecktype = "match"
 
 [[zone]]
-id      = "0a2e"
+id      = "2570"
 name    = "OP_NewZone"
 priority = 10
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 47f2) - leads with the zone short name, then the long name, then the short name again - the same shape as the prior mapping. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: yields real zone short/long names (rathemtn/The Rathe Mountains, feerrott, innothule, sro, oasis, nro); fires 13x = once per zone-in. PRIOR: EQ Legends current zone (S>C, ~340B, once per zone-in). Packed null-terminated short_name + long_name (+ zonefile repeat + binary tail). Confirmed 3-way: guktop/'The City of Guk', nektulos/'Nektulos Forest', unrest/'The Estate of Unrest' — each the correct current zone, each a different length. Decoded by EqlDispatch::newZone -> ZoneMgr::setZoneByName. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 0a2e) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation (was 47f2) - leads with the zone short name, then the long name, then the short name again - the same shape as the prior mapping. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: yields real zone short/long names (rathemtn/The Rathe Mountains, feerrott, innothule, sro, oasis, nro); fires 13x = once per zone-in. PRIOR: EQ Legends current zone (S>C, ~340B, once per zone-in). Packed null-terminated short_name + long_name (+ zonefile repeat + binary tail). Confirmed 3-way: guktop/'The City of Guk', nektulos/'Nektulos Forest', unrest/'The Estate of Unrest' — each the correct current zone, each a different length. Decoded by EqlDispatch::newZone -> ZoneMgr::setZoneByName. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "server"
@@ -50,11 +50,11 @@ comment = "EQ Legends bind-point marker (14B S>C, once at zone-in). Carries the 
   sizechecktype = "none"
 
 [[zone]]
-id      = "1e04"
+id      = "1333"
 name    = "OP_SpawnDoor"
 priority = 9
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 3f1b) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=528:2,7260:1. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: sequential door ids with OBJ_* object names and sane coords, 132B rows. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed bulk door array 1452/2376B). eql door rows are 132B (1452=11*132, 2376=18*132) vs Live doorStruct 136B: first 88B byte-identical to Live's layout (name[32], y/x/z/heading floats + incline u32 @32, 20B field copy, size u32 @72, doorId/opentype/spawnstate/invertstate @80, zonePoint u32 @84), trailing unknown 44B vs Live's 48B. WIRED 2026-07-13: seq-backend-eql owns a 132B parse_door + the doorStruct size override, and newDoorSpawns strides via door_stride(); modulus gates on 132."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 1e04) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 3f1b) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=528:2,7260:1. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: sequential door ids with OBJ_* object names and sane coords, 132B rows. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed bulk door array 1452/2376B). eql door rows are 132B (1452=11*132, 2376=18*132) vs Live doorStruct 136B: first 88B byte-identical to Live's layout (name[32], y/x/z/heading floats + incline u32 @32, 20B field copy, size u32 @72, doorId/opentype/spawnstate/invertstate @80, zonePoint u32 @84), trailing unknown 44B vs Live's 48B. WIRED 2026-07-13: seq-backend-eql owns a 132B parse_door + the doorStruct size override, and newDoorSpawns strides via door_stride(); modulus gates on 132."
 
   [[zone.payloads]]
   dir           = "server"
@@ -62,11 +62,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 3
   sizechecktype = "modulus"
 
 [[zone]]
-id      = "5784"
+id      = "77d1"
 name    = "OP_GroundSpawn"
 priority = 9
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5331) - confirmed on our 07/29 capture: 16 fires, S>C 16  sizes=62:14,63:2. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: id_file reads IT###_ACTORDEF, the ground-item actorDef pattern; fires in the zone-in burst. PRIOR: 07/14 id 0x7e02 (adopted from legacy showeqlegends; the old 0x6360 32B record is superseded). S>C broadcast that spawns the zone's GROUND OBJECTS: static interactable placeables (forge/tradeskill containers, decorative racks, rocks) AND pickup-able ground-loot items you walk over and loot (the earring). 47x across the fight's 12 zones (e.g. IT66=Forge, IT11068=BrownRock) — NOT personal combat loot, which is instanced in EQL and never hits the ground. Variable 61-65B: {u32 dropId, NUL-term actorDef model @4 e.g. IT63_ACTORDEF, fields, f32 x/y/z at nul+29, u32}. C>S copy = the mouse-drop request, filtered by DIR_Server. Decoded by seq-backend-eql parse_ground_spawn -> SpawnShell::newGroundItem. id_file = actorDef model; the readable item name (via OP_ItemPacket 0x4d7e correlation) + tagging static objects vs pickup-loot are future refinements."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 5784) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5331) - confirmed on our 07/29 capture: 16 fires, S>C 16  sizes=62:14,63:2. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: id_file reads IT###_ACTORDEF, the ground-item actorDef pattern; fires in the zone-in burst. PRIOR: 07/14 id 0x7e02 (adopted from legacy showeqlegends; the old 0x6360 32B record is superseded). S>C broadcast that spawns the zone's GROUND OBJECTS: static interactable placeables (forge/tradeskill containers, decorative racks, rocks) AND pickup-able ground-loot items you walk over and loot (the earring). 47x across the fight's 12 zones (e.g. IT66=Forge, IT11068=BrownRock) — NOT personal combat loot, which is instanced in EQL and never hits the ground. Variable 61-65B: {u32 dropId, NUL-term actorDef model @4 e.g. IT63_ACTORDEF, fields, f32 x/y/z at nul+29, u32}. C>S copy = the mouse-drop request, filtered by DIR_Server. Decoded by seq-backend-eql parse_ground_spawn -> SpawnShell::newGroundItem. id_file = actorDef model; the readable item name (via OP_ItemPacket 0x4d7e correlation) + tagging static objects vs pickup-loot are future refinements."
 
   [[zone.payloads]]
   dir           = "server"
@@ -79,11 +79,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5
   sizechecktype = "none"
 
 [[zone]]
-id      = "3b84"
+id      = "62fb"
 name    = "OP_SendZonePoints"
 priority = 5
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0834) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=260:2,132:1. PRIOR: Coords in a zone that will port you to another zone"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 3b84) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0834) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=260:2,132:1. PRIOR: Coords in a zone that will port you to another zone"
 
   [[zone.payloads]]
   dir           = "server"
@@ -91,11 +91,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0
   sizechecktype = "none"
 
 [[zone]]
-id      = "3b21"
+id      = "ffff"
 name    = "OP_AAExpUpdate"
 priority = 4
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 1d38) - confirmed on our 07/29 capture: 9 fires, S>C 9  sizes=12:9. PRIOR: 07/09 l-patch correction: the AA-exp bar rides 0x42d1 (12B altExpUpdateStruct), NOT 0x6801 — the ids were CROSS-WIRED with OP_ExpUpdate (the 12B/16B sizes now match their structs). eql layout: u32 altexp (0-100000 per-AA-point progress), u32 aapoints (unspent AA), u32 tail (Live carries u8 percent + pad there; handler reads neither). WIRED 2026-07-13 straight to Player::updateAltExp — the handler is 0-100000-native since ac918ec, so the old 'needs a ->330 conversion' deferral was stale. Size gate declared in seq-backend-eql size_overrides()."
+comment = "UNMAPPED by the 08/04 rotation (was 3b21); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 1d38) - confirmed on our 07/29 capture: 9 fires, S>C 9  sizes=12:9. PRIOR: 07/09 l-patch correction: the AA-exp bar rides 0x42d1 (12B altExpUpdateStruct), NOT 0x6801 — the ids were CROSS-WIRED with OP_ExpUpdate (the 12B/16B sizes now match their structs). eql layout: u32 altexp (0-100000 per-AA-point progress), u32 aapoints (unspent AA), u32 tail (Live carries u8 percent + pad there; handler reads neither). WIRED 2026-07-13 straight to Player::updateAltExp — the handler is 0-100000-native since ac918ec, so the old 'needs a ->330 conversion' deferral was stale. Size gate declared in seq-backend-eql size_overrides()."
 
   [[zone.payloads]]
   dir           = "server"
@@ -103,11 +103,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 1
   sizechecktype = "match"
 
 [[zone]]
-id      = "28d4"
+id      = "4d3b"
 name    = "OP_ExpUpdate"
 priority = 4
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5abf) - confirmed on our 07/29 capture: 6 fires, S>C 6  sizes=16:6. PRIOR: 07/09 l-patch correction: the regular exp bar rides 0x6801 (16B expUpdateStruct), NOT 0x42d1 — the ids were CROSS-WIRED with OP_AAExpUpdate. eql layout matches expUpdateStruct: u32 exp (0-100000 permille, in-game-calibrated against the exp bar), u32 0, u32 aaUnspent (@8, not Live's type), u32 0. exp@0 feeds Player::updateExp directly — the daemon already works in 0-100000, so NO scale conversion. Verified: exp wraps once at the level-up in the death-respawn capture (99.459%->3.622%)."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 28d4) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5abf) - confirmed on our 07/29 capture: 6 fires, S>C 6  sizes=16:6. PRIOR: 07/09 l-patch correction: the regular exp bar rides 0x6801 (16B expUpdateStruct), NOT 0x42d1 — the ids were CROSS-WIRED with OP_AAExpUpdate. eql layout matches expUpdateStruct: u32 exp (0-100000 permille, in-game-calibrated against the exp bar), u32 0, u32 aaUnspent (@8, not Live's type), u32 0. exp@0 feeds Player::updateExp directly — the daemon already works in 0-100000, so NO scale conversion. Verified: exp wraps once at the level-up in the death-respawn capture (99.459%->3.622%)."
 
   [[zone.payloads]]
   dir           = "server"
@@ -115,11 +115,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5
   sizechecktype = "match"
 
 [[zone]]
-id      = "7e2a"
+id      = "56c2"
 name    = "OP_GuildMOTD"
 priority = 2
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 70c5) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=656:3. PRIOR: Guild message of the day (target@8, sender@72, message@140; 656B = header + 516B msg buffer). Decoded in eql's own seq-backend-eql parser -> EqlDispatch::guildMotd -> GuildShell::setMotd -> proto GuildMotd. Every captured MOTD is empty (guild has none set); non-empty text not yet golden-verified."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 7e2a) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 70c5) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=656:3. PRIOR: Guild message of the day (target@8, sender@72, message@140; 656B = header + 516B msg buffer). Decoded in eql's own seq-backend-eql parser -> EqlDispatch::guildMotd -> GuildShell::setMotd -> proto GuildMotd. Every captured MOTD is empty (guild has none set); non-empty text not yet golden-verified."
 
   [[zone.payloads]]
   dir           = "server"
@@ -127,11 +127,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7
   sizechecktype = "none"
 
 [[zone]]
-id      = "5380"
+id      = "5b7d"
 name    = "OP_ClientUpdate"
 priority = 10
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 5bfd). WIRE SIZE ALSO CHANGED: S>C 24b -> 28b and C>S 38b -> 42b, and BOTH bodies were rearranged - no 07/28 offset survives in either direction. GEOMETRY RE-DERIVED 2026-07-29, both directions now decode. S>C 28b: u16 spawnId@0 (+ u16 0@2), then each coord in the LOW 19 bits (signed, x8) of its own word - z@4, x@8, y@12 - plus a 13b compass heading at bit 8 of the @20 word. Pinned against the OP_MobUpdate / OP_NpcMoveUpdate streams, which this patch left untouched and which therefore stand as map-frame ground truth; the winning windows beat their runners-up 50-1000x on median error, decoded z spans a 144-unit terrain band, and per-spawn tracks imply 0.9-1.6 units/sec with 0 of 51 steps over 100 u/s. C>S 42b: u16 ctr@0, u16 spawnId@2 (the self id is BACK on the wire - the 38b bodies had none), floats gameY@10 / gameX@22 / gameZ@34, 11b compass heading in the low bits at @26. Position offsets pinned by range-matching against the OP_SelfPos breadcrumb; the X-vs-Y assignment settled PHYSICALLY rather than from field labels (updates are range-limited, so the player must sit inside the streamed spawn cloud: 490/518 samples within 300 units, vs 0/518 transposed). Velocities NOT located this patch and deliberately read 0. PRIOR:Re-mapped for the 07/28 rotation - carries a real spawn id at offset 2 in BOTH directions - the self-position signature. PRIOR: 07/14 rotation (was 0x7171): whole position channel rotated id AND wire size. S>C 24B (was 28B) = OTHER-spawn position broadcast, 19-bit ×8 packed in each word's LOW bits (z rides bits13-31 of the @8 word; y@16 low19; x@20 low19) — re-cracked 2026-07-14 vs the OP_MobUpdate ground-truth stream + self-trajectory smoothness; WIRED S>C (playerUpdateOther → SpawnShell::moveSpawn). C>S 38B (was 42B) self-position — re-cracked 2026-07-14 vs a /loc ground-truth capture: IEEE floats gameX@14/gameY@26/gameZ@10 + heading@18 (low 12b); NO spawnId (client's self report carries none — self-id adoption is via SpawnShell::zoneEntry name-match). WIRED C>S (playerUpdateSelf → Player::applySelfPosition). See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 5380) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation (was 5bfd). WIRE SIZE ALSO CHANGED: S>C 24b -> 28b and C>S 38b -> 42b, and BOTH bodies were rearranged - no 07/28 offset survives in either direction. GEOMETRY RE-DERIVED 2026-07-29, both directions now decode. S>C 28b: u16 spawnId@0 (+ u16 0@2), then each coord in the LOW 19 bits (signed, x8) of its own word - z@4, x@8, y@12 - plus a 13b compass heading at bit 8 of the @20 word. Pinned against the OP_MobUpdate / OP_NpcMoveUpdate streams, which this patch left untouched and which therefore stand as map-frame ground truth; the winning windows beat their runners-up 50-1000x on median error, decoded z spans a 144-unit terrain band, and per-spawn tracks imply 0.9-1.6 units/sec with 0 of 51 steps over 100 u/s. C>S 42b: u16 ctr@0, u16 spawnId@2 (the self id is BACK on the wire - the 38b bodies had none), floats gameY@10 / gameX@22 / gameZ@34, 11b compass heading in the low bits at @26. Position offsets pinned by range-matching against the OP_SelfPos breadcrumb; the X-vs-Y assignment settled PHYSICALLY rather than from field labels (updates are range-limited, so the player must sit inside the streamed spawn cloud: 490/518 samples within 300 units, vs 0/518 transposed). Velocities NOT located this patch and deliberately read 0. PRIOR:Re-mapped for the 07/28 rotation - carries a real spawn id at offset 2 in BOTH directions - the self-position signature. PRIOR: 07/14 rotation (was 0x7171): whole position channel rotated id AND wire size. S>C 24B (was 28B) = OTHER-spawn position broadcast, 19-bit ×8 packed in each word's LOW bits (z rides bits13-31 of the @8 word; y@16 low19; x@20 low19) — re-cracked 2026-07-14 vs the OP_MobUpdate ground-truth stream + self-trajectory smoothness; WIRED S>C (playerUpdateOther → SpawnShell::moveSpawn). C>S 38B (was 42B) self-position — re-cracked 2026-07-14 vs a /loc ground-truth capture: IEEE floats gameX@14/gameY@26/gameZ@10 + heading@18 (low 12b); NO spawnId (client's self report carries none — self-id adoption is via SpawnShell::zoneEntry name-match). WIRED C>S (playerUpdateSelf → Player::applySelfPosition). See OPCODES_LEGENDS.md"
 
   # C>S 42B self-position report (was 38B). Re-derived 2026-07-29 against the
   # OP_SelfPos breadcrumb; size-gated on playerSelfPosStruct (size override = 42 =
@@ -154,11 +154,11 @@ comment = "Re-mapped for the 07/29 rotation (was 5bfd). WIRE SIZE ALSO CHANGED: 
   sizechecktype = "match"
 
 [[zone]]
-id      = "16ac"
+id      = "61cb"
 name    = "OP_SelfPos"
 priority = 10
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 6323) - every payload length is exactly 1 + N*17 (N observed 1, 3, 85, 133, 320) - the same breadcrumb-record fingerprint as the prior mapping. PRIOR: Re-mapped for the 07/28 rotation - C>S position-history breadcrumb: decodes to a coherent walking trajectory in 17-byte records; the only C>S opcode carrying the players own coordinates. PRIOR: Second EQL self-pos C>S opcode, distinct from OP_ClientUpdate 0x5188: a position-history breadcrumb — N×17B records {y@0/x@4/z@8 floats, seq@12, u32 ts@13} + 1 trailing byte (18B=1 sample up to 2415B=142). Characterized 2026-07-17 vs a /loc capture (all 3 points exact). Variable size → no fixed struct. Decoder is Rust (parse_self_pos_breadcrumb, exposed via the decode_self_pos_breadcrumb FFI) — opcode mapped + decodable, but intentionally NOT wired to a handler: a movement-trail overlay was built end-to-end then removed (laggy, low value; redundant with 0x5188 for position). Xerxes maps this same id; his playerSelfState len==38 gate skips it. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation - HUNTED, upstream did not re-derive it (they still carry the dead 16ac). Confirmed: the ONLY opcode in the capture whose every payload length is exactly 1+N*17 (18/35/52/1684/1905/2143 = N 1/2/3/99/112/126), C>S only, zero competitors; 96 records decode to a continuous walk (median step 0.38u, p90 0.49u, 0 discontinuities in 95 steps) with the 17B record layout unchanged. PRIOR: UNMAPPED by the 08/04 rotation (was 16ac); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation (was 6323) - every payload length is exactly 1 + N*17 (N observed 1, 3, 85, 133, 320) - the same breadcrumb-record fingerprint as the prior mapping. PRIOR: Re-mapped for the 07/28 rotation - C>S position-history breadcrumb: decodes to a coherent walking trajectory in 17-byte records; the only C>S opcode carrying the players own coordinates. PRIOR: Second EQL self-pos C>S opcode, distinct from OP_ClientUpdate 0x5188: a position-history breadcrumb — N×17B records {y@0/x@4/z@8 floats, seq@12, u32 ts@13} + 1 trailing byte (18B=1 sample up to 2415B=142). Characterized 2026-07-17 vs a /loc capture (all 3 points exact). Variable size → no fixed struct. Decoder is Rust (parse_self_pos_breadcrumb, exposed via the decode_self_pos_breadcrumb FFI) — opcode mapped + decodable, but intentionally NOT wired to a handler: a movement-trail overlay was built end-to-end then removed (laggy, low value; redundant with 0x5188 for position). Xerxes maps this same id; his playerSelfState len==38 gate skips it. See OPCODES_LEGENDS.md"
 
   # C>S variable-size breadcrumb; no fixed struct → uint8_t/SZC_None.
   [[zone.payloads]]
@@ -167,11 +167,11 @@ comment = "Re-mapped for the 07/29 rotation (was 6323) - every payload length is
   sizechecktype = "none"
 
 [[zone]]
-id      = "5aaf"
+id      = "44cb"
 name    = "OP_ZoneEntry"
 priority = 10
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 5c7f) - NUL-terminated spawn name at offset 0 and the title string at the same offset as the prior mapping; record layout byte-identical. 902 records carrying 493 distinct spawn ids. PRIOR: Re-mapped for the 07/28 rotation - spawn opcode: 8198 fires but only 30 carry the self name (2/zone-in, the known eql double-announce); payload = cstring name then u32 spawn_id; concentrated in zone-in windows. PRIOR: EQ Legends per-spawn zone stream (S>C, one spawn per payload): null-term name + variable block; position = three u32 words at the block tail (Z/Y/X @ len-95/-91/-87), each a signed 19-bit fixed-point (x8) coord in the word's low bits — same packing as Live spawnStruct position words. NAMED OP_ZoneEntry per stock SEQ: the s2c OP_ZoneEntry has carried the per-spawn payload (one fillSpawnStruct per packet) since 2008; OP_ZoneSpawns is the long-dead bulk-array opcode. Decoded by EqlDispatch::spawn. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 5aaf) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation (was 5c7f) - NUL-terminated spawn name at offset 0 and the title string at the same offset as the prior mapping; record layout byte-identical. 902 records carrying 493 distinct spawn ids. PRIOR: Re-mapped for the 07/28 rotation - spawn opcode: 8198 fires but only 30 carry the self name (2/zone-in, the known eql double-announce); payload = cstring name then u32 spawn_id; concentrated in zone-in windows. PRIOR: EQ Legends per-spawn zone stream (S>C, one spawn per payload): null-term name + variable block; position = three u32 words at the block tail (Z/Y/X @ len-95/-91/-87), each a signed 19-bit fixed-point (x8) coord in the word's low bits — same packing as Live spawnStruct position words. NAMED OP_ZoneEntry per stock SEQ: the s2c OP_ZoneEntry has carried the per-spawn payload (one fillSpawnStruct per packet) since 2008; OP_ZoneSpawns is the long-dead bulk-array opcode. Decoded by EqlDispatch::spawn. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "server"
@@ -187,11 +187,11 @@ comment = "Re-mapped for the 07/29 rotation (was 5c7f) - NUL-terminated spawn na
   sizechecktype = "none"
 
 [[zone]]
-id      = "2f15"
+id      = "6c7b"
 name    = "OP_NpcMoveUpdate"
 priority = 10
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 3e7b) - size histogram 18/17/15 matches the prior mapping; no byte-aligned spawn id, consistent with the BitStream encoding. PRIOR: Re-mapped for the 07/28 rotation - highest rate in the capture (91869); its id is NOT byte-aligned, consistent with the BitStream packing. PRIOR: EQ Legends per-NPC movement stream (S>C, variable 15-21B). Byte-identical bit format to Live OP_NpcMoveUpdate (16b BE spawnId + 16b pad + 6b fieldmask + 19/19/19 y/x/z sign-magnitude >>3 + 12b heading + optional deltas); decoded by the shared decode_npc_move_update. Confirmed 2026-07-08: all 51 ids + positions match the 0x67e0 OP_MobUpdate stream. Prior 917c was a dead mapping (never seen on the wire). See OPCODES_LEGENDS.md."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 2f15) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation (was 3e7b) - size histogram 18/17/15 matches the prior mapping; no byte-aligned spawn id, consistent with the BitStream encoding. PRIOR: Re-mapped for the 07/28 rotation - highest rate in the capture (91869); its id is NOT byte-aligned, consistent with the BitStream packing. PRIOR: EQ Legends per-NPC movement stream (S>C, variable 15-21B). Byte-identical bit format to Live OP_NpcMoveUpdate (16b BE spawnId + 16b pad + 6b fieldmask + 19/19/19 y/x/z sign-magnitude >>3 + 12b heading + optional deltas); decoded by the shared decode_npc_move_update. Confirmed 2026-07-08: all 51 ids + positions match the 0x67e0 OP_MobUpdate stream. Prior 917c was a dead mapping (never seen on the wire). See OPCODES_LEGENDS.md."
 
   [[zone.payloads]]
   dir           = "server"
@@ -199,11 +199,11 @@ comment = "Re-mapped for the 07/29 rotation (was 3e7b) - size histogram 18/17/15
   sizechecktype = "none"
 
 [[zone]]
-id      = "4eda"
+id      = "0a2a"
 name    = "OP_MobUpdate"
 priority = 10
-updated = "2026-08-03"
-comment = "X/Y TRANSPOSE FIXED 2026-08-03: packed u64 @4 is y:19 / z:19 / u3:7 gap / x:19 (x8) in OUR map-frame naming. Upstream's spawnPositionUpdateEQL names the same bits in the wire frame and swaps x/y at the call site; the 07/28 rewrite took its labels without that swap (upstream itself decodes fine). The 07/29 id re-map validated size + spawn-id offset only, never the layout, so it survived. Evidence in OPCODES_LEGENDS.md. Re-mapped 07/29 (was 26d8) - 14b, spawn id @0 in 229/229. PRIOR: 07/28 re-map, spawn id @0, 38301 fires. PRIOR: per-mob position update S>C 14B; the old i16-offset read (Y@4/8, Z@6/64, X@10) was a truncated window of these bitfields - the 8192-unit north<->south Y wrap."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 4eda) - PENDING content validation. PRIOR: X/Y TRANSPOSE FIXED 2026-08-03: packed u64 @4 is y:19 / z:19 / u3:7 gap / x:19 (x8) in OUR map-frame naming. Upstream's spawnPositionUpdateEQL names the same bits in the wire frame and swaps x/y at the call site; the 07/28 rewrite took its labels without that swap (upstream itself decodes fine). The 07/29 id re-map validated size + spawn-id offset only, never the layout, so it survived. Evidence in OPCODES_LEGENDS.md. Re-mapped 07/29 (was 26d8) - 14b, spawn id @0 in 229/229. PRIOR: 07/28 re-map, spawn id @0, 38301 fires. PRIOR: per-mob position update S>C 14B; the old i16-offset read (Y@4/8, Z@6/64, X@10) was a truncated window of these bitfields - the 8192-unit north<->south Y wrap."
 
   # Byte-identical to Live spawnPositionUpdate (sizeof==14) → size-gate on it
   # directly; decode via the shared Rust decode_mob_update.
@@ -213,10 +213,10 @@ comment = "X/Y TRANSPOSE FIXED 2026-08-03: packed u64 @4 is y:19 / z:19 / u3:7 g
   sizechecktype = "match"
 
 [[zone]]
-id      = "8758"
+id      = "7630"
 name    = "OP_LoadoutSwap"
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4c71) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: EQ Legends multiclass loadout swap (S>C, variable). Header u32 spawnId + u8 + u16 innerLen + ZoneEntry-format record (+ serialized inventory tail on the self variant). Self ~118KB (acting client's own refresh); broadcast ~490B (nearby player's swap, no tail). No OP_PlayerProfile follows a swap, so this is the sole source for the new class + level. Decoded by decode_loadout_swap (reuses the 0x4606 record parser); self -> Player::setIdentity, broadcast -> SpawnShell::updateSpawnIdentity. Confirmed firing 2026-07-11 (login-zone/levelup captures, 486-491B short variant). Credit: Xerxes (forums). See OPCODES_LEGENDS.md."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 8758) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4c71) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: EQ Legends multiclass loadout swap (S>C, variable). Header u32 spawnId + u8 + u16 innerLen + ZoneEntry-format record (+ serialized inventory tail on the self variant). Self ~118KB (acting client's own refresh); broadcast ~490B (nearby player's swap, no tail). No OP_PlayerProfile follows a swap, so this is the sole source for the new class + level. Decoded by decode_loadout_swap (reuses the 0x4606 record parser); self -> Player::setIdentity, broadcast -> SpawnShell::updateSpawnIdentity. Confirmed firing 2026-07-11 (login-zone/levelup captures, 486-491B short variant). Credit: Xerxes (forums). See OPCODES_LEGENDS.md."
 
   [[zone.payloads]]
   dir           = "server"
@@ -224,11 +224,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4
   sizechecktype = "none"
 
 [[zone]]
-id      = "1f3d"
+id      = "20a9"
 name    = "OP_DeleteSpawn"
 priority = 10
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 1856) - 4b bare spawn id - u32 high half zero in 39/39, low half a known spawn id in 37/39. Rules out OP_Animation, which shares the size but carries non-zero bytes 2-3. PRIOR: Re-mapped for the 07/28 rotation - last in the chain - never followed by either other removal; bare id payload. PRIOR: EQ Legends spawn removal / death (S>C, 4B {u32 spawnId}, deleteSpawnStruct). CONFIRMED 2026-07-08 by time-correlation: 8/9 ids stop receiving OP_MobUpdate position updates at/after this event (mobs killed over a combat session). Lights up the already-wired SpawnShell::deleteSpawn. NOTE: 0x67a8 is the LOOK-ALIKE 4B {id} op but is combat engage/disengage (ids keep moving after; id=0 clears) — NOT despawn. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 1f3d) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation (was 1856) - 4b bare spawn id - u32 high half zero in 39/39, low half a known spawn id in 37/39. Rules out OP_Animation, which shares the size but carries non-zero bytes 2-3. PRIOR: Re-mapped for the 07/28 rotation - last in the chain - never followed by either other removal; bare id payload. PRIOR: EQ Legends spawn removal / death (S>C, 4B {u32 spawnId}, deleteSpawnStruct). CONFIRMED 2026-07-08 by time-correlation: 8/9 ids stop receiving OP_MobUpdate position updates at/after this event (mobs killed over a combat session). Lights up the already-wired SpawnShell::deleteSpawn. NOTE: 0x67a8 is the LOOK-ALIKE 4B {id} op but is combat engage/disengage (ids keep moving after; id=0 clears) — NOT despawn. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "both"
@@ -236,11 +236,11 @@ comment = "Re-mapped for the 07/29 rotation (was 1856) - 4b bare spawn id - u32 
   sizechecktype = "match"
 
 [[zone]]
-id      = "0113"
+id      = "048a"
 name    = "OP_RemoveSpawn"
 priority = 10
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 27cb) - 5b (plus a 4b variant); spawn id at offset 0 in 61/61 fires. PRIOR: Re-mapped for the 07/28 rotation - second in the chain (98% followed by the final removal); fires more often than deaths, so it also covers spawns leaving range. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed): S>C 5B + C>S 4B removeSpawnStruct, none-gated. Present 78×5B in upperguk capture. Wired SpawnShell::removeSpawn."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 0113) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation (was 27cb) - 5b (plus a 4b variant); spawn id at offset 0 in 61/61 fires. PRIOR: Re-mapped for the 07/28 rotation - second in the chain (98% followed by the final removal); fires more often than deaths, so it also covers spawns leaving range. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed): S>C 5B + C>S 4B removeSpawnStruct, none-gated. Present 78×5B in upperguk capture. Wired SpawnShell::removeSpawn."
 
   [[zone.payloads]]
   dir           = "both"
@@ -248,12 +248,12 @@ comment = "Re-mapped for the 07/29 rotation (was 27cb) - 5b (plus a 4b variant);
   sizechecktype = "none"
 
 [[zone]]
-id      = "6737"
+id      = "004a"
 name    = "OP_Death"
 priority = 7
 priority_note = "also fires on corpse decay"
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2087) - confirmed on our 07/29 capture: 29 fires, S>C 29  sizes=40:29. PRIOR: Re-mapped for the 07/28 rotation - first in the death->removal chain: 99% of its ids are later named by both removal opcodes, never the reverse; spawn goes silent (corpse). PRIOR: EQ Legends death/corpse (S>C, 40B = newCorpseStruct, n=8). CONFIRMED 2026-07-08: decodes field-for-field — victim u32@0 (all 8 ∈ the OP_DeleteSpawn 0x59a1 set), killer u32@4 (=player 13167 every kill), corpse type i32@12, killing-blow spellId u32@16 (-1=melee), damage u32@24 (9-80). Lights up the already-wired SpawnShell::killSpawn → SpawnKilled. Fires just before the matching OP_DeleteSpawn. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 6737) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2087) - confirmed on our 07/29 capture: 29 fires, S>C 29  sizes=40:29. PRIOR: Re-mapped for the 07/28 rotation - first in the death->removal chain: 99% of its ids are later named by both removal opcodes, never the reverse; spawn goes silent (corpse). PRIOR: EQ Legends death/corpse (S>C, 40B = newCorpseStruct, n=8). CONFIRMED 2026-07-08: decodes field-for-field — victim u32@0 (all 8 ∈ the OP_DeleteSpawn 0x59a1 set), killer u32@4 (=player 13167 every kill), corpse type i32@12, killing-blow spellId u32@16 (-1=melee), damage u32@24 (9-80). Lights up the already-wired SpawnShell::killSpawn → SpawnKilled. Fires just before the matching OP_DeleteSpawn. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "server"
@@ -261,10 +261,10 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2
   sizechecktype = "match"
 
 [[zone]]
-id      = "35f6"
+id      = "6583"
 name    = "OP_CombatRecord"
-updated = "2026-08-02"
-comment = "Ported from upstream legends b769446/662e0b7, where it is the opcode they suffix EQL. Named OP_CombatRecord here - we do not use an EQL suffix, and the name follows upstream's own description of the record ('a combat damage event') rather than anything invented. It is NOT the death opcode: OP_Death is the 40b {u32 spawn_id, u32 killer_id} corpse packet (6737) that resolves all 29 kills in a 07/29 capture, and this is NOT that. This opcode is SUBCODE-DISPATCHED (u16 subcode at offset 0), not one fixed record: upstream documents subcode 0x07 as a 36b combat-damage record (deathRecordEQLStruct - sourceId@4, skillOrDamage@8, targetId@12, combatSeq@20), while our 07/29 capture contains ONLY subcode 0x03, in a 6b S>C form (`03 00 00 00 00 00`, x3) and a 2b C>S form (`03 00`, x3), with no byte varying between fires. We therefore have no local sample of the 36b form and cannot validate it. Left ACKNOWLEDGED but UNWIRED for two reasons: the subcode we can see carries no spawn id so it cannot identify a victim, and upstream states the 0x07 record does not flag the fatal hit and is informational only - death is carried by OP_RemoveSpawn/OP_DeleteSpawn. Routing death through this would drop every kill 6737 resolves. Re-identify against a capture containing subcode 0x07 before wiring anything."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 35f6) - PENDING content validation. PRIOR: Ported from upstream legends b769446/662e0b7, where it is the opcode they suffix EQL. Named OP_CombatRecord here - we do not use an EQL suffix, and the name follows upstream's own description of the record ('a combat damage event') rather than anything invented. It is NOT the death opcode: OP_Death is the 40b {u32 spawn_id, u32 killer_id} corpse packet (6737) that resolves all 29 kills in a 07/29 capture, and this is NOT that. This opcode is SUBCODE-DISPATCHED (u16 subcode at offset 0), not one fixed record: upstream documents subcode 0x07 as a 36b combat-damage record (deathRecordEQLStruct - sourceId@4, skillOrDamage@8, targetId@12, combatSeq@20), while our 07/29 capture contains ONLY subcode 0x03, in a 6b S>C form (`03 00 00 00 00 00`, x3) and a 2b C>S form (`03 00`, x3), with no byte varying between fires. We therefore have no local sample of the 36b form and cannot validate it. Left ACKNOWLEDGED but UNWIRED for two reasons: the subcode we can see carries no spawn id so it cannot identify a victim, and upstream states the 0x07 record does not flag the fatal hit and is informational only - death is carried by OP_RemoveSpawn/OP_DeleteSpawn. Routing death through this would drop every kill 6737 resolves. Re-identify against a capture containing subcode 0x07 before wiring anything."
 
 
   [[zone.payloads]]
@@ -273,12 +273,12 @@ comment = "Ported from upstream legends b769446/662e0b7, where it is the opcode 
   sizechecktype = "none"
 
 [[zone]]
-id      = "4155"
+id      = "ffff"
 name    = "OP_WearChange"
 priority = 2
 priority_note = "stock handler no-op; id mapped for log id only"
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4a78) - confirmed on our 07/29 capture: 20 fires, S>C 4 C>S 16  sizes=32:20. PRIOR: EQ Legends equip-change broadcast (32B), decoded but wired INERT (l-patch addendum 3). Layout: {u32 spawnId, u32 wearSlot (7=primary/8=secondary/9), u32 material, u8[20] 0}. S>C = other spawns' equip changes; C>S = the client's own. Stock ShowEQ's WearChange handler only acts on an HP subcommand (shows nothing for wear), so this is NAMED-but-INERT: NO handler is wired. The Live SpawnUpdateStruct/updateSpawnInfo bindings (still in wire_live.cpp) were REMOVED from wire_eql.cpp because sizeof(SpawnUpdateStruct)==32==this packet's size, so binding them would SZC_Match and mis-decode wear bytes as a spawn update (spawn-state corruption). Each wear event is preceded by a 0x2575/0x2a0a appearance-refresh pair (value 0x40=wear, 0x04=combat/death); own changes are echoed by 0x7820 (~1.1KB item). Live equipment tracking would build on this layout. Named per addendum 3 so it stops showing as unknown in --opcode-stats. See OPCODES_LEGENDS.md."
+comment = "UNMAPPED by the 08/04 rotation (was 4155); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4a78) - confirmed on our 07/29 capture: 20 fires, S>C 4 C>S 16  sizes=32:20. PRIOR: EQ Legends equip-change broadcast (32B), decoded but wired INERT (l-patch addendum 3). Layout: {u32 spawnId, u32 wearSlot (7=primary/8=secondary/9), u32 material, u8[20] 0}. S>C = other spawns' equip changes; C>S = the client's own. Stock ShowEQ's WearChange handler only acts on an HP subcommand (shows nothing for wear), so this is NAMED-but-INERT: NO handler is wired. The Live SpawnUpdateStruct/updateSpawnInfo bindings (still in wire_live.cpp) were REMOVED from wire_eql.cpp because sizeof(SpawnUpdateStruct)==32==this packet's size, so binding them would SZC_Match and mis-decode wear bytes as a spawn update (spawn-state corruption). Each wear event is preceded by a 0x2575/0x2a0a appearance-refresh pair (value 0x40=wear, 0x04=combat/death); own changes are echoed by 0x7820 (~1.1KB item). Live equipment tracking would build on this layout. Named per addendum 3 so it stops showing as unknown in --opcode-stats. See OPCODES_LEGENDS.md."
 
   [[zone.payloads]]
   dir           = "both"
@@ -286,11 +286,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4
   sizechecktype = "none"
 
 [[zone]]
-id      = "03f8"
+id      = "6ef4"
 name    = "OP_SpawnAppearance"
 priority = 10
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 384f) - 24b; spawn id at offset 0 in 96% of 157 fires. PRIOR: SpawnAppearanceCode"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 03f8) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation (was 384f) - 24b; spawn id at offset 0 in 96% of 157 fires. PRIOR: SpawnAppearanceCode"
 
   [[zone.payloads]]
   dir           = "both"
@@ -314,11 +314,11 @@ comment = "STALE post-07/28: id 4170 carried pre-patch provenance and fires ZERO
   sizechecktype = "none"
 
 [[zone]]
-id      = "03ce"
+id      = "ffff"
 name    = "OP_Stamina"
 priority = 4
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 17a1) - confirmed on our 07/29 capture: 1 fires, S>C 1  sizes=8:1. PRIOR: 07/14 id 0x3b0c (adopted from legacy showeqlegends, capture-verified): stock 8B staminaStruct {u32 food, u32 water} — 'ticks till next eat'. Fires 71x S>C at 8B in the fight capture; food/water tick DOWN together (3396->3364->3332, 4596->4564->4532, step 32). Wired Player::updateStamina; size eql-owned in seq-backend-eql size_overrides()."
+comment = "UNMAPPED by the 08/04 rotation (was 03ce); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 17a1) - confirmed on our 07/29 capture: 1 fires, S>C 1  sizes=8:1. PRIOR: 07/14 id 0x3b0c (adopted from legacy showeqlegends, capture-verified): stock 8B staminaStruct {u32 food, u32 water} — 'ticks till next eat'. Fires 71x S>C at 8B in the fight capture; food/water tick DOWN together (3396->3364->3332, 4596->4564->4532, step 32). Wired Player::updateStamina; size eql-owned in seq-backend-eql size_overrides()."
 
   [[zone.payloads]]
   dir           = "server"
@@ -326,11 +326,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 1
   sizechecktype = "match"
 
 [[zone]]
-id      = "2865"
+id      = "36ac"
 name    = "OP_Stance"
 priority = 4
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0b49) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: EQ Legends active-stance echo (S>C, 4B activateAbilityStruct {u32 abilityId}). One stance active at a time; the server echoes this on each swap (authoritative). Ability ids (stable eqgame.exe GetAbilityName enum): 117 Offense, 118 Defense, 119 Evasive, 120 Balanced, 121 Mage Hunter, 122 Striker, 123 Berserker, 124 Ranged, 135 Channeler. Decoded by decode_activate_ability -> EqlDispatch::stance -> Player::setStance -> PlayerStats.stance. Size eql-owned in seq-backend-eql size_overrides(activateAbilityStruct=4). The C>S activation request is VARIABLE size: 4B, or 9B (ability id + u32 + trailing zero). Three of our captures (7/16, 7/17, and a 7/20 full-sweep) show ONLY the 4B form: the sweep exercised 16 distinct abilities (8 stances + 8 invocations = every one the character had) over 16 requests, all 4B. An external 2026-07-20 capture saw ~half at 9B, so the long form is real but is NOT ability-specific; suspect client build or input method (hotbar vs menu vs command). Untested ids: 123 Berserker, 130 Inviolable, 132 Chained. It is acked uint8_t/none precisely so that variance never warns — do NOT size-match the client dir. Request/response, NOT a group/zone broadcast — CONFIRMED 2026-07-20 by a grouped two-character capture: in the 21s between the client's own last swap and the group disband, the grouped partner swapped twice while the client decoded 620 packets (577 S>C, no silent second) with ZERO 0x0fab/0x3b12 fires. Positive control: the client's own swaps 4s earlier echoed 1:1 with its C>S. So the echo reports ONLY the local character's own stance and cannot track group members'. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 2865) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0b49) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: EQ Legends active-stance echo (S>C, 4B activateAbilityStruct {u32 abilityId}). One stance active at a time; the server echoes this on each swap (authoritative). Ability ids (stable eqgame.exe GetAbilityName enum): 117 Offense, 118 Defense, 119 Evasive, 120 Balanced, 121 Mage Hunter, 122 Striker, 123 Berserker, 124 Ranged, 135 Channeler. Decoded by decode_activate_ability -> EqlDispatch::stance -> Player::setStance -> PlayerStats.stance. Size eql-owned in seq-backend-eql size_overrides(activateAbilityStruct=4). The C>S activation request is VARIABLE size: 4B, or 9B (ability id + u32 + trailing zero). Three of our captures (7/16, 7/17, and a 7/20 full-sweep) show ONLY the 4B form: the sweep exercised 16 distinct abilities (8 stances + 8 invocations = every one the character had) over 16 requests, all 4B. An external 2026-07-20 capture saw ~half at 9B, so the long form is real but is NOT ability-specific; suspect client build or input method (hotbar vs menu vs command). Untested ids: 123 Berserker, 130 Inviolable, 132 Chained. It is acked uint8_t/none precisely so that variance never warns — do NOT size-match the client dir. Request/response, NOT a group/zone broadcast — CONFIRMED 2026-07-20 by a grouped two-character capture: in the 21s between the client's own last swap and the group disband, the grouped partner swapped twice while the client decoded 620 packets (577 S>C, no silent second) with ZERO 0x0fab/0x3b12 fires. Positive control: the client's own swaps 4s earlier echoed 1:1 with its C>S. So the echo reports ONLY the local character's own stance and cannot track group members'. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "server"
@@ -343,11 +343,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0
   sizechecktype = "none"
 
 [[zone]]
-id      = "6d48"
+id      = "7d2d"
 name    = "OP_Invocation"
 priority = 4
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2ae5) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: EQ Legends active-invocation echo (S>C, 4B activateAbilityStruct {u32 abilityId}). One invocation active at a time; the server echoes this on each swap (authoritative). Ability ids (stable eqgame.exe GetAbilityName enum): 125 Recover, 126 Empower, 127 Inversion, 128 Spell Blade, 129 Over Channel, 130 Inviolable, 131 Divine, 132 Chained, 133 Arcane Mastery, 134 Unyielding. Decoded by decode_activate_ability -> EqlDispatch::invocation -> Player::setInvocation -> PlayerStats.invocation. Same 4B struct as OP_Stance; opcode id picks stance vs invocation. The C>S activation request is VARIABLE size: 4B, or 9B (ability id + u32 + trailing zero). Three of our captures (7/16, 7/17, and a 7/20 full-sweep) show ONLY the 4B form: the sweep exercised 16 distinct abilities (8 stances + 8 invocations = every one the character had) over 16 requests, all 4B. An external 2026-07-20 capture saw ~half at 9B, so the long form is real but is NOT ability-specific; suspect client build or input method (hotbar vs menu vs command). Untested ids: 123 Berserker, 130 Inviolable, 132 Chained. It is acked uint8_t/none precisely so that variance never warns — do NOT size-match the client dir. Request/response, NOT a group/zone broadcast — CONFIRMED 2026-07-20 by a grouped two-character capture: in the 21s between the client's own last swap and the group disband, the grouped partner swapped twice while the client decoded 620 packets (577 S>C, no silent second) with ZERO 0x0fab/0x3b12 fires. Positive control: the client's own swaps 4s earlier echoed 1:1 with its C>S. So the echo reports ONLY the local character's own stance and cannot track group members'. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 6d48) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2ae5) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: EQ Legends active-invocation echo (S>C, 4B activateAbilityStruct {u32 abilityId}). One invocation active at a time; the server echoes this on each swap (authoritative). Ability ids (stable eqgame.exe GetAbilityName enum): 125 Recover, 126 Empower, 127 Inversion, 128 Spell Blade, 129 Over Channel, 130 Inviolable, 131 Divine, 132 Chained, 133 Arcane Mastery, 134 Unyielding. Decoded by decode_activate_ability -> EqlDispatch::invocation -> Player::setInvocation -> PlayerStats.invocation. Same 4B struct as OP_Stance; opcode id picks stance vs invocation. The C>S activation request is VARIABLE size: 4B, or 9B (ability id + u32 + trailing zero). Three of our captures (7/16, 7/17, and a 7/20 full-sweep) show ONLY the 4B form: the sweep exercised 16 distinct abilities (8 stances + 8 invocations = every one the character had) over 16 requests, all 4B. An external 2026-07-20 capture saw ~half at 9B, so the long form is real but is NOT ability-specific; suspect client build or input method (hotbar vs menu vs command). Untested ids: 123 Berserker, 130 Inviolable, 132 Chained. It is acked uint8_t/none precisely so that variance never warns — do NOT size-match the client dir. Request/response, NOT a group/zone broadcast — CONFIRMED 2026-07-20 by a grouped two-character capture: in the 21s between the client's own last swap and the group disband, the grouped partner swapped twice while the client decoded 620 packets (577 S>C, no silent second) with ZERO 0x0fab/0x3b12 fires. Positive control: the client's own swaps 4s earlier echoed 1:1 with its C>S. So the echo reports ONLY the local character's own stance and cannot track group members'. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "server"
@@ -360,11 +360,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2
   sizechecktype = "none"
 
 [[zone]]
-id      = "0daa"
+id      = "6854"
 name    = "OP_HPUpdate"
 priority = 10
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 3139) - payload-size histogram matches the prior mapping exactly (6/21/37/53/7/5); spawn id at offset 0 in 246/246 fires. PRIOR: Re-mapped for the 07/28 rotation - spawn id at offset 0; 34237 fires across several payload forms - the multiplexed stat-sync channel. PRIOR: 07/07 rotation; multiplexed stat channel (subtype byte @4). 6B subtype-0x02 = HP-bar feed (u16 id, u16 0, 0x02, u8 hp%); decoded by EqlDispatch::hpUpdate. Other sizes/subtypes are cur/max i64 stat pairs (dropped)"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 0daa) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation (was 3139) - payload-size histogram matches the prior mapping exactly (6/21/37/53/7/5); spawn id at offset 0 in 246/246 fires. PRIOR: Re-mapped for the 07/28 rotation - spawn id at offset 0; 34237 fires across several payload forms - the multiplexed stat-sync channel. PRIOR: 07/07 rotation; multiplexed stat channel (subtype byte @4). 6B subtype-0x02 = HP-bar feed (u16 id, u16 0, 0x02, u8 hp%); decoded by EqlDispatch::hpUpdate. Other sizes/subtypes are cur/max i64 stat pairs (dropped)"
 
   [[zone.payloads]]
   dir           = "server"
@@ -372,11 +372,11 @@ comment = "Re-mapped for the 07/29 rotation (was 3139) - payload-size histogram 
   sizechecktype = "none"
 
 [[zone]]
-id      = "16d9"
+id      = "05a8"
 name    = "OP_GuildMemberUpdate"
 priority = 3
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0aa2) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Info regarding guild members"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 16d9) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0aa2) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Info regarding guild members"
 
   [[zone.payloads]]
   dir           = "server"
@@ -384,11 +384,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0
   sizechecktype = "match"
 
 [[zone]]
-id      = "4ee1"
+id      = "2d39"
 name    = "OP_ClickObject"
 priority = 9
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 23ee) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Post-07/14 rotation. id from the legends branch (upstream/showeqlegends, priority 9, updated 07/14/26 — the authority); it names 0x597e OP_ClickObject, 'Items dropped on the ground'. In our fixtures 0x597e is C>S only (eql-fighting, 16B x24 — the client's click request), which this DIR_Server handler ignores; the S>C removal side (12B remDropStruct: u16 dropId matches a ground-spawn id, u16 spawnId=player) wasn't captured, so the decode rests on legends' authority + the pre-existing handler, not a local S>C sample. Wired SpawnShell::removeGroundItem (match-gated)."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 4ee1) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 23ee) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Post-07/14 rotation. id from the legends branch (upstream/showeqlegends, priority 9, updated 07/14/26 — the authority); it names 0x597e OP_ClickObject, 'Items dropped on the ground'. In our fixtures 0x597e is C>S only (eql-fighting, 16B x24 — the client's click request), which this DIR_Server handler ignores; the S>C removal side (12B remDropStruct: u16 dropId matches a ground-spawn id, u16 spawnId=player) wasn't captured, so the decode rests on legends' authority + the pre-existing handler, not a local S>C sample. Wired SpawnShell::removeGroundItem (match-gated)."
 
   [[zone.payloads]]
   dir           = "server"
@@ -404,11 +404,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2
   sizechecktype = "none"
 
 [[zone]]
-id      = "130a"
+id      = "7bd0"
 name    = "OP_Action"
 priority = 7
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 50e8) - confirmed on our 07/29 capture: 37 fires, S>C 37  sizes=88:30,64:7. PRIOR: EQ Legends spell/special action (S>C). Live paired send: 64B actionStruct (n=97/117) + 88B actionAltStruct (n=22/43); target/source u16@0/@2, spell u16@4 (real ids 502/445/821). Sole 64B/88B op. Lights up the already-wired SpellShell::action (both payloads). spell is u16@4 and does NOT truncate — verified 2026-07-28 over 3092 packets, 101/101 distinct ids resolve to real spell-DB names across both the 64B and 88B forms. Do NOT widen it to u32: u16@6 is a separate flag (1 in 74 of 3092), and a u32@4 read folds it in as +65536. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 130a) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 50e8) - confirmed on our 07/29 capture: 37 fires, S>C 37  sizes=88:30,64:7. PRIOR: EQ Legends spell/special action (S>C). Live paired send: 64B actionStruct (n=97/117) + 88B actionAltStruct (n=22/43); target/source u16@0/@2, spell u16@4 (real ids 502/445/821). Sole 64B/88B op. Lights up the already-wired SpellShell::action (both payloads). spell is u16@4 and does NOT truncate — verified 2026-07-28 over 3092 packets, 101/101 distinct ids resolve to real spell-DB names across both the 64B and 88B forms. Do NOT widen it to u32: u16@6 is a separate flag (1 in 74 of 3092), and a u32@4 read folds it in as +65536. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "both"
@@ -421,11 +421,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5
   sizechecktype = "match"
 
 [[zone]]
-id      = "0ed3"
+id      = "7742"
 name    = "OP_Action2"
 priority = 7
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7df9) - confirmed on our 07/29 capture: 38 fires, S>C 38  sizes=48:38. PRIOR: Re-mapped for the 07/28 rotation - quotes TWO spawn ids (offsets 0 and 2) - the source/target pair. PRIOR: EQ Legends melee combat / damage-resolution stream (S>C, 48B fixed, n=481/968). Byte-identical to Live action2Struct: target u16@0, source u16@2, damage i32@8, spell i32@20 (-1=melee), type u8@40; @24-39 = knockback floats. Sole 48B S>C op; cross-val upperguk+fulllogin. Lights up the already-wired CombatRouter::action2. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 0ed3) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7df9) - confirmed on our 07/29 capture: 38 fires, S>C 38  sizes=48:38. PRIOR: Re-mapped for the 07/28 rotation - quotes TWO spawn ids (offsets 0 and 2) - the source/target pair. PRIOR: EQ Legends melee combat / damage-resolution stream (S>C, 48B fixed, n=481/968). Byte-identical to Live action2Struct: target u16@0, source u16@2, damage i32@8, spell i32@20 (-1=melee), type u8@40; @24-39 = knockback floats. Sole 48B S>C op; cross-val upperguk+fulllogin. Lights up the already-wired CombatRouter::action2. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "both"
@@ -433,11 +433,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7
   sizechecktype = "match"
 
 [[zone]]
-id      = "53f1"
+id      = "4635"
 name    = "OP_Consider"
 priority = 9
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 64c4) - confirmed on our 07/29 capture: 2 fires, S>C 1 C>S 1  sizes=24:2. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: 24B in BOTH directions (request + response), quoting real spawn ids. PRIOR: EQ Legends /consider (post-2026-07-07 re-map). 24B {u32 self, u32 target, u32 faction, u32 =7} both directions: C>S request has faction=0, S>C reply fills faction (2=warmly, 4=amiably; level comes from the spawn, not here). considerStruct is eql's OWN 24B struct (seq-backend-eql owns it; Live's is 32B) — size-gated on it via the backend size table (struct_size_overrides), decoded by parse_consider into the shared Consider, then the neutral SpawnShell::consMessage. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 53f1) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 64c4) - confirmed on our 07/29 capture: 2 fires, S>C 1 C>S 1  sizes=24:2. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: 24B in BOTH directions (request + response), quoting real spawn ids. PRIOR: EQ Legends /consider (post-2026-07-07 re-map). 24B {u32 self, u32 target, u32 faction, u32 =7} both directions: C>S request has faction=0, S>C reply fills faction (2=warmly, 4=amiably; level comes from the spawn, not here). considerStruct is eql's OWN 24B struct (seq-backend-eql owns it; Live's is 32B) — size-gated on it via the backend size table (struct_size_overrides), decoded by parse_consider into the shared Consider, then the neutral SpawnShell::consMessage. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "both"
@@ -445,11 +445,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 6
   sizechecktype = "match"
 
 [[zone]]
-id      = "784e"
+id      = "4b90"
 name    = "OP_TargetMouse"
 priority = 9
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 3897) - confirmed on our 07/29 capture: 18 fires, C>S 18  sizes=4:18. PRIOR: EQ Legends C>S target select. Payload is byte-identical to Live's clientTargetStruct ({u32 spawn_id}, 0 = clear/untarget), so it wires straight to the neutral SpawnShell::clientTarget — no Legends-specific decode. Confirmed 2026-07-07 across fight + Nektulos locclip captures (every payload resolves to a 0x7475 spawn id or 0). See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation - HUNTED, upstream did not re-derive it (they still carry the dead 784e). Confirmed: 18 C>S fires of 4B; 5/5 distinct nonzero values are live spawn ids cross-referenced against OP_MobUpdate's 301-id set, 0 = deselect. Competitors eliminated by the same test: 785f scored 0/7, 6cfb is all zeros. PRIOR: UNMAPPED by the 08/04 rotation (was 784e); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 3897) - confirmed on our 07/29 capture: 18 fires, C>S 18  sizes=4:18. PRIOR: EQ Legends C>S target select. Payload is byte-identical to Live's clientTargetStruct ({u32 spawn_id}, 0 = clear/untarget), so it wires straight to the neutral SpawnShell::clientTarget — no Legends-specific decode. Confirmed 2026-07-07 across fight + Nektulos locclip captures (every payload resolves to a 0x7475 spawn id or 0). See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "client"
@@ -469,11 +469,11 @@ comment = "Spawns getting renamed after initial NewSpawn"
   sizechecktype = "match"
 
 [[zone]]
-id      = "4037"
+id      = "ffff"
 name    = "OP_Illusion"
 priority = 8
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5201) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Spawn being illusioned (changing forms)"
+comment = "UNMAPPED by the 08/04 rotation (was 4037); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5201) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Spawn being illusioned (changing forms)"
 
   [[zone.payloads]]
   dir           = "both"
@@ -494,12 +494,12 @@ comment = "Server putting players into shroud form"
   sizechecktype = "none"
 
 [[zone]]
-id      = "07b6"
+id      = "4ab5"
 name    = "OP_ZoneChange"
 priority = 10
 priority_note = "client-only; handler only raises the zoning flag"
-updated = "2026-08-03"
-comment = "CORRECTED 2026-08-03 - this opcode had drifted onto the WRONG PACKET and both the 07/28 and 07/29 re-maps carried the error forward. It is 07b6, matching upstream legends 662e0b7 and this entry's own original description below. Evidence on a 07/29 capture: 07b6 is 484b and fires C>S ONLY (2/2), exactly the client-only zone-change request described below and exactly upstream's zoneChangeEQLStruct (484b, 'server never sends it'); the wire_eql comment likewise says 'eql's OP_ZoneChange is 484B', so the code already expected this shape. The id this entry held until now, 439a, is a DIFFERENT packet - 100b, a character-name string at offset 0 then floats, fired in BOTH directions on BOTH the world and zone streams. It is not a zone-change request and is now unmapped; it is NOT identified, so it was not renamed to something invented. Consequence of the error: the zoning flag was being raised by that packet instead of the real request. PRIOR (07/29, WRONG - matched the drifted 07/28 description, not the packet): character-name field at offset 0 plus the identical constant block at 0x20. PRIOR (07/28, WRONG - this is where the drift began): carries the character name and fires at every zone transition on BOTH the world and zone streams, both directions. PRIOR (ORIGINAL, and correct): CLIENT-ONLY zone-change request, 484B fixed (9 fires in a 26min capture, all C>S, never S>C — a zone transition is a session teardown + new session, so there is no server reply). Carries the player's POSITION and no zone id anywhere, so nothing is decodable here beyond the fact that a transition started; zone identity arrives later via OP_NewZone -> setZoneByName. Cannot use Live's 100B zoneChangeStruct (SZC_Match drops a 484B payload) nor ZoneMgr::zoneChange, which decodes that struct — wired uint8_t/none to EqlDispatch::zoneChange -> ZoneMgr::beginZoning. Layout unmapped beyond the length; legacy showeq gates the same id on a 484B all-unknown struct for the same reason. WHY IT IS SAFE despite the flag gating SpawnShell's stale-zone handlers: the bulk spawn stream does NOT pass one — eql routes OP_ZoneEntry -> EqlDispatch::spawn -> upsertSpawn, which is unguarded (legacy is equivalent: its eql spawns go to SpawnShell::zoneEntry, also unguarded, while the isZoning guards sit on newSpawn, which eql never calls). Of the 7 guarded handlers only 3 are wired on eql (OP_ClickObject was ffff until its 07/24 map to 0x597e; its removal side is C>S-absent in fixtures, so it still fires 0 times inside the windows). Measured across the 9 transitions in one capture: 29 of 3880 OP_NpcMoveUpdate and 0 of 23 OP_GroundSpawn fall inside the windows — i.e. it suppresses a little stale movement during a transition, which is what the flag is for, and touches nothing else."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 07b6) - PENDING content validation. PRIOR: CORRECTED 2026-08-03 - this opcode had drifted onto the WRONG PACKET and both the 07/28 and 07/29 re-maps carried the error forward. It is 07b6, matching upstream legends 662e0b7 and this entry's own original description below. Evidence on a 07/29 capture: 07b6 is 484b and fires C>S ONLY (2/2), exactly the client-only zone-change request described below and exactly upstream's zoneChangeEQLStruct (484b, 'server never sends it'); the wire_eql comment likewise says 'eql's OP_ZoneChange is 484B', so the code already expected this shape. The id this entry held until now, 439a, is a DIFFERENT packet - 100b, a character-name string at offset 0 then floats, fired in BOTH directions on BOTH the world and zone streams. It is not a zone-change request and is now unmapped; it is NOT identified, so it was not renamed to something invented. Consequence of the error: the zoning flag was being raised by that packet instead of the real request. PRIOR (07/29, WRONG - matched the drifted 07/28 description, not the packet): character-name field at offset 0 plus the identical constant block at 0x20. PRIOR (07/28, WRONG - this is where the drift began): carries the character name and fires at every zone transition on BOTH the world and zone streams, both directions. PRIOR (ORIGINAL, and correct): CLIENT-ONLY zone-change request, 484B fixed (9 fires in a 26min capture, all C>S, never S>C — a zone transition is a session teardown + new session, so there is no server reply). Carries the player's POSITION and no zone id anywhere, so nothing is decodable here beyond the fact that a transition started; zone identity arrives later via OP_NewZone -> setZoneByName. Cannot use Live's 100B zoneChangeStruct (SZC_Match drops a 484B payload) nor ZoneMgr::zoneChange, which decodes that struct — wired uint8_t/none to EqlDispatch::zoneChange -> ZoneMgr::beginZoning. Layout unmapped beyond the length; legacy showeq gates the same id on a 484B all-unknown struct for the same reason. WHY IT IS SAFE despite the flag gating SpawnShell's stale-zone handlers: the bulk spawn stream does NOT pass one — eql routes OP_ZoneEntry -> EqlDispatch::spawn -> upsertSpawn, which is unguarded (legacy is equivalent: its eql spawns go to SpawnShell::zoneEntry, also unguarded, while the isZoning guards sit on newSpawn, which eql never calls). Of the 7 guarded handlers only 3 are wired on eql (OP_ClickObject was ffff until its 07/24 map to 0x597e; its removal side is C>S-absent in fixtures, so it still fires 0 times inside the windows). Measured across the 9 transitions in one capture: 29 of 3880 OP_NpcMoveUpdate and 0 of 23 OP_GroundSpawn fall inside the windows — i.e. it suppresses a little stale movement during a transition, which is what the flag is for, and touches nothing else."
 
   [[zone.payloads]]
   dir           = "both"
@@ -507,11 +507,11 @@ comment = "CORRECTED 2026-08-03 - this opcode had drifted onto the WRONG PACKET 
   sizechecktype = "none"
 
 [[zone]]
-id      = "0cb5"
+id      = "ffff"
 name    = "OP_GroupInvite"
 priority = 4
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 63c6) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: You invite someone while ungrouped or get invited by someone ungrouped"
+comment = "UNMAPPED by the 08/04 rotation (was 0cb5); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 63c6) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: You invite someone while ungrouped or get invited by someone ungrouped"
 
   [[zone.payloads]]
   dir           = "both"
@@ -532,12 +532,12 @@ comment = "Invite into an EXISTING group (inviter already grouped); OP_GroupInvi
   sizechecktype = "none"
 
 [[zone]]
-id      = "70a8"
+id      = "294e"
 name    = "OP_GroupCancelInvite"
 priority = 4
 priority_note = "single sample; reason byte unverified"
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7a77) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Client-side decline-invite OR leave/disband-group request (168 bytes; name fields = self+self when leaving). C>S only in observed captures. Re-confirmed post-2026-05-22 patch (group-2variants: only C>S group-action unknown, fires before disband, self+self)."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 70a8) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7a77) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Client-side decline-invite OR leave/disband-group request (168 bytes; name fields = self+self when leaving). C>S only in observed captures. Re-confirmed post-2026-05-22 patch (group-2variants: only C>S group-action unknown, fires before disband, self+self)."
 
   [[zone.payloads]]
   dir           = "client"
@@ -545,11 +545,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7
   sizechecktype = "none"
 
 [[zone]]
-id      = "6711"
+id      = "ffff"
 name    = "OP_GroupFollow"
 priority = 4
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4e40) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: A member joined (168B; invitee name at offset 64, level at 132). Roster identity rides this + OP_GroupDisband; OP_GroupMemberList is dead on Legends."
+comment = "UNMAPPED by the 08/04 rotation (was 6711); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4e40) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: A member joined (168B; invitee name at offset 64, level at 132). Roster identity rides this + OP_GroupDisband; OP_GroupMemberList is dead on Legends."
 
   [[zone.payloads]]
   dir           = "server"
@@ -570,11 +570,11 @@ comment = "Player joins your group (168 bytes; member name at offset 64, leading
   sizechecktype = "none"
 
 [[zone]]
-id      = "09ec"
+id      = "ffff"
 name    = "OP_GroupUpdate"
 priority = 6
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 68d3) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Per-recipient status push (168B fixed, name at offset 64, no member roster); handler noops. Member identity rides OP_GroupFollow, departures OP_GroupDisband/2."
+comment = "UNMAPPED by the 08/04 rotation (was 09ec); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 68d3) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Per-recipient status push (168B fixed, name at offset 64, no member roster); handler noops. Member identity rides OP_GroupFollow, departures OP_GroupDisband/2."
 
   [[zone.payloads]]
   dir           = "both"
@@ -582,11 +582,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 6
   sizechecktype = "none"
 
 [[zone]]
-id      = "587b"
+id      = "ffff"
 name    = "OP_GroupDisband"
 priority = 4
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 216d) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Your group dissolved (modern: 168 bytes; membername=self at offset 64)"
+comment = "UNMAPPED by the 08/04 rotation (was 587b); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 216d) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Your group dissolved (modern: 168 bytes; membername=self at offset 64)"
 
   [[zone.payloads]]
   dir           = "server"
@@ -640,12 +640,12 @@ comment = "S>C broadcast to remaining members when any member leaves. 168 bytes.
   sizechecktype = "none"
 
 [[zone]]
-id      = "5767"
+id      = "ffff"
 name    = "OP_GroupLeader"
 priority = 4
 priority_note = "single sample; unconfirmed on /makeleader"
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 18e2) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Group leader change (modern: 80 bytes)"
+comment = "UNMAPPED by the 08/04 rotation (was 5767); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 18e2) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Group leader change (modern: 80 bytes)"
 
   [[zone.payloads]]
   dir           = "server"
@@ -653,12 +653,12 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 1
   sizechecktype = "none"
 
 [[zone]]
-id      = "272c"
+id      = "1d63"
 name    = "OP_Buff"
 priority = 6
 priority_note = "client dir = memorize/forget, consumed silently"
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 122f) - confirmed on our 07/29 capture: 33 fires, S>C 33  sizes=24:33. PRIOR: S>C, two shapes ride this id. (a) 24B COMPACT record {u32 field0@0, u32 spellId@4, u32=1@8, u32 changeType@12, 0, 0}, changeType 4/1. DECODED BUT DELIBERATELY NOT APPLIED — it is probably NOT buff state. In one fixture it carries {1, 665, 4} for \"Drifting Death\" while that capture's chat reads \"a greater kobold has taken 196 damage from your Drifting Death\", i.e. a DoT cast ON A MOB, which cannot sit in the player's buff window; another record is {8, 3579} \"Share Form of the Great Wolf\", also player-cast. So field0 looks like the spell GEM slot cast from, not a buff slot, and values >=15 (15, 331..339 seen) are something else again. Applying it would show spells cast on others as buffs on the player, and treating changeType 1 as a fade would delete a real buff of the same spell id. Legacy showeq buffChange does apply it (unconditional player attribution, add on 4 / delete on 1) and carries that flaw. TO IDENTIFY: cast a known spell from a known gem and see whether field0 tracks the gem, and whether a buff received FROM someone else ever appears here. OP_BuffList/2/3 remain the authoritative buff source. (b) older variable-length forms: 13b fade {u32 spawnID, u32 spellID, u16=0x0001, u8=0, u8 slot, u8=0}; 30b self-buff add; 34/51/53/59b embedded blocks; 85b 3-block. Pre-patch OP_Buff 0x55b9 no longer fires."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 272c) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 122f) - confirmed on our 07/29 capture: 33 fires, S>C 33  sizes=24:33. PRIOR: S>C, two shapes ride this id. (a) 24B COMPACT record {u32 field0@0, u32 spellId@4, u32=1@8, u32 changeType@12, 0, 0}, changeType 4/1. DECODED BUT DELIBERATELY NOT APPLIED — it is probably NOT buff state. In one fixture it carries {1, 665, 4} for \"Drifting Death\" while that capture's chat reads \"a greater kobold has taken 196 damage from your Drifting Death\", i.e. a DoT cast ON A MOB, which cannot sit in the player's buff window; another record is {8, 3579} \"Share Form of the Great Wolf\", also player-cast. So field0 looks like the spell GEM slot cast from, not a buff slot, and values >=15 (15, 331..339 seen) are something else again. Applying it would show spells cast on others as buffs on the player, and treating changeType 1 as a fade would delete a real buff of the same spell id. Legacy showeq buffChange does apply it (unconditional player attribution, add on 4 / delete on 1) and carries that flaw. TO IDENTIFY: cast a known spell from a known gem and see whether field0 tracks the gem, and whether a buff received FROM someone else ever appears here. OP_BuffList/2/3 remain the authoritative buff source. (b) older variable-length forms: 13b fade {u32 spawnID, u32 spellID, u16=0x0001, u8=0, u8 slot, u8=0}; 30b self-buff add; 34/51/53/59b embedded blocks; 85b 3-block. Pre-patch OP_Buff 0x55b9 no longer fires."
 
   [[zone.payloads]]
   # Fires BOTH ways — the client half is memorize/forget; only the server broadcast is decoded, so the wire() binding stays DIR_Server.
@@ -669,11 +669,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 1
   sizechecktype = "none"
 
 [[zone]]
-id      = "7e11"
+id      = "6481"
 name    = "OP_BuffList"
 priority = 6
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7bda) - confirmed on our 07/29 capture: 16 fires, S>C 16  sizes=88:10,38:6. PRIOR: Per-spawn active-buff list, resent at zone-in + on every buff change with REAL server-side remaining durations. Xerxes 07/14 map: OP_BuffList/2/3 = 73e2/713a/5c47, all the same format + handler. Variable size: u32 spawnId, u32 (seq/ts), u8 flag=1, u8 count, u8[5] pad, then count records {u32 spellId, u32=1, i32 remainingTicks, u32=0} + NUL caster name + slot (u32 between records, u16 on the final). remainingTicks<=0 = permanent. Wired → SpellShell::buffList; owner by findability (self → buff panel, findable mob → target effects)."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 7e11) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7bda) - confirmed on our 07/29 capture: 16 fires, S>C 16  sizes=88:10,38:6. PRIOR: Per-spawn active-buff list, resent at zone-in + on every buff change with REAL server-side remaining durations. Xerxes 07/14 map: OP_BuffList/2/3 = 73e2/713a/5c47, all the same format + handler. Variable size: u32 spawnId, u32 (seq/ts), u8 flag=1, u8 count, u8[5] pad, then count records {u32 spellId, u32=1, i32 remainingTicks, u32=0} + NUL caster name + slot (u32 between records, u16 on the final). remainingTicks<=0 = permanent. Wired → SpellShell::buffList; owner by findability (self → buff panel, findable mob → target effects)."
 
   [[zone.payloads]]
   dir           = "server"
@@ -717,11 +717,11 @@ comment = "STALE post-07/28: id 7d73 carried pre-patch provenance and fires ZERO
   sizechecktype = "none"
 
 [[zone]]
-id      = "4970"
+id      = "4464"
 name    = "OP_BeginCast"
 priority = 5
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2c36) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: BeginCastCode - S>C broadcast: {u32 spellId, u16 casterSpawnId, u16 castTime_ms, u8[7] pad}. Re-confirmed post-2026-05-22 patch (castTime decodes to real ms: 4000/6500/9000)."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 4970) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2c36) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: BeginCastCode - S>C broadcast: {u32 spellId, u16 casterSpawnId, u16 castTime_ms, u8[7] pad}. Re-confirmed post-2026-05-22 patch (castTime decodes to real ms: 4000/6500/9000)."
 
   [[zone.payloads]]
   dir           = "server"
@@ -729,11 +729,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2
   sizechecktype = "match"
 
 [[zone]]
-id      = "224f"
+id      = "1a62"
 name    = "OP_CastSpell"
 priority = 5
-updated = "2026-08-03"
-comment = "VALIDATED LOCALLY 2026-08-03 and gate size corrected 40 -> 44. The id from upstream legends b769446 is CONFIRMED correct: 10 captured C>S fires decoded to spell ids 15 / 235 / 191, matching the three spells actually cast. Wire is a fixed 44B, not the 40 inherited from Live's startCastStruct, so every packet had been silently size-dropped (visible only as a doesn't-match warning because nothing consumes it). slot@0 / spellId@4 / targetId@18 KEPT their offsets - the record grew at the tail, adding a per-spell constant u32 at @22 (same value on every cast of a given spell, role unmapped); targetId is 0 on an untargeted cast. Size is now eql-owned via start_cast::PAYLOAD_LEN. NOTE this opcode is deliberately NOT wired on any backend - cast-start buff insertion caused premature fading and put mob-targeted spells in the player's own buff list; the authoritative bar is OP_BuffList. PRIOR: 07/29 re-map from upstream, unvalidated locally (not present in our 07/29 capture). PRIOR: 07/09 l-patch, C>S stock startCastStruct + 1 trailing byte."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 224f) - PENDING content validation. PRIOR: VALIDATED LOCALLY 2026-08-03 and gate size corrected 40 -> 44. The id from upstream legends b769446 is CONFIRMED correct: 10 captured C>S fires decoded to spell ids 15 / 235 / 191, matching the three spells actually cast. Wire is a fixed 44B, not the 40 inherited from Live's startCastStruct, so every packet had been silently size-dropped (visible only as a doesn't-match warning because nothing consumes it). slot@0 / spellId@4 / targetId@18 KEPT their offsets - the record grew at the tail, adding a per-spell constant u32 at @22 (same value on every cast of a given spell, role unmapped); targetId is 0 on an untargeted cast. Size is now eql-owned via start_cast::PAYLOAD_LEN. NOTE this opcode is deliberately NOT wired on any backend - cast-start buff insertion caused premature fading and put mob-targeted spells in the player's own buff list; the authoritative bar is OP_BuffList. PRIOR: 07/29 re-map from upstream, unvalidated locally (not present in our 07/29 capture). PRIOR: 07/09 l-patch, C>S stock startCastStruct + 1 trailing byte."
 
   [[zone.payloads]]
   dir           = "client"
@@ -741,11 +741,11 @@ comment = "VALIDATED LOCALLY 2026-08-03 and gate size corrected 40 -> 44. The id
   sizechecktype = "match"
 
 [[zone]]
-id      = "0386"
+id      = "2723"
 name    = "OP_SwapSpell"
 priority = 3
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4459) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/07 rotation (community f-patch id, wire-verified): stock tradeSpellBookSlotsStruct (slot1 u32@0, slot2 u32@4) 8B exact. Match-gated. NOT wired yet — named for logs; not in current fixtures."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 0386) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4459) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/07 rotation (community f-patch id, wire-verified): stock tradeSpellBookSlotsStruct (slot1 u32@0, slot2 u32@4) 8B exact. Match-gated. NOT wired yet — named for logs; not in current fixtures."
 
   [[zone.payloads]]
   dir           = "both"
@@ -766,11 +766,11 @@ comment = "Bidirectional 16B: {u32 gem_slot, u32 spellId, int16 action, int16 pa
   sizechecktype = "match"
 
 [[zone]]
-id      = "104d"
+id      = "17d6"
 name    = "OP_InspectAnswer"
 priority = 3
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5503) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/07 rotation (community f-patch id): stock inspectDataStruct byte-perfect incl. 1956B total size (3/3 community inspects). Match-gated (dark if size differs). Wired MessageShell::inspectData. Not in current fixtures — community-verified."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 104d) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5503) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/07 rotation (community f-patch id): stock inspectDataStruct byte-perfect incl. 1956B total size (3/3 community inspects). Match-gated (dark if size differs). Wired MessageShell::inspectData. Not in current fixtures — community-verified."
 
   [[zone.payloads]]
   dir           = "server"
@@ -778,11 +778,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 5
   sizechecktype = "match"
 
 [[zone]]
-id      = "185c"
+id      = "4a8c"
 name    = "OP_Emote"
 priority = 4
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 6d34) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/09 EQL (community f-patch id): 4B header (ffffffff) + emote text; client is a fixed 1028B buffer, server dir is variable, so none-gated. NOT wired yet — named for logs (emote also rides OP_FormattedMessage which is handled)."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 185c) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 6d34) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/09 EQL (community f-patch id): 4B header (ffffffff) + emote text; client is a fixed 1028B buffer, server dir is variable, so none-gated. NOT wired yet — named for logs (emote also rides OP_FormattedMessage which is handled)."
 
   [[zone.payloads]]
   dir           = "both"
@@ -790,11 +790,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 6
   sizechecktype = "none"
 
 [[zone]]
-id      = "0c5f"
+id      = "4894"
 name    = "OP_SimpleMessage"
 priority = 4
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 72cb) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: EQL 07/12 rotation; single general SimpleMessage channel (12B server: u32 eqstrId, u32 color, u32 0). Wire-verified via the fast-camp-refusal string (eqstr 10031, color 13); replay opcodestats show it as 12B S>C across every system-message capture. Was pinned to the dead live opcode ffff; the MessageShell/SpellShell handlers were already correct"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 0c5f) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 72cb) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: EQL 07/12 rotation; single general SimpleMessage channel (12B server: u32 eqstrId, u32 color, u32 0). Wire-verified via the fast-camp-refusal string (eqstr 10031, color 13); replay opcodestats show it as 12B S>C across every system-message capture. Was pinned to the dead live opcode ffff; the MessageShell/SpellShell handlers were already correct"
 
   [[zone.payloads]]
   dir           = "server"
@@ -802,11 +802,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7
   sizechecktype = "match"
 
 [[zone]]
-id      = "3989"
+id      = "ffff"
 name    = "OP_LootDrops"
 priority = 4
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2a6f) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: eql corpse loot window: {u16, u32=900, u32 corpseId@6, u32 count@10, NUL-term corpse name@14, then `count` item entries each with a 0x12 item link}. Decoded by parse_loot_drops (item name = link past 197-hex header) -> MessageShell::lootDrops -> LootDrops proto."
+comment = "UNMAPPED by the 08/04 rotation (was 3989); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2a6f) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: eql corpse loot window: {u16, u32=900, u32 corpseId@6, u32 count@10, NUL-term corpse name@14, then `count` item entries each with a 0x12 item link}. Decoded by parse_loot_drops (item name = link past 197-hex header) -> MessageShell::lootDrops -> LootDrops proto."
 
   [[zone.payloads]]
   dir           = "server"
@@ -841,11 +841,11 @@ comment = "STALE post-07/28: id 7d1c carried pre-patch provenance and fires ZERO
   sizechecktype = "none"
 
 [[zone]]
-id      = "64a2"
+id      = "6aad"
 name    = "OP_MoneyUpdate"
 priority = 4
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 03c3) - confirmed on our 07/29 capture: 2 fires, S>C 2  sizes=20:2. PRIOR: Carried purse, 20B S>C {u32 platinum@0, gold@4, silver@8, copper@12, u32=0@16}. Denominations are NOT normalized (9276p 33g 101s 281c captured), so sum rather than assuming each is < 10. Values agree with OP_PlayerProfile's own coin block wherever both appear, verified on two characters. Mostly broadcasts near zone-in, but it DOES also report mid-session changes the profile never sees (one capture: purse moved +12804 while visible auto-sales accounted for only 3142), so it is the authoritative source — though it does not fire per coin-earning event, hence the OP_LootMessage accrual on top. NOTE when counting fires: recon follows the primary box unless --dump-all-sessions is passed. Layout credit: Xerxes (legacy moneyUpdateEQL); the id rotated from 0x4d77 in the 2026-07-14 patch, which is why this sat unmapped."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 64a2) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 03c3) - confirmed on our 07/29 capture: 2 fires, S>C 2  sizes=20:2. PRIOR: Carried purse, 20B S>C {u32 platinum@0, gold@4, silver@8, copper@12, u32=0@16}. Denominations are NOT normalized (9276p 33g 101s 281c captured), so sum rather than assuming each is < 10. Values agree with OP_PlayerProfile's own coin block wherever both appear, verified on two characters. Mostly broadcasts near zone-in, but it DOES also report mid-session changes the profile never sees (one capture: purse moved +12804 while visible auto-sales accounted for only 3142), so it is the authoritative source — though it does not fire per coin-earning event, hence the OP_LootMessage accrual on top. NOTE when counting fires: recon follows the primary box unless --dump-all-sessions is passed. Layout credit: Xerxes (legacy moneyUpdateEQL); the id rotated from 0x4d77 in the 2026-07-14 patch, which is why this sat unmapped."
 
   [[zone.payloads]]
   dir           = "server"
@@ -853,11 +853,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0
   sizechecktype = "none"
 
 [[zone]]
-id      = "482e"
+id      = "3fd7"
 name    = "OP_LootMessage"
 priority = 4
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7199) - confirmed on our 07/29 capture: 1 fires, S>C 1  sizes=8:1. PRIOR: eql personal auto-loot/sell text: {u32 color@0, NUL-term text with 0x12 item links (197-hex header + name)}. Decoded by parse_loot_message -> MessageShell::lootMessage -> chat."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 482e) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7199) - confirmed on our 07/29 capture: 1 fires, S>C 1  sizes=8:1. PRIOR: eql personal auto-loot/sell text: {u32 color@0, NUL-term text with 0x12 item links (197-hex header + name)}. Decoded by parse_loot_message -> MessageShell::lootMessage -> chat."
 
   [[zone.payloads]]
   dir           = "server"
@@ -865,11 +865,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7
   sizechecktype = "none"
 
 [[zone]]
-id      = "7445"
+id      = "7e6b"
 name    = "OP_FormattedMessage"
 priority = 4
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 06f1) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/14 id 0x15d0 (was 0x3c0a; rotated AND relaid-out): stock length-prefixed FormattedMessage — {u32@0=0, u8@4=0, u32@5=formatId (eqstr_us.txt id), u32@9=msgType/chatColor, @13=length-prefixed [u32 len][bytes] arg slots}. Same arg blob EQStr::formatMessage consumes on Live. Decoded by seq-backend-eql parse_formatted_message (formatId@5, args cleaned) -> MessageShell::formattedMessageEQL interpolates via EQStr + emits chat. Resolves readable msgs incl. level-ups/exp/AA/combat/spell. The old 3c0a flat layout (spellId@0/formatId@9/caret@13) is retired."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 7445) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 06f1) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/14 id 0x15d0 (was 0x3c0a; rotated AND relaid-out): stock length-prefixed FormattedMessage — {u32@0=0, u8@4=0, u32@5=formatId (eqstr_us.txt id), u32@9=msgType/chatColor, @13=length-prefixed [u32 len][bytes] arg slots}. Same arg blob EQStr::formatMessage consumes on Live. Decoded by seq-backend-eql parse_formatted_message (formatId@5, args cleaned) -> MessageShell::formattedMessageEQL interpolates via EQStr + emits chat. Resolves readable msgs incl. level-ups/exp/AA/combat/spell. The old 3c0a flat layout (spellId@0/formatId@9/caret@13) is retired."
 
   [[zone.payloads]]
   dir           = "server"
@@ -877,11 +877,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0
   sizechecktype = "none"
 
 [[zone]]
-id      = "419f"
+id      = "0b3c"
 name    = "OP_CommonMessage"
 priority = 9
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 37fa) - confirmed on our 07/29 capture: 1 fires, C>S 1  sizes=71:1. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: yields real say-channel chat text with the sender name; both directions. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed): /tell /ooc /shout etc, channelMessageStruct none. Present both dirs (63/71B) in captures. Wired MessageShell::channelMessage."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 419f) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 37fa) - confirmed on our 07/29 capture: 1 fires, C>S 1  sizes=71:1. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: yields real say-channel chat text with the sender name; both directions. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed): /tell /ooc /shout etc, channelMessageStruct none. Present both dirs (63/71B) in captures. Wired MessageShell::channelMessage."
 
   [[zone.payloads]]
   dir           = "both"
@@ -889,11 +889,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 3
   sizechecktype = "none"
 
 [[zone]]
-id      = "6ee3"
+id      = "2207"
 name    = "OP_SpecialMesg"
 priority = 4
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4e60) - confirmed on our 07/29 capture: 6 fires, S>C 6  sizes=89:3,106:3. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed): NPC speech / hail responses, specialMessageStruct none. Present 8×(59/60B) in upperguk capture. Wired MessageShell::specialMessage."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 6ee3) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4e60) - confirmed on our 07/29 capture: 6 fires, S>C 6  sizes=89:3,106:3. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed): NPC speech / hail responses, specialMessageStruct none. Present 8×(59/60B) in upperguk capture. Wired MessageShell::specialMessage."
 
   [[zone.payloads]]
   dir           = "server"
@@ -901,11 +901,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4
   sizechecktype = "none"
 
 [[zone]]
-id      = "612d"
+id      = "ffff"
 name    = "OP_RandomReq"
 priority = 2
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 05b1) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/07 rotation (community f-patch id, wire-verified /random): stock randomReqStruct {u32 bottom, u32 top}, BUT both 8B and 9B forms on the wire (trailing byte optional) so none-gated. NOT wired yet — named for logs."
+comment = "UNMAPPED by the 08/04 rotation (was 612d); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 05b1) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/07 rotation (community f-patch id, wire-verified /random): stock randomReqStruct {u32 bottom, u32 top}, BUT both 8B and 9B forms on the wire (trailing byte optional) so none-gated. NOT wired yet — named for logs."
 
   [[zone.payloads]]
   dir           = "client"
@@ -913,11 +913,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0
   sizechecktype = "none"
 
 [[zone]]
-id      = "5d02"
+id      = "0c3c"
 name    = "OP_RandomReply"
 priority = 2
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 79a0) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/07 rotation (community f-patch id, wire-verified /random 1 100 = 63): stock randomStruct {u32 bottom, u32 top, u32 result, char name[64]} 76B exact. Match-gated. NOT wired yet — named for logs."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 5d02) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 79a0) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/07 rotation (community f-patch id, wire-verified /random 1 100 = 63): stock randomStruct {u32 bottom, u32 top, u32 result, char name[64]} 76B exact. Match-gated. NOT wired yet — named for logs."
 
   [[zone.payloads]]
   dir           = "server"
@@ -925,11 +925,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7
   sizechecktype = "match"
 
 [[zone]]
-id      = "3ed1"
+id      = "ffff"
 name    = "OP_ConsentResponse"
 priority = 3
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 492d) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Server replying with consent information after /consent"
+comment = "UNMAPPED by the 08/04 rotation (was 3ed1); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 492d) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Server replying with consent information after /consent"
 
   [[zone.payloads]]
   dir           = "server"
@@ -937,11 +937,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 4
   sizechecktype = "match"
 
 [[zone]]
-id      = "3a86"
+id      = "ffff"
 name    = "OP_DenyResponse"
 priority = 3
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 3991) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Server replying with deny information after /deny"
+comment = "UNMAPPED by the 08/04 rotation (was 3a86); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 3991) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Server replying with deny information after /deny"
 
   [[zone.payloads]]
   dir           = "server"
@@ -949,11 +949,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 3
   sizechecktype = "match"
 
 [[zone]]
-id      = "3b08"
+id      = "15fd"
 name    = "OP_ManaChange"
 priority = 5
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2b95) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Resource update after spell/ability use (S>C, 20b): {i32 curMana, i32 curEndurance, i32 spellOrAbilityId, u8[8]}. Fires once per cast or combat ability; spellId@8 cross-refs OP_CastSpell. field4 = current endurance, NOT max mana (legacy label wrong) — confirmed 2026-05-26 by cross-ref against OP_EndUpdate cur. EQ Legends id=0x2255, re-confirmed post-remap 2026-07-20 against 7/14+ captures ONLY: eql-fighting 467 fires all S>C all 20B, eqlegends-patch20260714 1 fire S>C 20B — byte-identical to manaDecrementStruct; lights up the already-wired Player::manaChange. Carries CURRENT mana only, NO max — the stat-sync wide form is the only max source. (Pre-remap id was 0x07c9, dead since the 2026-07-14 rotation; the 2026-07-08 value-match established the struct semantics, not this id.) See OPCODES_LEGENDS.md."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 3b08) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2b95) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Resource update after spell/ability use (S>C, 20b): {i32 curMana, i32 curEndurance, i32 spellOrAbilityId, u8[8]}. Fires once per cast or combat ability; spellId@8 cross-refs OP_CastSpell. field4 = current endurance, NOT max mana (legacy label wrong) — confirmed 2026-05-26 by cross-ref against OP_EndUpdate cur. EQ Legends id=0x2255, re-confirmed post-remap 2026-07-20 against 7/14+ captures ONLY: eql-fighting 467 fires all S>C all 20B, eqlegends-patch20260714 1 fire S>C 20B — byte-identical to manaDecrementStruct; lights up the already-wired Player::manaChange. Carries CURRENT mana only, NO max — the stat-sync wide form is the only max source. (Pre-remap id was 0x07c9, dead since the 2026-07-14 rotation; the 2026-07-08 value-match established the struct semantics, not this id.) See OPCODES_LEGENDS.md."
 
   [[zone.payloads]]
   dir           = "server"
@@ -1004,12 +1004,12 @@ comment = "MoneyOnCorpseCode"
   sizechecktype = "match"
 
 [[zone]]
-id      = "1ee1"
+id      = "18c7"
 name    = "OP_SkillUpdate"
 priority = 5
 priority_note = "prior id 0dc7 was the zone-in bulk dump (OOB crash); bounds guard kept"
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0462) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/14 id 0x3873 (adopted from legacy showeqlegends, capture-verified): stock skillIncStruct byte-perfect (12B: skillId u32, value i32, +4). Fires 108x S>C at 12B in the fight capture; sane skillIds (26/52/80/82) with values incrementing on skill-up (244->245, 239->240). Wired Player::increaseSkill."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 1ee1) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0462) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/14 id 0x3873 (adopted from legacy showeqlegends, capture-verified): stock skillIncStruct byte-perfect (12B: skillId u32, value i32, +4). Fires 108x S>C at 12B in the fight capture; sane skillIds (26/52/80/82) with values incrementing on skill-up (244->245, 239->240). Wired Player::increaseSkill."
 
   [[zone.payloads]]
   dir           = "server"
@@ -1017,12 +1017,12 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 0
   sizechecktype = "match"
 
 [[zone]]
-id      = "485a"
+id      = "4af5"
 name    = "OP_LevelUpdate"
 priority = 8
 priority_note = "confirmed 2026-07-28: 5 fires, levels 2..6 with levelOld always level-1, matching a 1->6 leveling capture"
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 70c6) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: S>C discrete level-up. 80B widened container whose HEAD is the stock levelUpUpdateStruct (u32 level@0, u32 levelOld@4, u32 exp@8); the rest is unmapped. Size check must be NONE — match would gate on sizeof(levelUpUpdateStruct) and drop every packet. Supersedes the earlier 'eql has no discrete level packet' finding."
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 485a) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 70c6) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: S>C discrete level-up. 80B widened container whose HEAD is the stock levelUpUpdateStruct (u32 level@0, u32 levelOld@4, u32 exp@8); the rest is unmapped. Size check must be NONE — match would gate on sizeof(levelUpUpdateStruct) and drop every packet. Supersedes the earlier 'eql has no discrete level packet' finding."
 
   [[zone.payloads]]
   dir           = "server"
@@ -1030,12 +1030,12 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 7
   sizechecktype = "none"
 
 [[zone]]
-id      = "01fb"
+id      = "05d0"
 name    = "OP_DzSwitchInfo"
 priority = -1
 priority_note = "deadOnLegends: superseded - Legends wire form is mapped and handled as OP_DzSwitchInfoEQL"
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2216) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Expedition compass etc"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 01fb) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2216) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Expedition compass etc"
 
   [[zone.payloads]]
   dir           = "server"
@@ -1177,12 +1177,12 @@ comment = "Movement history for speed/movement hack detection"
   sizechecktype = "none"
 
 [[zone]]
-id      = "30ce"
+id      = "49d4"
 name    = "OP_Logout"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 1160) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: "
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 30ce) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 1160) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: "
 priority = 3
 priority_note = "handler wired DIR_Client only"
-updated = "2026-08-02"
+updated = "2026-08-04"
 
   [[zone.payloads]]
   dir           = "server"
@@ -1227,11 +1227,11 @@ comment = "Modern group roster broadcast. Variable length (54-301b observed: 1-2
   sizechecktype = "none"
 
 [[zone]]
-id      = "56ef"
+id      = "3f8d"
 name    = "OP_GuildMemberList"
 priority = 3
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 6e10) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=4210:3. PRIOR: List of guild members - Variable length"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 56ef) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 6e10) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=4210:3. PRIOR: List of guild members - Variable length"
 
   [[zone.payloads]]
   dir           = "server"
@@ -1577,12 +1577,12 @@ comment = "List of available titles - 1520 bytes"
   sizechecktype = "none"
 
 [[zone]]
-id      = "486e"
+id      = "617c"
 name    = "OP_Animation"
 priority = 0
 priority_note = "noHandler"
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 652b) - confirmed on our 07/29 capture: 10 fires, S>C 10  sizes=4:10. PRIOR: EQ Legends spawn animation broadcast (S>C, 4B, n=354/718). Byte-identical to Live animationStruct: spawnId u16@0, action u8@2 (1-46), speed u8@3 (=10 across all 354). No handler wired (animation not surfaced) — id remapped so it resolves cleanly in opcode-stats. See OPCODES_LEGENDS.md"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 486e) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 652b) - confirmed on our 07/29 capture: 10 fires, S>C 10  sizes=4:10. PRIOR: EQ Legends spawn animation broadcast (S>C, 4B, n=354/718). Byte-identical to Live animationStruct: spawnId u16@0, action u8@2 (1-46), speed u8@3 (=10 across all 354). No handler wired (animation not surfaced) — id remapped so it resolves cleanly in opcode-stats. See OPCODES_LEGENDS.md"
 
   [[zone.payloads]]
   dir           = "both"
@@ -1616,12 +1616,12 @@ comment = "WhoAllOutputCode - Variable length"
   sizechecktype = "none"
 
 [[zone]]
-id      = "6426"
+id      = "ffff"
 name    = "OP_InspectRequest"
 priority = 0
 priority_note = "noHandler"
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 3fb1) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/09 EQL (community f-patch id, wire-verified): C>S 8B {u32 targetId, u32 selfId}. Identification-only, no consumer. Named for logs."
+comment = "UNMAPPED by the 08/04 rotation (was 6426); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 3fb1) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: 07/09 EQL (community f-patch id, wire-verified): C>S 8B {u32 targetId, u32 selfId}. Identification-only, no consumer. Named for logs."
 
   [[zone.payloads]]
   dir           = "client"
@@ -1967,11 +1967,11 @@ comment = "Listing of all guilds. Can be triggered by /lfg search?"
   sizechecktype = "none"
 
 [[zone]]
-id      = "6540"
+id      = "5279"
 name    = "OP_GuildsInZoneList"
 priority = 8
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 157b) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=140:1,153:1,99:1. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: yields real guild id/name pairs (leading player name, count, then {guild_id, server_id, cstring}). PRIOR: Listing of guild names present in the current zone.  Generally seen on zoning"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 6540) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 157b) - confirmed on our 07/29 capture: 3 fires, S>C 3  sizes=140:1,153:1,99:1. PRIOR: Re-mapped for the 07/28 rotation - decode-verified: yields real guild id/name pairs (leading player name, count, then {guild_id, server_id, cstring}). PRIOR: Listing of guild names present in the current zone.  Generally seen on zoning"
 
   [[zone.payloads]]
   dir           = "server"
@@ -1979,11 +1979,11 @@ comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 1
   sizechecktype = "none"
 
 [[zone]]
-id      = "4c75"
+id      = "10a8"
 name    = "OP_NewGuildInZone"
 priority = 8
-updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 63a5) - confirmed on our 07/29 capture: 29 fires, S>C 29  sizes=26:4,28:4,15:4,17:4,18:4,24:3,…. PRIOR: Re-mapped for the 07/28 rotation - cross-referenced: every payload names a guild already known from the confirmed OP_GuildsInZoneList. PRIOR: An additional guild name has appeared in the current zone. Seen when a guilded player enters the current zone"
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 4c75) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 63a5) - confirmed on our 07/29 capture: 29 fires, S>C 29  sizes=26:4,28:4,15:4,17:4,18:4,24:3,…. PRIOR: Re-mapped for the 07/28 rotation - cross-referenced: every payload names a guild already known from the confirmed OP_GuildsInZoneList. PRIOR: An additional guild name has appeared in the current zone. Seen when a guilded player enters the current zone"
 
   [[zone.payloads]]
   dir           = "server"
@@ -2158,12 +2158,12 @@ comment = "Free to play nags and other data - Variable length"
   sizechecktype = "none"
 
 [[zone]]
-id      = "0ad1"
+id      = "ffff"
 name    = "OP_Find"
 priority = 0
 priority_note = "noHandler"
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 767d) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Find window data - variable length, 24 min"
+comment = "UNMAPPED by the 08/04 rotation (was 0ad1); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 767d) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Find window data - variable length, 24 min"
 
   [[zone.payloads]]
   dir           = "server"
@@ -2263,11 +2263,11 @@ priority_note = "noHandler"
 updated = "2011-04-18"
 
 [[zone]]
-id      = "43f1"
+id      = "ffff"
 name    = "OP_SendAATable"
 priority = 5
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2a24) - confirmed on our 07/29 capture: 303 fires, S>C 303  sizes=154:195,130:60,178:21,250:9,226:9,322:6,…. PRIOR: Static AA ability-definition burst sent S>C on zone-in — ONE record per packet (fires once per AA rank; ~1008x in the fight capture across resends). Variable-length 130..346B = a 37B fixed head (matches Live aaInfoStruct: descID@0, titleSID@13, cost@25, aaID@29, rank@33) + a variable prereq/effect tail. EqlDispatch::sendAATable reads descID@0 + titleSID@13; titleSID -> dbstr_us.txt type-1 = the AA display name. See eqldispatch.cpp / OPCODES_LEGENDS.md."
+comment = "UNMAPPED by the 08/04 rotation (was 43f1); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 2a24) - confirmed on our 07/29 capture: 303 fires, S>C 303  sizes=154:195,130:60,178:21,250:9,226:9,322:6,…. PRIOR: Static AA ability-definition burst sent S>C on zone-in — ONE record per packet (fires once per AA rank; ~1008x in the fight capture across resends). Variable-length 130..346B = a 37B fixed head (matches Live aaInfoStruct: descID@0, titleSID@13, cost@25, aaID@29, rank@33) + a variable prereq/effect tail. EqlDispatch::sendAATable reads descID@0 + titleSID@13; titleSID -> dbstr_us.txt type-1 = the AA display name. See eqldispatch.cpp / OPCODES_LEGENDS.md."
 
   [[zone.payloads]]
   dir           = "server"
@@ -2732,12 +2732,12 @@ updated = "2026-05-25"
 comment = "Server response to OP_AAAction; carries 12B records (ability_id, rank, _) for player's full AA list incl. auto-grants and purchased ranks"
 
 [[zone]]
-id      = "1368"
+id      = "ffff"
 name    = "OP_HideCorpse"
 priority = 0
 priority_note = "noHandler"
 updated = "2026-08-02"
-comment = "Re-mapped for the 07/29 rotation from upstream legends b769446 (was 6ec9) - confirmed on our 07/29 capture: 3 fires, C>S 3  sizes=8:3. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed): C>S 4B corpse-hide toggle. Present 18×4B C>S in upperguk capture. Identification-only, no consumer. Named for logs."
+comment = "UNMAPPED by the 08/04 rotation (was 1368); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 6ec9) - confirmed on our 07/29 capture: 3 fires, C>S 3  sizes=8:3. PRIOR: 07/07 rotation (community f-patch id, daemon-confirmed): C>S 4B corpse-hide toggle. Present 18×4B C>S in upperguk capture. Identification-only, no consumer. Named for logs."
 
   [[zone.payloads]]
   dir           = "client"
@@ -2852,10 +2852,11 @@ updated = "2026-07-16"
 comment = "STALE post-07/28: id f22b carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: Secondary chat / account / commerce service catalog. Live: 1464b S>C in handshake band (3/3 confirmations); ~18 plaintext Daybreak service URLs."
 
 [[world]]
-id      = "5171"
+id      = "5718"
 name    = "OP_ZoneServerInfo"
-updated = "2026-07-29"
-comment = "Re-mapped for the 07/29 rotation (was 4b8f) - 130b S>C world, zone server hostname as a leading string, structure byte-identical to the prior mapping. PRIOR: Re-mapped for the 07/28 rotation - carries the zone server hostname as a leading string, once per zone-in. PRIOR: Zone server connection info. Live: 130b S>C, fires on world->zone handoff (zone server hostname + port). 2/2 confirmations."
+priority = 10
+updated = "2026-08-04"
+comment = "Re-mapped for the 08/04 rotation - HUNTED, upstream did not re-derive it (their whole world table is still dated 07/07-07/14/26; OP_ZoneServerInfo sat at the dead 0861). Confirmed by content: the 3 world-stream fires decode to lvseqns-livz10/livz09.everquestlegends.com with ports 2966/2779/1761 - exactly the three ports the daemon's own BoxRegistry fallback reported having to guess ('no box announced port N'), in order. PRIOR: UNMAPPED by the 08/04 rotation (was 5171); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation (was 4b8f) - 130b S>C world, zone server hostname as a leading string, structure byte-identical to the prior mapping. PRIOR: Re-mapped for the 07/28 rotation - carries the zone server hostname as a leading string, once per zone-in. PRIOR: Zone server connection info. Live: 130b S>C, fires on world->zone handoff (zone server hostname + port). 2/2 confirmations."
 
   [[world.payloads]]
   dir           = "server"
