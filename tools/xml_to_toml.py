@@ -65,10 +65,20 @@ def parse_xml(path: Path) -> list[dict]:
             "id":   opcode.get("id", "ffff"),
             "name": opcode.get("name", ""),
         }
+        # priority/priorityNote is the patch-day hunt ladder. toml_to_xml.py
+        # emits it, so dropping it here made the round-trip lossy in one
+        # direction: regenerating the TOML from an XML would silently erase the
+        # ordering the next rotation is hunted by.
+        if (pri := opcode.get("priority")) is not None:
+            entry["priority"] = int(pri)
         if (upd := opcode.get("updated")):
             entry["updated"] = date_iso(upd)
         if (impl := opcode.get("implicitlen")):
             entry["implicitlen"] = impl
+
+        note_el = opcode.find("priorityNote")
+        if note_el is not None and note_el.text and note_el.text.strip():
+            entry["priority_note"] = note_el.text.strip()
 
         comment_el = opcode.find("comment")
         if comment_el is not None and comment_el.text and comment_el.text.strip():
@@ -92,6 +102,10 @@ def emit_section(section_name: str, opcodes: list[dict], lines: list[str]) -> No
         lines.append(f"[[{section_name}]]")
         lines.append(f"id      = {toml_str(op['id'])}")
         lines.append(f"name    = {toml_str(op['name'])}")
+        if "priority" in op:
+            lines.append(f"priority = {op['priority']}")
+        if "priority_note" in op:
+            lines.append(f"priority_note = {toml_str(op['priority_note'])}")
         if "updated" in op:
             lines.append(f"updated = {toml_str(op['updated'])}")
         if "implicitlen" in op:

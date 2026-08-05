@@ -384,9 +384,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_NpcMoveUpdate", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(ms.spawnShell, &SpawnShell::npcMoveUpdate));
-    // EQ Legends OP_ClientUpdate (0x5188) S>C, 24B: the position broadcast for
-    // OTHER spawns. eql's playerSpawnPosStruct is now 24B (was 28B pre-07/14; 19-bit ×8 packed, coord in
-    // the LOW bits) vs Live's 24B, so it's size-gated via the backend size table
+    // EQ Legends OP_ClientUpdate S>C, 24B: the position broadcast for
+    // OTHER spawns. eql's playerSpawnPosStruct is 24B as of the 08/04 rotation
+    // (was 28B on 07/29; 19-bit ×8 packed, x/y in the LOW bits of @4/@16 and z
+    // in the HIGH bits of @12), so it's size-gated via the backend size table
     // (struct_size_overrides declares 24 = PAYLOAD_LEN)— SZC_Match with the real struct name,
     // no uint8_t placeholder. Decoded by eql's own parse_player_spawn_pos (24B)
     // → EqlDispatch → the neutral SpawnShell::moveSpawn, the same primitive
