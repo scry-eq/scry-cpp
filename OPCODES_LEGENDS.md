@@ -137,11 +137,43 @@ t+29s   S  OP_ClickObject  12B x2  server confirms the removal
 Both ends surface: `spawn_added id:588 type:DROP` then `spawn_removed id:588`.
 The C>S side is 12B, not the 16B the wiring comment claimed — corrected.
 
-Note drops render as **`"Drop: Generic"`**: the item's real name is never on this
-wire. `OP_GroundSpawn` carries the 3D model actor-def (`IT63_ACTORDEF`) in
-`idFile`, and `name` is left empty. Resolving the true item name needs the
-`itemId` field correlated against `OP_ItemPacket`. Cheap interim win: surface the
-actorDef instead of `Generic`.
+### Drops render as `"Drop: Generic"` — and resolving the real name is BLOCKED
+
+`OP_GroundSpawn` carries the 3D model actor-def (`IT63_ACTORDEF`) in `idFile`
+and leaves `name` empty, so every ground item renders as `"Drop: Generic"`.
+
+An earlier revision of this section claimed the fix was "correlate the `itemId`
+field against `OP_ItemPacket`". **That is wrong — investigated 2026-08-07 on a
+purpose-made drop/pickup capture and there is no usable join key.** Recorded so
+nobody re-walks it:
+
+Item names ARE on the wire — 402 item-def records, 315 distinct names, ~1195B
+each with the name stored twice (offset 988 in the sample), and the dropped
+item's own def is present. Every candidate link to the ground spawn fails:
+
+| candidate | result |
+|---|---|
+| `OP_GroundSpawn.itemId` | reads `0xFFFFFFFF` on BOTH observed drops — no item id on the wire |
+| `fieldA` (38), `fieldC` (4500), `dropId` (587/588) | zero u32 occurrences anywhere in the item-def record |
+| model string `IT63_ACTORDEF` | item defs contain NO `IT*_ACTORDEF` string at all |
+| temporal adjacency | defs arrive ~21% into the capture, the drop at ~90% — they are a zone-in inventory sync, not per-drop |
+
+The only id-shaped field in an item def is a 16-char code (`iGS000e0003e3W00`,
+140 distinct), which looks like an item-link serial.
+
+Also note the item-def records do NOT surface as any decoded opcode: they are
+fragments matching no app packet the daemon emits, and `OP_ItemPacket` is
+`ffff`/priority -1 in both our table and upstream's. So the work is three stacked
+unknowns — hunt the opcode, derive the record layout, THEN find a join key that
+may not exist — not a wiring job.
+
+Do not attempt it from a single-drop capture. It needs one that drops and
+retrieves SEVERAL distinct items, so a join key can be found rather than guessed
+from n=1.
+
+Surfacing the actorDef instead of `Generic` was considered and **rejected**
+(user, 2026-08-07): `IT63_ACTORDEF` is opaque to a player, so it is no more
+useful than `Generic`.
 
 ### ⚠ OP_ZoneEntry positions were WRONG — half of every zone sat at x = 0
 
