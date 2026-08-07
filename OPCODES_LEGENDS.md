@@ -32,6 +32,101 @@ Server topology (Daybreak netblock `69.174.201.x`): login `:15900`, world
   class-data blocks — don't assume the single-`class_` layout of Live
   `charProfileStruct`. Watch for triplicated class/level fields.
 
+## ⚠ PATCHED 2026-08-05 — SIXTH rotation (a "mini patch" that rotated everything)
+
+A mini patch on 08/05 rotated the **entire** table again, one day after the
+08/04 rotation. Measured against an 08/06 capture (Rathe Mountains → Toxxulia →
+Paineel → Toxxulia, 4 zone-ins, targets, cons, and a rock-click):
+
+| map | mapped ids | fire in the 08/06 capture |
+|---|---|---|
+| ours (08/04) | 54 | **0** |
+| upstream's new | 90 | 34 scoped, far more unscoped |
+
+Ported from upstream `9854199`, then validated. **46 known, 0 unbound handlers,
+0 gate warnings.**
+
+### The `updated`-date filter did NOT apply this time
+
+The 08/04 rotation taught "filter upstream's rows on `updated`". That rule is
+**inapplicable here and would have been actively misleading**: upstream labelled
+every row of the new map `08/04/26` even though it describes the 08/05 wire, and
+exactly one mapped row carries an older date (a `?` placeholder, zero fires).
+They rewrote the table wholesale rather than partially, so the correct
+discriminator this rotation is **"does the id fire in a current capture"**.
+
+Generalised rule: the date tells you what upstream *touched*, never what the
+*wire* is. Check dates when they ship a partial rotation; check fires always.
+
+### Struct: `playerSelfPosStruct` rearranged AGAIN (still 42B)
+
+Second consecutive patch to rearrange this body while keeping its size, so no
+size gate can ever catch it — only a range check against the `OP_SelfPos`
+breadcrumb will. New layout **x@10, y@18, z@22, heading@38** (08/04 was
+y@18/z@30/x@38/heading@22).
+
+Pinned the same way as before: over 1054 self-reports vs 22350 breadcrumb
+records the ranges match essentially exactly — @10 [-547.8, 488.0] vs the
+breadcrumb's [-547.8, 488.0], @18 [-2627.3, 1152.4] vs [-2627.3, 1152.6], @22
+[-67.6, 15.5] vs [-67.8, 15.6]. A captured self-report decodes to **0.0000
+units** from a breadcrumb point. Heading is 11-bit at @38, scoring **0.64°**
+against travel bearing over 469 legs (inverted: 71.19°). The packed structs
+(`spawnStruct` position union, `playerSpawnPosStruct`) were untouched.
+
+Upstream still declares the struct 44B; the wire is 42B (1054 C>S bodies, none
+at 44), so `PAYLOAD_LEN` stays 42 — same call as 08/04.
+
+### ✅ OP_ClickDoor `581b` — an opcode inherited as DEAD that eql actually uses
+
+Hunted from a user report ("clicked a rock to unlock a door, got rejected, 3
+times"). `OP_ClickObject 3a21` fires **zero** times, because a rock that opens a
+door is a **door**, not a ground object.
+
+`OP_ClickDoor` sat at `id="ffff" priority="-1"` — *dead / never-hunt* — inherited
+from the Live catalog, and upstream still carries it dead. It is live on eql:
+
+```
+OP_ClickDoor = 0x581b   16B C>S
+  @0  u32  clicker spawn id      12671  (the client's own twin id)
+  @4  u32  held item id      0xFFFFFFFF  ("nothing held")
+  @8  u32  unknown                    0
+  @12 u32  door id                  246
+```
+
+Four fires, byte-identical, each **0 ms before** an `OP_SimpleMessage` carrying
+eqstr **130** *"It's locked and you're not holding the key."* — the
+`0xFFFFFFFF` held-item sentinel is precisely what the server rejected. Door id
+246 resolves in the `OP_SpawnDoor` list (`doorStruct` @80, 241 distinct ids
+across 376 records) to **`PAROCK103`** — a rock in Paineel, matching where the
+click happened. `12671` is carried by 144 self-position reports, confirming @0
+is the player.
+
+**Lesson: `priority = -1` means "upstream sees no handler for it", not "this
+server does not send it."** The ladder is a triage inheritance from Live and can
+be wrong per-backend. When a user reports an in-game action that produces no
+decoded event, check the p-1 shelf before concluding the opcode is unmapped.
+
+Note the message text is **not** in the payload — it is an eqstr format id
+resolved client-side, so grepping payloads for the string finds nothing. Search
+`eqstr_us.txt` for the text, then hunt its id as a u32.
+
+### Newly available from upstream this rotation
+
+`OP_SendAATable 2fc4` (456 fires — we had it `ffff`; their `68c4 -> 2fc4` fix is
+correct), the pet suite (`OP_PetBuffList 64ae` fires 7×; `PetCommands`/
+`PetButtons`/`PetTarget` mapped id-only, zero fires), and their
+`OP_FormattedMessage` stock-layout revert. `OP_LiteralMessageEQL 0e6f` is
+upstream's rename of `OP_LootMessageEQL` (generalised from loot-only to any
+color-routed literal message); mapped onto our existing `OP_LootMessage` entry
+for now — adopting the neutral rename + color routing is a follow-up.
+
+### Still open
+
+- `OP_ClickObject 3a21` — still zero fires (a rock is a door; a true ground-object
+  click has not been captured).
+- `OP_BuffList 1aef` — zero fires this capture.
+- The pet trio beyond `PetBuffList` — needs a session with a pet.
+
 ## ⚠ PATCHED 2026-08-04 — FIFTH full opcode rotation; p10 + p9 CLOSED
 
 Fifth full rotation (07/07, 07/14, 07/28, 07/29, 08/04). Against a same-day
