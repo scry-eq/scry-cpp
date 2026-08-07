@@ -31,8 +31,6 @@
 
 #include <vector>
 
-#include "seqcolor.h"
-
 #include "everquest.h"
 #include "spawn.h"
 
@@ -40,23 +38,6 @@
 // forward declarations
 class GuildMgr;
 class ZoneMgr;
-
-//----------------------------------------------------------------------
-// constants
-const int maxSpawnLevel = 255;
-
-enum ColorLevel
-{
-  tGraySpawn = 0,
-  tGreenSpawn = 1,
-  tCyanSpawn = 2,
-  tBlueSpawn = 3,
-  tEvenSpawn = 4,
-  tYellowSpawn = 5,
-  tRedSpawn = 6,
-  tUnknownSpawn = 7,
-  tMaxColorLevels = 8
-};
 
 //----------------------------------------------------------------------
 // Player
@@ -227,10 +208,6 @@ public:
    uint32_t getEnduranceCur() const { return m_enduranceCur; }
    uint32_t getEnduranceMax() const { return m_enduranceMax; }
    
-   const SeqColor& conColorBase(ColorLevel level);
-   void setConColorBase(ColorLevel level, const SeqColor& color);
-   const SeqColor& pickConColor(int otherSpawnLevel) const;
-
 
    bool getStatValue(uint8_t stat,
 		     uint32_t& curValue,
@@ -329,9 +306,6 @@ public:
   void guildChanged();
   void playerUpdate(const uint8_t* data, size_t len, uint8_t dir);
 
- protected:
-  void fillConTable();
-
  private:
   ZoneMgr* m_zoneMgr;
   GuildMgr* m_guildMgr;
@@ -391,12 +365,6 @@ public:
   
   uint32_t m_spellBookSlots[MAX_SPELLBOOK_SLOTS];
   
-  // con color bases
-  SeqColor m_conColorBases[tMaxColorLevels];
-  
-  // con color table
-  SeqColor m_conTable[maxSpawnLevel];
-  
   // last spawn this player killed
   QString m_lastSpawnKilledName;
   int m_lastSpawnKilledLevel;
@@ -423,11 +391,5 @@ public:
   bool m_validAttributes;
   bool m_validPos;
 };
-
-inline
-const SeqColor& Player::pickConColor(int otherSpawnLevel) const
-{
-  return m_conTable[otherSpawnLevel];
-}
 
 #endif	// EQPLAYER_H

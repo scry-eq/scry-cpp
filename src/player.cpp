@@ -48,18 +48,6 @@
 static const char magicStr[5] = "plr3"; // magic is the size of uint32_t + a null
 static const uint32_t* magic = (uint32_t*)magicStr;
 
-static const char* conColorBasePrefNames[] =
-{
-  "GrayBase",
-  "GreenBase",
-  "CyanBase",
-  "BlueBase",
-  "Even",
-  "YellowBase",
-  "RedBase",
-  "Unknown"
-};
-
 
 Player::Player (QObject* parent,
 		ZoneMgr* zoneMgr,
@@ -95,39 +83,6 @@ Player::Player (QObject* parent,
   // set the name to the default name
   Spawn::setName(m_defaultName);
 
-  m_conColorBases[tGraySpawn] = 
-    pSEQPrefs->getPrefColor(conColorBasePrefNames[tGraySpawn],
-			    "Player",
-			    SeqColor(140, 140, 140));
-  m_conColorBases[tGreenSpawn] = 
-    pSEQPrefs->getPrefColor(conColorBasePrefNames[tGreenSpawn],
-			    "Player",
-			    SeqColor(0, 95, 0));
-  m_conColorBases[tCyanSpawn] = 
-    pSEQPrefs->getPrefColor(conColorBasePrefNames[tCyanSpawn],
-			    "Player",
-			    SeqColor(0, 255, 255));
-  m_conColorBases[tBlueSpawn] = 
-    pSEQPrefs->getPrefColor(conColorBasePrefNames[tBlueSpawn],
-			    "Player",
-			    SeqColor(0, 0, 160));
-  m_conColorBases[tEvenSpawn] = 
-    pSEQPrefs->getPrefColor(conColorBasePrefNames[tEvenSpawn],
-			    "Player",
-			    SeqColor(255, 255, 255));
-  m_conColorBases[tYellowSpawn] = 
-    pSEQPrefs->getPrefColor(conColorBasePrefNames[tYellowSpawn],
-			    "Player",
-			    SeqColor(255, 255, 0));
-  m_conColorBases[tRedSpawn] = 
-    pSEQPrefs->getPrefColor(conColorBasePrefNames[tRedSpawn],
-			    "Player",
-			    SeqColor(127, 0, 0));
-  m_conColorBases[tUnknownSpawn] =
-    pSEQPrefs->getPrefColor(conColorBasePrefNames[tUnknownSpawn],
-			    "Player",
-			    SeqColor(160, 160, 164));
-						 
   // restore the player state if the user requested it...
   if (showeq_params->restorePlayerState)
     restorePlayerState();
@@ -218,9 +173,6 @@ void Player::reset()
   m_validExp = false;
   m_validAttributes = false;
 
-  // update the con table
-  fillConTable();
-
   updateLastChanged();
 }
 
@@ -239,7 +191,6 @@ void Player::setUseAutoDetectedSettings(bool enable)
 {
   m_useAutoDetectedSettings = enable;
   pSEQPrefs->setPrefBool("useAutoDetectedSettings", "Defaults", enable);
-  fillConTable();
 }
 
 void Player::setDefaultName(const QString& name)
@@ -258,8 +209,6 @@ void Player::setDefaultLevel(uint8_t level)
 {
   m_defaultLevel = level;
   pSEQPrefs->setPrefInt("DefaultLevel", "Defaults", level);
-  if (!m_useAutoDetectedSettings || m_useDefaults)
-    fillConTable();
 }
 
 void Player::setDefaultRace(uint16_t race)
@@ -296,8 +245,6 @@ void Player::loadProfile(const playerProfileStruct& player)
   // the first such packet, and the encoder displays "—" in the meantime.
   setLevel(player.level);
 
-  // Update con table
-  fillConTable();
   emit levelChanged(level());
 
   // Reset to the profile's base stats. wearItem() accumulates equipment
@@ -848,9 +795,6 @@ void Player::updateLevel(const uint8_t* data)
 
   emit expChangedInt( m_currentExp, m_minExp, m_maxExp);
 
-  // update the con table
-  fillConTable();
-
   if (showeq_params->savePlayerState)
     savePlayerState();
 
@@ -871,9 +815,6 @@ void Player::applyLevel(uint8_t newLevel)
     return;
 
   m_level = newLevel;
-
-  // update the con table
-  fillConTable();
 
   updateLastChanged();
 
@@ -1393,184 +1334,6 @@ bool Player::getStatValue(uint8_t stat,
 }
 
 
-const SeqColor& Player::conColorBase(ColorLevel level)
-{
-  static const SeqColor invalidColor;
-
-  // only retrieve valid color levels
-  if (level < tMaxColorLevels)
-    return m_conColorBases[level];
-  else
-    return invalidColor;
-}
-
-void Player::setConColorBase(ColorLevel level, const SeqColor& color)
-{
-  // only set valid color levels
-  if (level >= tMaxColorLevels)
-    return;
-
-  // note the new color base
-  m_conColorBases[level] = color;
-
-  // set the color in the preferences
-  pSEQPrefs->setPrefColor(conColorBasePrefNames[level], "Player", color);
-
-  // refill the con table
-  fillConTable();
-}
-
-void Player::fillConTable()
-{
-  int grayRange = 0;
-  int greenRange = 0; 
-
-  if (level() < 15) // BSH - new code due to low levels being way off
-  { // 1-14
-    grayRange = -6;
-    greenRange = -14;
-  }
-//  if (level() < 9)
-//  { // 1 - 8
-//    grayRange = -4;
-//    greenRange = -8;
-//  }
-//  else if (level() < 13)
-//  { // 9 - 12
-//    grayRange = -6;
-//    greenRange = -4;
-//  }
-  else if (level() < 17)
-  { // 13-16
-    grayRange = -7;
-    greenRange = -5;
-  }
-  else if (level() < 21) 
-  { // 17-20 
-    grayRange = -8;
-    greenRange = -6;
-  }
-  else if (level() < 25) 
-  { // 21-24
-    grayRange = -9;
-    greenRange = -7;
-  }
-  else if (level() < 29)
-  { // 25-28
-    grayRange = -10;
-    greenRange = -8;
-  }
-  else if (level() < 33) 
-  { // 29-32
-    grayRange = -11;
-    greenRange = -9;
-  }
-  else if (level() < 37) 
-  { // 33-36
-    grayRange = -13;
-    greenRange = -10;
-  }
-  else if (level() < 41)
-  { // 37 - 40
-  	grayRange = -14;
-	greenRange = -11;
-  }
-  else if (level() < 45)
-  { // 41 - 44
-  	grayRange = -16;
-	greenRange = -12;
-  }
-  else if (level() < 49) 
-  { // 45 - 48
-    grayRange = -17;
-    greenRange = -13;
-  }
-  else if (level() < 53) 
-  { // 49 - 52
-    grayRange = -18;
-    greenRange = -14;
-  }
-  else if (level() < 57) 
-  { // 53 - 56
-    grayRange = -20;
-    greenRange = -15;
-  }
-  else
-  { // 57+
-    grayRange = -21;
-    greenRange = -16;
-  }
-
-  uint8_t spawnLevel = 1; 
-
-  // Gray spawns. No gradient.
-  for (; spawnLevel <= grayRange + level(); spawnLevel++)
-  {
-    m_conTable[spawnLevel] = m_conColorBases[tGraySpawn];
-  }
-
-  // Green spawns. No gradient since green is small.
-  for (; spawnLevel <= greenRange + level(); spawnLevel++)
-  {
-    m_conTable[spawnLevel] = m_conColorBases[tGreenSpawn];
-  }
-
-  // Light blue spawns. Again, no gradient. Light blue is 
-  // blue, but under 5 levels below, so for levels where there is
-  // no light blue, this is negative.
-  for (; spawnLevel < level() - 5; spawnLevel++)
-  {
-    m_conTable[spawnLevel] = m_conColorBases[tCyanSpawn];
-  }
-
-  // Blue spawns. Just 5 levels in here. So again, no gradient.
-  for (; spawnLevel < level(); spawnLevel++)
-  {
-    m_conTable[spawnLevel] = m_conColorBases[tBlueSpawn];
-  }
-
-  // Even is our level, natch.
-  m_conTable[spawnLevel++] = m_conColorBases[tEvenSpawn];
-
-  // 3 levels of yellow.
-  for (; spawnLevel < level() + 4; spawnLevel++)
-  {
-    m_conTable[spawnLevel] = m_conColorBases[tYellowSpawn];
-  }
-  
-  // Finally, red spawns. Gradient this light to dark. 4 chunks then
-  // we just go dark.
-  uint8_t redBase = m_conColorBases[tRedSpawn].r;
-  uint8_t redStep = 25;
-
-  // See if redBase is closer to light to choose whether we're going up
-  // or down.
-  if (redBase > 155)
-  {
-    redStep = - redStep;
-  }
-  uint8_t redColor = redBase + redStep*4;
-
-  for (; spawnLevel < level() + 8; spawnLevel++)
-  {
-      m_conTable[spawnLevel] = SeqColor(redColor,
-				 m_conColorBases[tRedSpawn].g,
-				 m_conColorBases[tRedSpawn].b);
-
-      redColor -= redStep;
-  }
-
-  for (; spawnLevel < maxSpawnLevel; spawnLevel++)
-  {
-      m_conTable[spawnLevel] = SeqColor(redColor,
-				 m_conColorBases[tRedSpawn].g,
-				 m_conColorBases[tRedSpawn].b);
-  }
-
-  // level 0 is unknown, and thus gray
-  m_conTable[0] = m_conColorBases[tUnknownSpawn];
-}
-
 QString Player::name() const
 {
   return (!m_useAutoDetectedSettings || m_useDefaults ?
@@ -1816,9 +1579,6 @@ void Player::restorePlayerState(void)
       m_useDefaults = true;
     else 
       m_useDefaults = false;
-
-    // now fill out the con table
-    fillConTable();
 
     seqInfo("Restored PLAYER: %s (%s)!",
             m_name.toLatin1().data(),
