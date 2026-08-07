@@ -70,7 +70,30 @@ jobs:
           printf '1^Test%s\n' "$(printf '^0%.0s' {1..60})" > conf/spells_us.txt
           printf '1\n0\n' > conf/eqstr_us.txt
           touch /tmp/empty.vpk
-          ./build/showeq-daemon --replay /tmp/empty.vpk --no-listen --config-dir conf --strict-gate-sizes
+          set -o pipefail
+          ./build/showeq-daemon --replay /tmp/empty.vpk --no-listen --config-dir conf \
+              --strict-gate-sizes 2>&1 | tee /tmp/smoke.log
+
+          # A payload typename in the opcode table that no handler registers
+          # (or vice versa) does NOT fail the run on its own. dispatchFor logs
+          #   opcode 'OP_X' has NO payload matching dir N typename 'Y' szt Z
+          #   — handler NOT bound
+          # and the daemon carries on, decoding nothing for that opcode ever
+          # again. It's a seqWarn, and --strict-gate-sizes covers a DIFFERENT
+          # failure (a mapped SZC_Match opcode inheriting a Live sizeof), so
+          # nothing here caught it. Wiring happens at startup, so the replay
+          # above has already exercised every bind — just fail on the warning.
+          #
+          # This has shipped before: the eql guild-in-zone and Live guild-MOTD
+          # wirings both bound nothing for a while, and upstream's legends fork
+          # shipped the same class of bug in 6.4.25.1 (their fix: a static
+          # map-vs-connect2 validator; ours is cheaper because the daemon
+          # already reports it).
+          if grep -q 'NOT bound' /tmp/smoke.log; then
+            echo "::error::opcode/handler wiring mismatch — a payload typename in the opcode table matches no registered handler"
+            grep 'NOT bound' /tmp/smoke.log
+            exit 1
+          fi
 
   # The `build` job above builds the default target (live, SEQ_TARGET unset).
   # This job configures + builds the OTHER backends so a break in the test/eql
@@ -119,4 +142,17 @@ jobs:
           printf '1^Test%s\n' "$(printf '^0%.0s' {1..60})" > conf/spells_us.txt
           printf '1\n0\n' > conf/eqstr_us.txt
           touch /tmp/empty.vpk
-          ./build/showeq-daemon --replay /tmp/empty.vpk --no-listen --config-dir conf --strict-gate-sizes
+          set -o pipefail
+          ./build/showeq-daemon --replay /tmp/empty.vpk --no-listen --config-dir conf \
+              --strict-gate-sizes 2>&1 | tee /tmp/smoke.log
+
+          # Same unbound-handler guard as the live job's smoke step (see there
+          # for why --strict-gate-sizes cannot see this). It matters more here:
+          # test/eql carry their own conf/<target>/opcodes.toml, and an eql
+          # patch-day re-map is exactly when a payload typename drifts out of
+          # step with wire_eql.cpp.
+          if grep -q 'NOT bound' /tmp/smoke.log; then
+            echo "::error::opcode/handler wiring mismatch for SEQ_TARGET=${{ matrix.seq_target }}"
+            grep 'NOT bound' /tmp/smoke.log
+            exit 1
+          fi
