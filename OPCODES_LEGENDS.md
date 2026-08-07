@@ -110,6 +110,86 @@ Note the message text is **not** in the payload — it is an eqstr format id
 resolved client-side, so grepping payloads for the string finds nothing. Search
 `eqstr_us.txt` for the text, then hunt its id as a u32.
 
+### ✅ OP_ClickObject `3a21` — confirmed, and it is the GROUND-ITEM click
+
+Validated on a purpose-made drop/pickup capture. `OP_ClickObject` is the
+ground-item click; `OP_ClickDoor` is the door/switch click. They are different
+opcodes for different things, which is why the rock-click capture showed
+`3a21` at zero fires.
+
+```
+OP_ClickObject = 0x3a21   12B, BOTH directions
+  @0  u32  drop id            588
+  @4  u32  clicker spawn id  3488   (the player; 102 self-reports carry it)
+  @8  u32  unknown              0
+```
+
+The whole cycle decodes, and the timeline reads cleanly:
+
+```
+t+0s    S  OP_GroundSpawn  62B   pre-existing ground item (drop 587)
+t+27s   C  OP_GroundSpawn   0B   the DROP request (zero-length)
+t+27s   S  OP_GroundSpawn  62B   server announces drop 588
+t+29s   C  OP_ClickObject  12B   the PICKUP request for drop 588
+t+29s   S  OP_ClickObject  12B x2  server confirms the removal
+```
+
+Both ends surface: `spawn_added id:588 type:DROP` then `spawn_removed id:588`.
+The C>S side is 12B, not the 16B the wiring comment claimed — corrected.
+
+Note drops render as **`"Drop: Generic"`**: the item's real name is never on this
+wire. `OP_GroundSpawn` carries the 3D model actor-def (`IT63_ACTORDEF`) in
+`idFile`, and `name` is left empty. Resolving the true item name needs the
+`itemId` field correlated against `OP_ItemPacket`. Cheap interim win: surface the
+actorDef instead of `Generic`.
+
+### ⚠ OP_ZoneEntry positions were WRONG — half of every zone sat at x = 0
+
+Found from a user report that the map drew "a line on the x axis at 0". Measured
+on the 08/06 golden: **975 of 1922 spawns had x = 0**, x took only 312 distinct
+values against y's 630 and z's 1216, and x saturated at ±32767.
+
+Root cause: the parser read the coordinates as the **first three consecutive
+words** (Z, X, Y, all low-19). That is not the block's shape. Word 1 is a PAD —
+zero in 479 of 952 id-paired records — so `x` was reading the pad.
+
+This is what upstream's struct was for, and reading it earlier would have
+short-circuited the whole hunt. `posData[5]` gives the shape, and the consumer
+`spawn.cpp: setPos(s->y >> 3, s->x >> 3, s->z >> 3)` gives the EQL transpose —
+their `y` field is world X, their `x` field is world Y. **Both halves or
+neither**: their struct alone transposes the map, their call site alone misses
+that Z lives in the high bits.
+
+Word roles pinned by scoring every (word, half) against the untouched
+`OP_MobUpdate` stream over 952 id-paired records — median error, best vs
+runner-up:
+
+| axis | word | median err | runner-up |
+|---|---|---|---|
+| X | w0 low-19 | 161 | 554 |
+| Y | w3 low-19 | 182 | 1441 |
+| Z | w4 **high**-19 | **9** | 43 |
+
+X/Y carry more error than Z because ZoneEntry reports the *spawn-time* position
+while MobUpdate reports the *current* one — mobs walk, terrain does not. Z's
+9-unit median is what confirms the alignment.
+
+Result: x zeros **975 → 5** of 1922, x distinct **312 → 1318**, and the ±32767
+saturation is gone. The new x range (−2653..3304) equals the OLD z range, which
+is the signature of the old read shifting X into z's slot.
+
+Upstream labels w4 `heading:12 | padding00:20`, but 12 + 1 + 19 = 32 and Z
+measurably lives in that "padding" — so their Z word index is off by two while
+their X/Y ones are right. Heading is still not recoverable: no word at 11- or
+12-bit width beats noise against MobUpdate's facing, so it stays zeroed rather
+than pointed in a direction taken from the wrong bits.
+
+**Lesson: a size-stable position block needs a positive check every rotation.**
+Nothing warned here — no gate, no unbound handler, no size mismatch. The only
+signal was a human looking at the map. `OP_ZoneEntry`'s inline position was never
+re-derived at 08/04 (only the self and other-PC structs were), so it had been
+wrong for at least two rotations.
+
 ### Newly available from upstream this rotation
 
 `OP_SendAATable 2fc4` (456 fires — we had it `ffff`; their `68c4 -> 2fc4` fix is

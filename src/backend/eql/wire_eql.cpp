@@ -187,10 +187,13 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_GroundSpawn", SP_Zone, DIR_Server,
          "makeDropStruct", SZC_None,
          seqBind(ms.spawnShell, &SpawnShell::newGroundItem));
-    // OP_ClickObject (0x597e) is dual-direction: the S>C removal (12B remDropStruct)
-    // is what we decode; the C>S side is the client's click REQUEST (16B, layout
-    // unmapped) which neither we nor the legends branch decodes (legends registers
-    // S>C only). Left unregistered, the C>S trips the size-diagnostic every click
+    // OP_ClickObject is dual-direction and BOTH sides are 12B remDropStruct
+    // (confirmed 2026-08-06 on a drop/pickup capture): the S>C removal is what
+    // we decode; the C>S side is the client's pickup REQUEST, carrying
+    // {u32 dropId, u32 clickerSpawnId, u32 0} — the same drop id the preceding
+    // OP_GroundSpawn announced. Registered as a no-op rather than decoded (the
+    // removal already drives state). Left unregistered it would trip the
+    // size-diagnostic on every click
     // ("dataLen: 16 doesn't match sizeof(remDropStruct):12"), so absorb it with a
     // no-op — the explicit form of "ignore C>S", matching legends' S>C-only handling.
     wire("OP_ClickObject", SP_Zone, DIR_Server,
