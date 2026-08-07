@@ -1524,7 +1524,7 @@ comment = "Listing of guild names present in the current zone.  Generally seen o
 
   [[zone.payloads]]
   dir           = "server"
-  typename      = "guildsInZoneListStruct"
+  typename      = "uint8_t"
   sizechecktype = "none"
 
 [[zone]]
@@ -1535,7 +1535,7 @@ comment = "An additional guild name has appeared in the current zone. Seen when 
 
   [[zone.payloads]]
   dir           = "server"
-  typename      = "newGuildInZoneStruct"
+  typename      = "uint8_t"
   sizechecktype = "none"
 
 [[zone]]
@@ -1619,12 +1619,12 @@ comment = "S>C: fires 10x per zone-in (slots 0-9), one packet per slot. Payload:
 id      = "8cd3"
 name    = "OP_SpawnAppearance2"
 updated = "2026-05-27"
-comment = "Extended 24-byte bidirectional appearance update. Payload: {u32 spawn_id, u32 type, u32 value, u8[12] pad}. C>S type=0x24 (36) with spawn_id=0 = OP_ClickBuffOff (buff_slot in value field). S>C fires carry guild/cast/appearance types and co-occur with buff landing messages. Distinct from OP_SpawnAppearance. Re-confirmed post-2026-05-22 patch: type set {5,6,8,22,26,36,42} matches; ClickBuffOff C>S type=0x24 fires with spawn_id=0, varying buff_slot. type=0x2c (44) S>C = TLP-ruleset mob-lock / FTE attackable flag: value=0 = attackable (fires ~5-7s after a fresh spawn's OP_ZoneEntry — the grey→attackable transition), value=1 = locked/engaged (fires when a mob is claimed; observed firing for the engaged target exactly at engage time). Per-spawn 0/1 toggle, balanced across a session; absent on standard Live (mobs always attackable). Confirmed 2026-05-27 on a locked TLP server (moblock.vpk): fresh spawns 14245/14247/14264 each spawn→value=0 after ~5-7s; engaged target 13799 → value=1 at engage. Wired to Spawn.locked → web UI."
+comment = "Extended 24-byte bidirectional appearance update. Payload: {u32 spawn_id, u32 type, u32 value, u8[12] pad}. C>S type=0x24 (36) with spawn_id=0 = OP_ClickBuffOff (buff_slot in value field). S>C fires carry guild/cast/appearance types and co-occur with buff landing messages. Distinct from OP_SpawnAppearance. Re-confirmed post-2026-05-22 patch: type set {5,6,8,22,26,36,42} matches; ClickBuffOff C>S type=0x24 fires with spawn_id=0, varying buff_slot. type=0x2c (44) S>C = TLP-ruleset mob-lock / FTE attackable flag: value=0 = attackable (fires ~5-7s after a fresh spawn's OP_ZoneEntry — the grey→attackable transition), value=1 = locked/engaged (fires when a mob is claimed; observed firing for the engaged target exactly at engage time). Per-spawn 0/1 toggle, balanced across a session; absent on standard Live (mobs always attackable). Confirmed 2026-05-27 on a locked TLP server (moblock.vpk): fresh spawns 14245/14247/14264 each spawn→value=0 after ~5-7s; engaged target 13799 → value=1 at engage. Wired to Spawn.locked → web UI. 2026-08-07: payload flipped uint8_t/none → spawnAppearance2Struct/match so the wire_live typename binds exactly (test shares wire_live.cpp; the old entry only worked via the dispatch last-payload fallback, now removed)."
 
   [[zone.payloads]]
   dir           = "both"
-  typename      = "uint8_t"
-  sizechecktype = "none"
+  typename      = "spawnAppearance2Struct"
+  sizechecktype = "match"
 
 [[zone]]
 id      = "ffff"
