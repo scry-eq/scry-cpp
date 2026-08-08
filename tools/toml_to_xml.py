@@ -54,6 +54,33 @@ def xml_text(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;")
 
 
+def warn_bad_gates(opcodes: list[dict], label: str) -> int:
+    """Flag `uint8_t` + `sizechecktype="match"`, which is always a bug.
+
+    `uint8_t` is the opaque/variable-payload placeholder, but `match` gates on
+    `sizeof(uint8_t)` = 1 — so every packet that isn't exactly one byte is
+    DROPPED, and the only symptom is a stderr size-diagnostic. It bit
+    `OP_Logout` on eql (2026-08-08): the wire sends 2B and 0B, both gated out.
+    Pair `uint8_t` with `none`, or declare the real struct.
+
+    Only mapped opcodes are checked — an `ffff` row gates nothing.
+    """
+    bad = 0
+    for op in opcodes:
+        if op.get("id", "ffff") == "ffff":
+            continue
+        for pl in op.get("payloads", []):
+            if pl.get("typename") == "uint8_t" and pl.get("sizechecktype") == "match":
+                print(
+                    f"warning: {label}: {op['name']} (id {op['id']}) declares "
+                    f'uint8_t + sizechecktype="match" — a 1-byte gate that drops '
+                    f'every real packet. Use "none".',
+                    file=sys.stderr,
+                )
+                bad += 1
+    return bad
+
+
 def emit_xml(opcodes: list[dict]) -> str:
     out = ['<?xml version="1.0" encoding="UTF-8"?>']
     out.append('<!DOCTYPE seqopcodes SYSTEM "seqopcodes.dtd">')
@@ -105,10 +132,18 @@ def main(argv: list[str]) -> int:
     zone_ops  = data.get("zone", [])
     world_ops = data.get("world", [])
 
+    # Warn (don't abort) on a gate that can only drop packets: aborting would
+    # leave the OLD xml in place, which check.sh happily passes — a silent
+    # failure worse than the one being reported.
+    bad = warn_bad_gates(zone_ops, "zone") + warn_bad_gates(world_ops, "world")
+
     zone_path.write_text(emit_xml(zone_ops))
     world_path.write_text(emit_xml(world_ops))
     print(f"wrote {zone_path} ({len(zone_ops)} opcodes) and "
           f"{world_path} ({len(world_ops)} opcodes)")
+    if bad:
+        print(f"warning: {bad} opcode payload(s) declare a 1-byte gate — see above",
+              file=sys.stderr)
     return 0
 
 
