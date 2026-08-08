@@ -2534,3 +2534,62 @@ swap. Retracted; nothing to submit.
 - When porting a position struct from the legends branch, read `spawnshell.cpp`
   as well as `everquest.h`. A field named `x` there may be delivered as y, and
   taking the struct without the call site ports half a convention.
+
+### 2026-08-08 — OP_LootTransaction = `0xbe5b`; both coin channels decoded
+
+Reported as "no coin stats in the loot window". The pipeline was wired end to end
+— parser, `adjustMoney`, proto, web accrual — but the opcode had been `ffff` since
+`5d8fcac` (2026-07-29, "retire 26 ids that fire zero times"), so nothing reached
+it. Two captures settled the id and both coin fields.
+
+**The id trail came from upstream's git history, not their table.** They call this
+channel `OP_DeathEQL` and re-mapped it every rotation before deleting it outright
+in `cb0de82` (2026-08-06). The deletion is not evidence about the wire: their
+handler size-checked the payload and ended in `(void)rec;` — it decoded nothing,
+so the mapping was dead weight in a cleanup sweep. Mining `git log -S` for the
+name gives the per-rotation trail:
+
+| patch | their id |
+|---|---|
+| 07/14 | `7d1c` |
+| 07/28 | `58ab` |
+| 07/29 | `35f6` |
+| 08/04 | `6583` |
+| 08/05 | deleted |
+
+None of those survive on the current patch, so the id was re-found from the
+**subcode size signature** instead: a bidirectional opcode with client 2B/25B and
+server 6B/16B/36B. Exactly one unknown matched — `0xbe5b`, `C>S 2 S>C 2,
+sizes=2:1,25:1,36:1,6:1` — and its 36B payload decoded against the existing field
+map with no changes. The struct survived four rotations; only the id moved.
+
+**Subcode 7 (36B) — item confirmation, sale proceeds at @26.** Four sales in
+`eqlegends-loot2` read 71 / 136 / 200 / 114 and match, in order and in full, the
+four `sold it for` lines the server states separately as text.
+
+**Subcode 5 (16B) — the corpse's coin pile, `u32 @3` (unaligned).** Previously
+logged as "layout unmapped". Fires once per `OP_LootDrops`, i.e. at loot-window
+open. Eight samples: 62, 87, 724, 653, 528, 921, 2881, 2923; the 2881 matches
+"You receive 2 platinum, 8 gold, 8 silver and 1 copper from the corpse."
+
+**The purse arithmetic pins both at once.** Between two `OP_MoneyUpdate` fires a
+minute apart, the four sales (521c) plus the four corpse piles taken in that
+window (87+724+653+528 = 1992c) total 2513c. The purse delta over the same span
+was +22 gold, +28 silver, +33 copper = 2513c. Exact. A wrong offset on either
+coin field, or on the `{plat@0, gold@4, silver@8, copper@12}` purse layout,
+breaks the equality — so one sum verifies three field maps. End-to-end the daemon
+then reports 8,524,104 copper, which is the last authoritative purse (8,517,379)
+plus the three piles taken after it (921+2881+2923 = 6725).
+
+**Method note.** The size signature was worth more than the id trail. Upstream's
+last known id (`6583`) was already stale, but the subcodes are a shape the packet
+cannot hide: a bidirectional channel with five distinct small sizes is close to
+unique in a 143-opcode table. When an opcode rotates faster than it can be
+re-derived, hunt its *shape*, not its number.
+
+**Also found, unrelated to coin.** EQL routes a looted item to one of four
+destinations, each with its own wording — sold, `tradeskill depot`,
+`Dragon Hoard`, and `to create a <upgraded item>`. Only the sale form was
+matched by showeq-web's session-window regexes, so depot/hoard/combine items
+never appeared there at all. The window now shares the loot recorder's
+`parseEqlLootMessage`, which already handled all four.
