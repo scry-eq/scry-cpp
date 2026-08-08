@@ -18,6 +18,13 @@ if [[ ! -d build ]]; then
     exit 0
 fi
 
+# Static opcode-binding check first: it needs no build, runs in a second, and
+# catches wiring/table drift on ALL THREE targets — including the two this
+# checkout isn't currently built for. A mismatch here means the daemon silently
+# decodes nothing for that opcode (see tools/bindcheck.py).
+echo "pre-push: checking opcode bindings (all targets)..."
+python3 tools/bindcheck.py
+
 echo "pre-push: rebuilding daemon (incremental)..."
 cmake --build build --target showeq-daemon -j >/dev/null
 

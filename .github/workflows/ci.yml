@@ -6,6 +6,20 @@ on:
   pull_request:
 
 jobs:
+  # Static, build-free check that every wire() call resolves against its target's
+  # opcode table. The build/build-targets smoke steps already fail on the runtime
+  # "NOT bound" warning, but only for a target they actually run — and live+test
+  # SHARE wire_live.cpp, so their tables can drift apart. This catches all three
+  # targets from source in seconds, and names the mismatch instead of leaving it
+  # to be read out of a log.
+  opcode-bindings:
+    runs-on: ubuntu-latest
+    name: opcode-bindings
+    steps:
+      - uses: actions/checkout@v5
+      - name: bindcheck (all targets)
+        run: python3 tools/bindcheck.py
+
   build:
     runs-on: ubuntu-latest
     container: ${{ matrix.container }}
