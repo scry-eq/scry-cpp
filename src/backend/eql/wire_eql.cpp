@@ -15,6 +15,9 @@
  * Handlers register via EQPacketStream::on() as typed PacketHandlers (seqBind),
  * not Qt string SLOTs. EqlDispatch is a plain object owned by a shared_ptr the
  * wired closures capture — no QObject, no moc, no ODR pull into live/test.
+ *
+ * Cite opcodes by NAME, never by id — EQL rotates ids nearly every patch and
+ * all 20 this file carried had gone stale. conf/eql/opcodes.toml is the map.
  */
 
 #include "daemonapp.h"
@@ -79,7 +82,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // spawn-list request, acknowledged under OP_ZoneEntry below and NOT wired to
     // ZoneMgr::zoneEntryClient — on eql that would emit zoneBegin() and clear the
     // spawn list. Zone identity comes from OP_PlayerProfile + OP_NewZone.)
-    // EQ Legends OP_PlayerProfile (0x5207): header-only identity decode.
+    // EQ Legends OP_PlayerProfile: header-only identity decode.
     wire("OP_PlayerProfile", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(eql, &EqlDispatch::profile));
@@ -89,7 +92,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_ZoneChange", SP_Zone, DIR_Client | DIR_Server,
          "uint8_t", SZC_None,
          seqBind(eql, &EqlDispatch::zoneChange));
-    // EQ Legends OP_NewZone (0x1dbf) S>C: the authoritative current zone, carried
+    // EQ Legends OP_NewZone S>C: the authoritative current zone, carried
     // as packed short + long name text (parsed in EqlDispatch). Fires once per
     // zone-in, AFTER the profile + bulk spawn list — EqlDispatch::newZone drives
     // ZoneMgr::setZoneByName -> zoneResolved (map/filter/web, no spawn-clear /
@@ -98,7 +101,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_NewZone", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(eql, &EqlDispatch::newZone));
-    // EQ Legends OP_EnterWorld (0x26bf) C>S, 72B: the client entering the world
+    // EQ Legends OP_EnterWorld C>S, 72B: the client entering the world
     // with its character — fires at login AND on every in-place session re-entry
     // (private instance, or any zone that reuses the world socket, so BoxRegistry
     // keeps the SAME box and no active-box roll re-primes the web). EqlDispatch::
@@ -126,7 +129,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     connect(ms.zoneMgr, SIGNAL(playerProfile(const charProfileStruct*)),
             ms.player,  SLOT(player(const charProfileStruct*)));
 
-    // EQ Legends OP_ClientUpdate (0x5188): C>S 38B self-position (was 42B pre-07/14).
+    // EQ Legends OP_ClientUpdate: C>S 38B self-position (was 42B pre-07/14).
     // Re-cracked 2026-07-14 against a /loc ground-truth capture: IEEE floats
     // gameX@14 / gameY@26 / gameZ@10 + heading@18 (13-bit @ bit 8), no spawnId. Size-gated
     // on playerSelfPosStruct (override = 38 = PAYLOAD_LEN); decode is Rust
@@ -141,7 +144,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // active box wires them — otherwise every box's (now unmuted) world/zone
     // stream would re-fire them, duplicating ZoneServer / EqTimeSync envelopes.
     //
-    // (EQ Legends) OP_ItemPacket (0x74b0) is NOT wired: the Legends bulk-item
+    // (EQ Legends) OP_ItemPacket is NOT wired: the Legends bulk-item
     // format differs from Live's itemPacketStruct, so feeding it to the Live
     // itemCache would mis-parse. It's identified in conf/eql/opcodes.toml (for
     // recon labeling) but its decoder is future work — see OPCODES_LEGENDS.md.
@@ -202,14 +205,14 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_ClickObject", SP_Zone, DIR_Client,
          "uint8_t", SZC_None,
          [](const uint8_t*, size_t, uint8_t) {});
-    // OP_SpawnDoor (0x71ca): eql door rows are 132B (Live doorStruct is 136B);
+    // OP_SpawnDoor: eql door rows are 132B (Live doorStruct is 136B);
     // seq-backend-eql's parse_door owns the 132B layout, the doorStruct size
     // override makes the modulus gate 132, and newDoorSpawns strides via
     // door_stride() — so the shared handler wires directly.
     wire("OP_SpawnDoor", SP_Zone, DIR_Server,
          "doorStruct", SZC_Modulus,
          seqBind(ms.spawnShell, &SpawnShell::newDoorSpawns));
-    // EQ Legends OP_ZoneEntry (0x4606): one spawn per payload (name + block);
+    // EQ Legends OP_ZoneEntry: one spawn per payload (name + block);
     // EqlDispatch parses the variable-length name and the fixed spawn block.
     // Stock-SEQ name: the s2c OP_ZoneEntry has been the per-spawn payload since
     // 2008 (OP_ZoneSpawns is the dead bulk-array op). Replaces the leftover Live
@@ -218,7 +221,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_ZoneEntry", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(eql, &EqlDispatch::spawn));
-    // EQ Legends OP_LoadoutSwap (0x7477): a player's multiclass loadout change.
+    // EQ Legends OP_LoadoutSwap: a player's multiclass loadout change.
     // Variable-size (self ~118KB w/ inventory tail, broadcast ~490B) — hand-
     // decoded via decode_loadout_swap (reuses the ZoneEntry record parser), so
     // size-gate none. Self refreshes Player identity; broadcast updates a nearby
@@ -226,13 +229,13 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_LoadoutSwap", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(eql, &EqlDispatch::loadoutSwap));
-    // EQ Legends OP_MobUpdate (0x67e0): per-mob position update (14B),
+    // EQ Legends OP_MobUpdate: per-mob position update (14B),
     // byte-identical to Live spawnPositionUpdate — size-gate on it directly;
     // decode via the shared Rust decode_mob_update.
     wire("OP_MobUpdate", SP_Zone, DIR_Server,
          "spawnPositionUpdate", SZC_Match,
          seqBind(eql, &EqlDispatch::mobUpdate));
-    // EQ Legends OP_TargetMouse (0x1bfe): C>S target select. The Legends payload
+    // EQ Legends OP_TargetMouse: C>S target select. The Legends payload
     // is byte-identical to Live's clientTargetStruct ({u32 spawn_id}, 0 = clear),
     // so it needs NO Legends glue — wire straight to the neutral core handler,
     // exactly as wire_live.cpp does. clientTarget emits targetSpawn -> Targeted
@@ -241,7 +244,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_TargetMouse", SP_Zone, DIR_Client,
          "clientTargetStruct", SZC_Match,
          seqBind(ms.spawnShell, &SpawnShell::clientTarget));
-    // OP_WearChange (0x5c62) is NAMED in conf/eql/opcodes.toml but deliberately
+    // OP_WearChange is NAMED in conf/eql/opcodes.toml but deliberately
     // UNWIRED (l-patch addendum 3: stock's WearChange handler shows nothing for
     // equip changes). The two Live SpawnUpdateStruct/updateSpawnInfo bindings (kept
     // in wire_live.cpp) were removed here: eql's WearChange is a 32B {spawnId,
@@ -276,7 +279,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_Stamina", SP_Zone, DIR_Server,
          "staminaStruct", SZC_Match,
          seqBind(ms.player, &Player::updateStamina));
-    // OP_Stance (0x0fab) / OP_Invocation (0x3b12) S>C echo: the player's active
+    // OP_Stance / OP_Invocation S>C echo: the player's active
     // swappable stance / invocation. 4B {u32 abilityId}, size-gated on the
     // shared activateAbilityStruct (size eql-owned via size_overrides). Resolved
     // to a display name in EqlDispatch and surfaced through PlayerStats.
@@ -289,18 +292,16 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_EndUpdate", SP_Zone, DIR_Server,
          "endUpdateStruct", SZC_Match,
          seqBind(ms.player, &Player::updateEndurance));
-    // 0x4d77 is NOT money — deliberately unwired (see OP_Unknown4 in the toml).
-    // The real money opcode is 0x6414; the id rotated in the 2026-07-14 patch,
-    // which is why feeding 0x4d77 to money_copper put junk in the coin readout.
-    // OP_LootTransaction: subcode-7 confirmation carries the auto-sell coin.
+    // OP_Unknown4 is NOT money — once misnamed OP_MoneyUpdate, stays unwired.
+    // OP_LootTransaction: subcode 7 = item sale coin, subcode 5 = corpse pile.
     wire("OP_LootTransaction", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(ms.messageShell, &MessageShell::lootTransaction));
     wire("OP_MoneyUpdate", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(eql, &EqlDispatch::moneyUpdate));
-    // OP_ExpUpdate (0x6801, 16B expUpdateStruct): the regular exp bar. The ids
-    // were cross-wired with OP_AAExpUpdate (0x42d1); corrected per the community
+    // OP_ExpUpdate (16B expUpdateStruct): the regular exp bar. The ids
+    // were cross-wired with OP_AAExpUpdate; corrected per the community
     // l-patch. exp@0 is 0-100000 permille — the same scale the daemon already
     // uses (reset()/loadProfile set m_minExp=0/m_maxExp=100000/m_tickExp=1), so
     // updateExp consumes it directly with no conversion. Routed through
@@ -310,7 +311,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_ExpUpdate", SP_Zone, DIR_Server,
          "expUpdateStruct", SZC_Match,
          seqBind(eql, &EqlDispatch::expUpdate));
-    // OP_AAExpUpdate (0x42d1, 12B): u32 altexp (0-100000 per-AA-point
+    // OP_AAExpUpdate (12B): u32 altexp (0-100000 per-AA-point
     // progress), u32 aapoints (unspent), u32 tail (unread; Live carries u8
     // percent + pad there, which updateAltExp ignores). First 8 bytes match
     // Live's altExpUpdateStruct and the scale is the same 0-100000 the
@@ -319,7 +320,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_AAExpUpdate", SP_Zone, DIR_Server,
          "altExpUpdateStruct", SZC_Match,
          seqBind(ms.player, &Player::updateAltExp));
-    // OP_SendAATable (0x31ae, S>C): static AA ability-definition burst at zone-in
+    // OP_SendAATable (S>C): static AA ability-definition burst at zone-in
     // (one variable-length record per packet). EqlDispatch::sendAATable resolves
     // each record's descID -> titleSID -> dbstr type-1 name and records descID ->
     // name on Player, so protoencoder fills AAEntry.name (web AA window shows real
@@ -373,7 +374,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_RemoveSpawn", SP_Zone, DIR_Server | DIR_Client,
          "removeSpawnStruct", SZC_None,
          seqBind(ms.spawnShell, &SpawnShell::removeSpawn));
-    // OP_Consider (0x4212, 24B both dirs): eql's considerStruct is its OWN 24B
+    // OP_Consider (24B both dirs): eql's considerStruct is its OWN 24B
     // struct (seq-backend-eql owns it; Live's is 32B), size-gated via the backend
     // size table (struct_size_overrides) — so SZC_Match validates the real 24B
     // with the real name, no uint8_t placeholder. parse_consider -> shared
@@ -407,17 +408,17 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_CommonMessage", SP_Zone, DIR_Client | DIR_Server,
          "channelMessageStruct", SZC_None,
          seqBind(ms.messageShell, &MessageShell::channelMessage));
-    // EQL 0x3c0a diverges from the Live formattedMessageStruct layout
-    // (format id @9, spell id @0, pre-split caret args) — decoded by the
+    // EQL's OP_FormattedMessage diverges from the Live formattedMessageStruct
+    // layout (format id @9, spell id @0, pre-split caret args) — decoded by the
     // eql parse_formatted_message and routed via formattedMessageEQL.
     wire("OP_FormattedMessage", SP_Zone, DIR_Server,
          "formattedMessageStruct", SZC_None,
          seqBind(ms.messageShell, &MessageShell::formattedMessageEQL));
-    // OP_LootMessage (0x7d46): eql personal auto-loot/sell text.
+    // OP_LootMessage: eql personal auto-loot/sell text.
     wire("OP_LootMessage", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(ms.messageShell, &MessageShell::lootMessage));
-    // OP_LootDrops (0x6768): corpse loot window.
+    // OP_LootDrops: corpse loot window.
     wire("OP_LootDrops", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(ms.messageShell, &MessageShell::lootDrops));
@@ -479,7 +480,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     wire("OP_Action2", SP_Zone, DIR_Client | DIR_Server,
          "action2Struct", SZC_Match,
          seqBind(ms.combatRouter, &CombatRouter::action2));
-    // OP_BeginCast (0x6cbd, S>C, 19B): a spawn started casting. Surfaced as a
+    // OP_BeginCast (S>C, 19B): a spawn started casting. Surfaced as a
     // transient cast indicator on the target (NOT a buff — cast-start buff
     // insertion was deliberately dropped, see OP_CastSpell note above). Gate
     // size 19 is eql-owned via seq-backend-eql size_overrides(beginCastStruct).
