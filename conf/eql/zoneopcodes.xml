@@ -399,9 +399,9 @@
         <payload dir="client" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="2828" name="OP_Logout" updated="08/05/26" priority="3">
-        <comment>Re-mapped for the 08/05 mini-patch rotation from upstream legends 9854199 (was 49d4) - PENDING content validation. PRIOR: Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 30ce) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 1160) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: </comment>
+        <comment>Payload gate corrected 2026-08-08: it was declared uint8_t + sizechecktype="match", which gates at sizeof(uint8_t)=1, so every real packet was dropped and warned - live log showed dataLen 2 (S>C, size-gated out) and dataLen 0 (C>S, no client payload declared). uint8_t is the opaque/variable placeholder and must pair with "none"; matching upstream's dir=both/none. No handler is wired - mapped so it resolves in logs and --opcode-stats rather than reading as an unknown opcode. PRIOR: Re-mapped for the 08/05 mini-patch rotation from upstream legends 9854199 (was 49d4) - PENDING content validation. PRIOR: Re-mapped for the 08/04 rotation from upstream legends 6cd5907 (was 30ce) - PENDING content validation. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 1160) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: </comment>
         <priorityNote>handler wired DIR_Client only</priorityNote>
-        <payload dir="server" typename="uint8_t" sizechecktype="match"/>
+        <payload dir="both" typename="uint8_t" sizechecktype="none"/>
     </opcode>
     <opcode id="ffff" name="OP_UIUpdate" updated="05/21/14" priority="-1">
         <comment>Seems to be sent to handle a variety of UI updates - Variable length</comment>
