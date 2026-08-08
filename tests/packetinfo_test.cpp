@@ -18,14 +18,14 @@ namespace {
 
 // Writes `xml` into a freshly-created file under `dir`. Returns the path.
 QString writeFixture(const QTemporaryDir& dir, const char* basename,
-                     const QByteArray& xml)
+                     const QByteArray& toml)
 {
     const QString path = dir.filePath(QString::fromLatin1(basename));
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly)) {
         qFatal("could not open %s for writing", qUtf8Printable(path));
     }
-    f.write(xml);
+    f.write(toml);
     f.close();
     return path;
 }
@@ -55,24 +55,39 @@ void PacketInfoTest::load_basicHappyPath()
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
 
-    QByteArray xml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<seqopcodes>\n"
-        "  <opcode id=\"0001\" name=\"OP_Foo\">\n"
-        "    <payload dir=\"server\" typename=\"opCodeStruct\" sizechecktype=\"match\"/>\n"
-        "  </opcode>\n"
-        "  <opcode id=\"abcd\" name=\"OP_Bar\">\n"
-        "    <payload dir=\"client\" typename=\"none\" sizechecktype=\"none\"/>\n"
-        "  </opcode>\n"
-        "  <opcode id=\"FFFF\" name=\"OP_Unresolved\">\n"
-        "    <payload dir=\"both\" typename=\"unknown\" sizechecktype=\"modulus\"/>\n"
-        "  </opcode>\n"
-        "</seqopcodes>\n";
+    QByteArray toml =
+        "[[zone]]\n"
+        "id      = \"0001\"\n"
+        "name    = \"OP_Foo\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"server\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"match\"\n"
+        "\n"
+        "[[zone]]\n"
+        "id      = \"abcd\"\n"
+        "name    = \"OP_Bar\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"client\"\n"
+        "  typename      = \"none\"\n"
+        "  sizechecktype = \"none\"\n"
+        "\n"
+        "[[zone]]\n"
+        "id      = \"FFFF\"\n"
+        "name    = \"OP_Unresolved\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"both\"\n"
+        "  typename      = \"unknown\"\n"
+        "  sizechecktype = \"modulus\"\n"
+        "\n";
 
-    const QString path = writeFixture(tmp, "happy.xml", xml);
+    const QString path = writeFixture(tmp, "happy.toml", toml);
 
     EQPacketTypeDB typeDB;
-    EQPacketOPCodeDB db;
+    EQPacketOPCodeDB db{QStringLiteral("zone")};
     QVERIFY(db.load(typeDB, path));
 
     QCOMPARE(db.opcodes().count(), 3);
@@ -104,24 +119,39 @@ void PacketInfoTest::load_payloadDirAndSizeCheck()
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
 
-    QByteArray xml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<seqopcodes>\n"
-        "  <opcode id=\"0001\" name=\"OP_Server\">\n"
-        "    <payload dir=\"server\" typename=\"opCodeStruct\" sizechecktype=\"match\"/>\n"
-        "  </opcode>\n"
-        "  <opcode id=\"0002\" name=\"OP_Client\">\n"
-        "    <payload dir=\"client\" typename=\"opCodeStruct\" sizechecktype=\"none\"/>\n"
-        "  </opcode>\n"
-        "  <opcode id=\"0003\" name=\"OP_Both\">\n"
-        "    <payload dir=\"both\" typename=\"opCodeStruct\" sizechecktype=\"modulus\"/>\n"
-        "  </opcode>\n"
-        "</seqopcodes>\n";
+    QByteArray toml =
+        "[[zone]]\n"
+        "id      = \"0001\"\n"
+        "name    = \"OP_Server\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"server\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"match\"\n"
+        "\n"
+        "[[zone]]\n"
+        "id      = \"0002\"\n"
+        "name    = \"OP_Client\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"client\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"none\"\n"
+        "\n"
+        "[[zone]]\n"
+        "id      = \"0003\"\n"
+        "name    = \"OP_Both\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"both\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"modulus\"\n"
+        "\n";
 
-    const QString path = writeFixture(tmp, "dir.xml", xml);
+    const QString path = writeFixture(tmp, "dir.toml", toml);
 
     EQPacketTypeDB typeDB;
-    EQPacketOPCodeDB db;
+    EQPacketOPCodeDB db{QStringLiteral("zone")};
     QVERIFY(db.load(typeDB, path));
 
     const EQPacketOPCode* server = db.find(QStringLiteral("OP_Server"));
@@ -143,33 +173,42 @@ void PacketInfoTest::load_payloadDirAndSizeCheck()
 
 // Comments + multi-payload opcodes — both lists round-trip through
 // the parser in document order.
+// The TOML schema carries ONE `comment` per opcode where the XML allowed a
+// repeated <comment> element, so this now pins one comment plus the payload
+// ordering (which is what the rest of the test was really about — `at(0)` /
+// `at(1)` order is golden-sensitive, install order being fire order).
 void PacketInfoTest::load_multipleCommentsAndPayloads()
 {
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
 
-    QByteArray xml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<seqopcodes>\n"
-        "  <opcode id=\"00aa\" name=\"OP_Multi\">\n"
-        "    <comment>first comment</comment>\n"
-        "    <comment>second comment</comment>\n"
-        "    <payload dir=\"server\" typename=\"opCodeStruct\" sizechecktype=\"match\"/>\n"
-        "    <payload dir=\"client\" typename=\"opCodeStruct\" sizechecktype=\"none\"/>\n"
-        "  </opcode>\n"
-        "</seqopcodes>\n";
+    QByteArray toml =
+        "[[zone]]\n"
+        "id      = \"00aa\"\n"
+        "name    = \"OP_Multi\"\n"
+        "comment = \"first comment second comment\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"server\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"match\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"client\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"none\"\n"
+        "\n";
 
-    const QString path = writeFixture(tmp, "multi.xml", xml);
+    const QString path = writeFixture(tmp, "multi.toml", toml);
 
     EQPacketTypeDB typeDB;
-    EQPacketOPCodeDB db;
+    EQPacketOPCodeDB db{QStringLiteral("zone")};
     QVERIFY(db.load(typeDB, path));
 
     const EQPacketOPCode* op = db.find(QStringLiteral("OP_Multi"));
     QVERIFY(op != nullptr);
-    QCOMPARE(op->comments().size(), 2);
-    QCOMPARE(op->comments().at(0), QStringLiteral("first comment"));
-    QCOMPARE(op->comments().at(1), QStringLiteral("second comment"));
+    QCOMPARE(op->comments().size(), 1);
+    QCOMPARE(op->comments().at(0), QStringLiteral("first comment second comment"));
 
     QCOMPARE(op->count(), 2);
     QCOMPARE(op->at(0)->dir(), uint8_t(DIR_Server));
@@ -183,21 +222,32 @@ void PacketInfoTest::load_implicitLenAndUpdatedAttrs()
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
 
-    QByteArray xml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<seqopcodes>\n"
-        "  <opcode id=\"00aa\" name=\"OP_WithExtras\" implicitlen=\"42\" updated=\"2026-04-25\">\n"
-        "    <payload dir=\"server\" typename=\"opCodeStruct\" sizechecktype=\"match\"/>\n"
-        "  </opcode>\n"
-        "  <opcode id=\"00ab\" name=\"OP_Plain\">\n"
-        "    <payload dir=\"server\" typename=\"opCodeStruct\" sizechecktype=\"match\"/>\n"
-        "  </opcode>\n"
-        "</seqopcodes>\n";
+    QByteArray toml =
+        "[[zone]]\n"
+        "id      = \"00aa\"\n"
+        "name    = \"OP_WithExtras\"\n"
+        "updated = \"2026-04-25\"\n"
+        "implicitlen = \"42\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"server\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"match\"\n"
+        "\n"
+        "[[zone]]\n"
+        "id      = \"00ab\"\n"
+        "name    = \"OP_Plain\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"server\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"match\"\n"
+        "\n";
 
-    const QString path = writeFixture(tmp, "extras.xml", xml);
+    const QString path = writeFixture(tmp, "extras.toml", toml);
 
     EQPacketTypeDB typeDB;
-    EQPacketOPCodeDB db;
+    EQPacketOPCodeDB db{QStringLiteral("zone")};
     QVERIFY(db.load(typeDB, path));
 
     const EQPacketOPCode* extras = db.find(QStringLiteral("OP_WithExtras"));
@@ -220,18 +270,21 @@ void PacketInfoTest::load_unknownTypenameStillLoadsOpcode()
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
 
-    QByteArray xml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<seqopcodes>\n"
-        "  <opcode id=\"0001\" name=\"OP_BadType\">\n"
-        "    <payload dir=\"server\" typename=\"NoSuchStruct\" sizechecktype=\"match\"/>\n"
-        "  </opcode>\n"
-        "</seqopcodes>\n";
+    QByteArray toml =
+        "[[zone]]\n"
+        "id      = \"0001\"\n"
+        "name    = \"OP_BadType\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"server\"\n"
+        "  typename      = \"NoSuchStruct\"\n"
+        "  sizechecktype = \"match\"\n"
+        "\n";
 
-    const QString path = writeFixture(tmp, "badtype.xml", xml);
+    const QString path = writeFixture(tmp, "badtype.toml", toml);
 
     EQPacketTypeDB typeDB;
-    EQPacketOPCodeDB db;
+    EQPacketOPCodeDB db{QStringLiteral("zone")};
     QVERIFY(db.load(typeDB, path));
 
     const EQPacketOPCode* op = db.find(QStringLiteral("OP_BadType"));
@@ -250,18 +303,20 @@ void PacketInfoTest::load_missingIdAttribute()
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
 
-    QByteArray xml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<seqopcodes>\n"
-        "  <opcode name=\"OP_NoId\">\n"
-        "    <payload dir=\"server\" typename=\"opCodeStruct\" sizechecktype=\"match\"/>\n"
-        "  </opcode>\n"
-        "</seqopcodes>\n";
+    QByteArray toml =
+        "[[zone]]\n"
+        "name    = \"OP_NoId\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"server\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"match\"\n"
+        "\n";
 
-    const QString path = writeFixture(tmp, "no-id.xml", xml);
+    const QString path = writeFixture(tmp, "no-id.xml", toml);
 
     EQPacketTypeDB typeDB;
-    EQPacketOPCodeDB db;
+    EQPacketOPCodeDB db{QStringLiteral("zone")};
     QVERIFY(!db.load(typeDB, path));
     QCOMPARE(db.opcodes().count(), 0);
 }
@@ -272,18 +327,21 @@ void PacketInfoTest::load_malformedHexId()
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
 
-    QByteArray xml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<seqopcodes>\n"
-        "  <opcode id=\"zzzz\" name=\"OP_BadId\">\n"
-        "    <payload dir=\"server\" typename=\"opCodeStruct\" sizechecktype=\"match\"/>\n"
-        "  </opcode>\n"
-        "</seqopcodes>\n";
+    QByteArray toml =
+        "[[zone]]\n"
+        "id      = \"zzzz\"\n"
+        "name    = \"OP_BadId\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"server\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"match\"\n"
+        "\n";
 
-    const QString path = writeFixture(tmp, "bad-id.xml", xml);
+    const QString path = writeFixture(tmp, "bad-id.xml", toml);
 
     EQPacketTypeDB typeDB;
-    EQPacketOPCodeDB db;
+    EQPacketOPCodeDB db{QStringLiteral("zone")};
     QVERIFY(!db.load(typeDB, path));
     QCOMPARE(db.opcodes().count(), 0);
 }
@@ -294,18 +352,20 @@ void PacketInfoTest::load_missingNameAttribute()
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
 
-    QByteArray xml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<seqopcodes>\n"
-        "  <opcode id=\"0001\">\n"
-        "    <payload dir=\"server\" typename=\"opCodeStruct\" sizechecktype=\"match\"/>\n"
-        "  </opcode>\n"
-        "</seqopcodes>\n";
+    QByteArray toml =
+        "[[zone]]\n"
+        "id      = \"0001\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"server\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"match\"\n"
+        "\n";
 
-    const QString path = writeFixture(tmp, "no-name.xml", xml);
+    const QString path = writeFixture(tmp, "no-name.xml", toml);
 
     EQPacketTypeDB typeDB;
-    EQPacketOPCodeDB db;
+    EQPacketOPCodeDB db{QStringLiteral("zone")};
     QVERIFY(!db.load(typeDB, path));
     QCOMPARE(db.opcodes().count(), 0);
 }
@@ -316,15 +376,13 @@ void PacketInfoTest::load_emptyDocument()
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
 
-    QByteArray xml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<seqopcodes>\n"
-        "</seqopcodes>\n";
+    QByteArray toml =
+        "\n";
 
-    const QString path = writeFixture(tmp, "empty.xml", xml);
+    const QString path = writeFixture(tmp, "empty.toml", toml);
 
     EQPacketTypeDB typeDB;
-    EQPacketOPCodeDB db;
+    EQPacketOPCodeDB db{QStringLiteral("zone")};
     QVERIFY(db.load(typeDB, path));
     QCOMPARE(db.opcodes().count(), 0);
 }

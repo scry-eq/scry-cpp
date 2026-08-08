@@ -70,7 +70,7 @@ void NamePromoterTest::feed(EQPacketStream& stream, const QString& opName,
 
 void NamePromoterTest::promotesFromEnterWorld()
 {
-  EQPacketOPCodeDB db;
+  EQPacketOPCodeDB db{QStringLiteral("zone")};
   EQPacketStream stream(client2world, DIR_Client, 0, db);
   BoxRegistry reg;
   Box* box = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
@@ -85,7 +85,7 @@ void NamePromoterTest::promotesFromEnterWorld()
 
 void NamePromoterTest::ignoresWrongOpcodeName()
 {
-  EQPacketOPCodeDB db;
+  EQPacketOPCodeDB db{QStringLiteral("zone")};
   EQPacketStream stream(client2world, DIR_Client, 0, db);
   BoxRegistry reg;
   Box* box = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
@@ -99,7 +99,7 @@ void NamePromoterTest::ignoresWrongOpcodeName()
 
 void NamePromoterTest::ignoresWrongLength()
 {
-  EQPacketOPCodeDB db;
+  EQPacketOPCodeDB db{QStringLiteral("zone")};
   EQPacketStream stream(client2world, DIR_Client, 0, db);
   BoxRegistry reg;
   Box* box = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
@@ -114,7 +114,7 @@ void NamePromoterTest::ignoresWrongLength()
 
 void NamePromoterTest::ignoresServerDirection()
 {
-  EQPacketOPCodeDB db;
+  EQPacketOPCodeDB db{QStringLiteral("zone")};
   EQPacketStream stream(world2client, DIR_Server, 0, db);
   BoxRegistry reg;
   Box* box = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
@@ -128,7 +128,7 @@ void NamePromoterTest::ignoresServerDirection()
 
 void NamePromoterTest::mergesRelogByName()
 {
-  EQPacketOPCodeDB db;
+  EQPacketOPCodeDB db{QStringLiteral("zone")};
   EQPacketStream stream(client2world, DIR_Client, 0, db);
   BoxRegistry reg;
   Box* first  = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);

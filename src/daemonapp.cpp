@@ -593,23 +593,23 @@ bool DaemonApp::startServer()
 
 bool DaemonApp::startCapture()
 {
-    // Opcode tables are per-target: conf/<target>/{world,zone}opcodes.xml,
-    // selected by the compiled SEQ_OPCODE_SUBDIR ("live"/"test"/"eql"). The
-    // rest of --config-dir (seqdef.xml, maps/, etc.) stays shared at the root.
+    // Opcode tables are per-target: conf/<target>/opcodes.toml, selected by the
+    // compiled SEQ_OPCODE_SUBDIR ("live"/"test"/"eql"). The rest of
+    // --config-dir (seqdef.xml, maps/, etc.) stays shared at the root. XML is
+    // now settings-only; the opcode table is read straight from the TOML that
+    // was always its canonical source.
     const QString opcodeSubdir = QStringLiteral(SEQ_OPCODE_SUBDIR);
-    // preferUser=false: opcode tables are shipped/generated config (conf/, from
-    // opcodes.toml), NOT user data. The user data dir (~/.showeq) is SHARED with
-    // legacy showeq, whose flat zoneopcodes.xml the user may swap per target
-    // (e.g. EQL opcodes for legacy headless .vpk playback). Preferring user-data
-    // there made the LIVE daemon (SEQ_OPCODE_SUBDIR=".") load ~/.showeq's EQL
-    // table for a live capture → total mis-decode / SessionDisconnect. conf/
-    // wins; ~/.showeq stays a fallback only when conf/ lacks the file.
-    const QFileInfo worldOpcodes =
-        m_dataLocationMgr->findExistingFile(opcodeSubdir, "worldopcodes.xml", false, false);
-    const QFileInfo zoneOpcodes =
-        m_dataLocationMgr->findExistingFile(opcodeSubdir, "zoneopcodes.xml", false, false);
-    if (!worldOpcodes.exists() || !zoneOpcodes.exists()) {
-        qCritical("missing opcode XML (%s/worldopcodes.xml / zoneopcodes.xml) "
+    // preferUser=false: the opcode table is shipped config (conf/), NOT user
+    // data. The user data dir (~/.showeq) is SHARED with legacy showeq, whose
+    // flat table the user may swap per target (e.g. EQL opcodes for legacy
+    // headless .vpk playback). Preferring user-data there made the LIVE daemon
+    // (SEQ_OPCODE_SUBDIR=".") load ~/.showeq's EQL table for a live capture →
+    // total mis-decode / SessionDisconnect. conf/ wins; ~/.showeq stays a
+    // fallback only when conf/ lacks the file.
+    const QFileInfo opcodesToml =
+        m_dataLocationMgr->findExistingFile(opcodeSubdir, "opcodes.toml", false, false);
+    if (!opcodesToml.exists()) {
+        qCritical("missing opcode table (%s/opcodes.toml) "
                   "— check that conf/ is installed to PKGDATADIR",
                   qUtf8Printable(opcodeSubdir));
         return false;
@@ -625,8 +625,7 @@ bool DaemonApp::startCapture()
     }
     if (clientIp.isEmpty()) clientIp = AUTOMATIC_CLIENT_IP;
     m_packet = new EQPacket(
-        worldOpcodes.absoluteFilePath(),
-        zoneOpcodes.absoluteFilePath(),
+        opcodesToml.absoluteFilePath(),
         /*arqSeqGiveUp*/ 512,
         /*device*/ hasReplay ? QString() : m_cfg.device,
         /*agent*/ hasReplay ? QString() : m_cfg.agent,

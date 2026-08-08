@@ -93,8 +93,7 @@
 
 ////////////////////////////////////////////////////
 // Constructor
-EQPacket::EQPacket(const QString& worldopcodesxml,
-		   const QString& zoneopcodesxml,
+EQPacket::EQPacket(const QString& opcodesToml,
 		   uint16_t arqSeqGiveUp,
 		   QString device,
 		   QString agentTarget,
@@ -135,11 +134,11 @@ EQPacket::EQPacket(const QString& worldopcodesxml,
 #endif
 
   // create the world opcode db
-  m_worldOPCodeDB = new EQPacketOPCodeDB();
+  m_worldOPCodeDB = new EQPacketOPCodeDB(QStringLiteral("world"));
 
   // load the world opcode db
-  if (!m_worldOPCodeDB->load(*m_packetTypeDB, worldopcodesxml))
-    seqFatal("Error loading '%s'!", worldopcodesxml.toLatin1().data());
+  if (!m_worldOPCodeDB->load(*m_packetTypeDB, opcodesToml))
+    seqFatal("Error loading '%s' [[world]]!", opcodesToml.toLatin1().data());
 
   // de-piggyback guard: flag any mapped SZC_Match opcode still gating on a Live
   // sizeof instead of a backend-owned size override (no-op on live/test).
@@ -149,14 +148,13 @@ EQPacket::EQPacket(const QString& worldopcodesxml,
   m_worldOPCodeDB->list();
 #endif
 
-  //m_worldOPCodeDB->save("/tmp/worldopcodes.xml");
 
   // create the zone opcode db
-  m_zoneOPCodeDB = new EQPacketOPCodeDB();
+  m_zoneOPCodeDB = new EQPacketOPCodeDB(QStringLiteral("zone"));
 
   // load the zone opcode db
-  if (!m_zoneOPCodeDB->load(*m_packetTypeDB, zoneopcodesxml))
-    seqFatal("Error loading '%s'!", zoneopcodesxml.toLatin1().data());
+  if (!m_zoneOPCodeDB->load(*m_packetTypeDB, opcodesToml))
+    seqFatal("Error loading '%s' [[zone]]!", opcodesToml.toLatin1().data());
 
   m_undeclaredGateSizes += m_zoneOPCodeDB->warnUndeclaredBackendGateSizes(*m_packetTypeDB);
 
@@ -164,7 +162,6 @@ EQPacket::EQPacket(const QString& worldopcodesxml,
   m_zoneOPCodeDB->list();
 #endif
 
-  //m_zoneOPCodeDB->save("/tmp/zoneopcodes.xml");
   
   // Setup the data streams
 

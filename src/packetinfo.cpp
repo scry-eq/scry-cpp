@@ -31,6 +31,8 @@
 #include <QByteArray>
 #include <QXmlStreamReader>
 
+#include "toml.hpp"
+
 #include <map>
 #include <string>
 
@@ -259,8 +261,8 @@ EQPacketPayload* EQPacketOPCode::find(const uint8_t* data, size_t size, uint8_t 
 
 //----------------------------------------------------------------------
 // EQPacketOPCodeDB
-EQPacketOPCodeDB::EQPacketOPCodeDB()
-  : m_opcodes()
+EQPacketOPCodeDB::EQPacketOPCodeDB(const QString& section)
+  : m_opcodes(), m_section(section)
 {
 }
 
@@ -274,133 +276,137 @@ EQPacketOPCodeDB::~EQPacketOPCodeDB()
 bool EQPacketOPCodeDB::load(const EQPacketTypeDB& typeDB,
 			    const QString& filename)
 {
-  QFile xmlFile(filename);
-  if (!xmlFile.open(QIODevice::ReadOnly))
-    return false;
-
-  QXmlStreamReader reader(&xmlFile);
-
-  // State formerly carried across SAX callbacks; now locals over the
-  // pull loop. m_inComment is gone — `<comment>` text is read directly
-  // when StartElement/EndElement bracket it.
-  EQPacketOPCode* currentOPCode = nullptr;
-  EQPacketPayload* currentPayload = nullptr;
-
-  while (!reader.atEnd())
+  // opcodes.toml is read DIRECTLY — there is no generated XML any more.
+  // It used to be TOML -> tools/toml_to_xml.py -> {zone,world}opcodes.xml ->
+  // here, which gave the same data two on-disk representations and two ways to
+  // desync: the CMake regeneration target could serve a stale XML (a mapped
+  // world table once read as all-ffff that way), and a TOML syntax error left
+  // the OLD xml in place so check.sh passed against data nobody had edited.
+  // One file, one reader, neither failure is expressible.
+  toml::table doc;
+  try
   {
-    reader.readNext();
+    doc = toml::parse_file(filename.toStdString());
+  }
+  catch (const toml::parse_error& err)
+  {
+    // Loud and specific: a malformed table means EVERY opcode is unmapped, and
+    // the downstream symptom (nothing decodes) looks nothing like a parse error.
+    const auto& src = err.source();
+    seqWarn("EQPacketOPCodeDB::load: %s:%u:%u: %s",
+            filename.toLatin1().data(),
+            src.begin.line, src.begin.column, err.description().data());
+    return false;
+  }
 
-    if (reader.isStartElement())
+  // `[[zone]]` / `[[world]]` are separate id namespaces and live in separate
+  // DBs, so one file serves both: each DB loads only the array it was asked
+  // for. The caller passes the section (see EQPacket's ctor).
+  const auto* arr = doc.get_as<toml::array>(m_section.toStdString());
+  if (!arr)
+  {
+    // An absent section is empty, not broken — a target may legitimately map
+    // no world opcodes. An empty DB is still a successful load.
+    return true;
+  }
+
+  for (const auto& node : *arr)
+  {
+    const auto* entry = node.as_table();
+    if (!entry)
+      continue;
+
+    const auto idStr = entry->get_as<std::string>("id");
+    const auto nameStr = entry->get_as<std::string>("name");
+    if (!idStr || !nameStr)
     {
-      // QXmlStreamReader::name() returns QStringRef on Qt5 and
-      // QStringView on Qt6 — use auto so this builds against both.
-      const auto name = reader.name();
-      const QXmlStreamAttributes attr = reader.attributes();
-
-      if (name == QLatin1String("opcode"))
-      {
-        if (!attr.hasAttribute(QLatin1String("id")))
-        {
-          seqWarn("EQPacketOPCodeDB::load: opcode element without id!");
-          return false;
-        }
-
-        bool ok = false;
-        const QString idStr = attr.value(QLatin1String("id")).toString();
-        const uint16_t opcode = idStr.toUShort(&ok, 16);
-        if (!ok)
-        {
-          seqWarn("EQPacketOPCodeDB::load: opcode '%s' failed to convert to uint16_t (result: %#04x)",
-                  idStr.toLatin1().data(), opcode);
-          return false;
-        }
-
-        if (!attr.hasAttribute(QLatin1String("name")))
-        {
-          seqWarn("EQPacketOPCodeDB::load: opcode %#04x missing name parameter!",
-                  opcode);
-          return false;
-        }
-
-        currentOPCode = add(opcode, attr.value(QLatin1String("name")).toString());
-        if (!currentOPCode)
-        {
-          seqWarn("Failed to add opcode %04x", opcode);
-          return false;
-        }
-
-        if (attr.hasAttribute(QLatin1String("updated")))
-          currentOPCode->setUpdated(attr.value(QLatin1String("updated")).toString());
-
-        if (attr.hasAttribute(QLatin1String("implicitlen")))
-          currentOPCode->setImplicitLen(
-            attr.value(QLatin1String("implicitlen")).toUShort());
-
-        continue;
-      }
-
-      if (name == QLatin1String("comment") && currentOPCode)
-      {
-        // readElementText consumes through the matching </comment>,
-        // accumulating any character data — same effect as the SAX
-        // handler's m_currentComment buffer.
-        currentOPCode->addComment(reader.readElementText());
-        continue;
-      }
-
-      if (name == QLatin1String("payload") && currentOPCode)
-      {
-        currentPayload = new EQPacketPayload();
-        currentOPCode->append(currentPayload);
-
-        if (attr.hasAttribute(QLatin1String("dir")))
-        {
-          const auto dir = attr.value(QLatin1String("dir"));
-          if (dir == QLatin1String("both"))
-            currentPayload->setDir(DIR_Client | DIR_Server);
-          else if (dir == QLatin1String("server"))
-            currentPayload->setDir(DIR_Server);
-          else if (dir == QLatin1String("client"))
-            currentPayload->setDir(DIR_Client);
-        }
-
-        if (attr.hasAttribute(QLatin1String("typename")))
-        {
-          const QString typeName = attr.value(QLatin1String("typename")).toString();
-          if (!typeName.isEmpty())
-          {
-            if (!currentPayload->setType(typeDB, typeName.toLatin1().data()))
-              seqWarn("Unknown payload typename '%s' for opcode '%04x'",
-                      typeName.toLatin1().data(),
-                      currentOPCode->opcode());
-          }
-        }
-
-        if (attr.hasAttribute(QLatin1String("sizechecktype")))
-        {
-          const auto szt = attr.value(QLatin1String("sizechecktype"));
-          if (szt.isEmpty() || szt == QLatin1String("none"))
-            currentPayload->setSizeCheckType(SZC_None);
-          else if (szt == QLatin1String("match"))
-            currentPayload->setSizeCheckType(SZC_Match);
-          else if (szt == QLatin1String("modulus"))
-            currentPayload->setSizeCheckType(SZC_Modulus);
-        }
-
-        continue;
-      }
+      seqWarn("EQPacketOPCodeDB::load: %s entry missing id or name",
+              m_section.toLatin1().data());
+      return false;
     }
-    else if (reader.isEndElement())
+
+    bool ok = false;
+    const QString qid = QString::fromStdString(**idStr);
+    const uint16_t opcode = qid.toUShort(&ok, 16);
+    if (!ok)
     {
-      const auto name = reader.name();
-      if (name == QLatin1String("opcode"))
-        currentOPCode = nullptr;
-      else if (name == QLatin1String("payload"))
-        currentPayload = nullptr;
+      seqWarn("EQPacketOPCodeDB::load: opcode '%s' failed to convert to uint16_t",
+              qid.toLatin1().data());
+      return false;
+    }
+
+    // "ffff" rows (unmapped this patch) are kept, NOT skipped. They all collide
+    // on the 0xffff id key, but `dispatchFor` resolves BY NAME — so dropping
+    // them would turn every wire() against an unmapped opcode into "Unknown
+    // opcode" instead of a successful bind, and eql wires plenty of those.
+    // Behaviour here is identical to the XML reader's on purpose.
+    EQPacketOPCode* currentOPCode =
+      add(opcode, QString::fromStdString(**nameStr));
+    if (!currentOPCode)
+    {
+      seqWarn("Failed to add opcode %04x", opcode);
+      return false;
+    }
+
+    if (const auto v = entry->get_as<std::string>("updated"))
+      currentOPCode->setUpdated(QString::fromStdString(**v));
+    if (const auto v = entry->get_as<std::string>("implicitlen"))
+      currentOPCode->setImplicitLen(QString::fromStdString(**v).toUShort());
+    if (const auto v = entry->get_as<std::string>("comment"))
+      currentOPCode->addComment(QString::fromStdString(**v));
+
+    // priority / priority_note are patch-day triage metadata and are
+    // deliberately load-ignored, exactly as the XML attributes were.
+
+    const auto* payloads = entry->get_as<toml::array>("payloads");
+    if (!payloads)
+      continue;
+
+    for (const auto& pnode : *payloads)
+    {
+      const auto* p = pnode.as_table();
+      if (!p)
+        continue;
+
+      auto* currentPayload = new EQPacketPayload();
+      currentOPCode->append(currentPayload);
+
+      if (const auto v = p->get_as<std::string>("dir"))
+      {
+        const std::string& dir = **v;
+        if (dir == "both")
+          currentPayload->setDir(DIR_Client | DIR_Server);
+        else if (dir == "server")
+          currentPayload->setDir(DIR_Server);
+        else if (dir == "client")
+          currentPayload->setDir(DIR_Client);
+      }
+
+      if (const auto v = p->get_as<std::string>("typename"))
+      {
+        const std::string& typeName = **v;
+        if (!typeName.empty())
+        {
+          if (!currentPayload->setType(typeDB, typeName.c_str()))
+            seqWarn("Unknown payload typename '%s' for opcode '%04x'",
+                    typeName.c_str(), currentOPCode->opcode());
+        }
+      }
+
+      if (const auto v = p->get_as<std::string>("sizechecktype"))
+      {
+        const std::string& szt = **v;
+        if (szt.empty() || szt == "none")
+          currentPayload->setSizeCheckType(SZC_None);
+        else if (szt == "match")
+          currentPayload->setSizeCheckType(SZC_Match);
+        else if (szt == "modulus")
+          currentPayload->setSizeCheckType(SZC_Modulus);
+      }
     }
   }
 
-  return !reader.hasError();
+  return true;
 }
 
 bool EQPacketOPCodeDB::save(const QString& filename)

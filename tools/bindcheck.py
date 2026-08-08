@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Statically verify that every wire() binding resolves against its opcode table.
+"""Statically verify opcode tables: wire() bindings resolve, and no 1-byte gates.
 
 `EQPacketStream::dispatchFor` binds a handler only when the opcode has a payload
 whose direction overlaps, AND whose `typename` and `sizechecktype` match the
@@ -87,6 +87,32 @@ def load_table(path: Path) -> dict[str, dict]:
     return {e["name"]: e for sec in ("zone", "world") for e in doc.get(sec, [])}
 
 
+def check_gates(label: str, toml: Path) -> int:
+    """Flag `uint8_t` + `sizechecktype="match"`, which is always a bug.
+
+    `uint8_t` is the opaque/variable-payload placeholder, but `match` gates on
+    `sizeof(uint8_t)` = 1, so every packet that is not exactly one byte is
+    DROPPED — with only a stderr size-diagnostic to show for it. That shipped
+    on eql's OP_Logout (2026-08-08): the wire sends 2B and 0B, both gated out,
+    and no fixture exercised it because you log out after stopping a capture.
+
+    Only MAPPED opcodes matter; an ffff row gates nothing.
+    """
+    bad = 0
+    for entry in load_table(toml).values():
+        if entry.get("id", "ffff") == "ffff":
+            continue
+        for p in entry.get("payloads", []):
+            if p.get("typename") == "uint8_t" and p.get("sizechecktype") == "match":
+                print(f"    {entry['name']} (id {entry['id']}) declares "
+                      f'uint8_t + sizechecktype="match" — a 1-byte gate that '
+                      f'drops every real packet. Use "none".')
+                bad += 1
+    if bad:
+        print(f"{label:5} {bad} payload(s) declare a 1-byte gate")
+    return bad
+
+
 def check(label: str, tu: Path, toml: Path) -> int:
     bindings = parse_bindings(tu)
     table = load_table(toml)
@@ -142,12 +168,13 @@ def main(argv: list[str]) -> int:
             print(f"error: missing {tu_p if not tu_p.exists() else tm_p}", file=sys.stderr)
             return 1
         bad += check(label, tu_p, tm_p)
+        bad += check_gates(label, tm_p)
 
     if bad:
-        print(f"\n{bad} wire() binding(s) would NOT bind — the daemon would decode "
-              f"nothing for them, silently.", file=sys.stderr)
+        print(f"\n{bad} problem(s) — the daemon would silently decode nothing for "
+              f"the opcodes above.", file=sys.stderr)
         return 1
-    print("\nall bindings resolve")
+    print("\nall bindings resolve; no bad gates")
     return 0
 
 

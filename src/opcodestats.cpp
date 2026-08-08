@@ -12,7 +12,7 @@
 
 namespace {
 
-// Known struct sizes for opcodes still id="ffff" in conf/zoneopcodes.xml.
+// Known struct sizes for opcodes still id="ffff" in conf/opcodes.toml.
 // The candidate-matching section of the report intersects payload sizes
 // with these to suggest "OP_Foo is probably 0x????" pairings. Sizes from
 // `sizeof(struct)` in everquest.h.

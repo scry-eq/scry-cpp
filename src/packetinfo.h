@@ -283,8 +283,12 @@ inline const QStringList& EQPacketOPCode::comments() const
 class EQPacketOPCodeDB
 {
  public:
-  EQPacketOPCodeDB();
   ~EQPacketOPCodeDB();
+
+  // `section` selects which array of opcodes.toml this DB loads: "zone" or
+  // "world". One file carries both (they are separate id namespaces served by
+  // separate DBs), so the section is the DB's identity, not a per-call option.
+  explicit EQPacketOPCodeDB(const QString& section);
 
   bool load(const EQPacketTypeDB& typeDB, const QString& filename);
   bool save(const QString& filename);
@@ -312,6 +316,9 @@ class EQPacketOPCodeDB
  protected:
   QHash<int, EQPacketOPCode*> m_opcodes;
   QHash<QString, EQPacketOPCode*> m_opcodesByName;
+  // Which opcodes.toml array this DB owns ("zone" / "world"). One file carries
+  // both, so this is the DB's identity rather than a per-load option.
+  QString m_section;
 };
 
 inline void EQPacketOPCodeDB::clear(void)

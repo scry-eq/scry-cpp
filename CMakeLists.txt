@@ -226,44 +226,30 @@ set(SEQ_DAEMON_CORE_NEW_SOURCES
   src/spellmessages.cpp
 )
 
-# Regenerate {zone,world}opcodes.xml from opcodes.toml whenever the TOML
-# changes. opcodes.toml is the canonical source; the XML files are kept in-tree
-# for compatibility with the runtime QXmlStreamReader and any external tooling
-# (legacy showeq, IDE indexing) that already expects them. The opcode table is
-# the ONE part of conf/ that varies per target: Live's lives FLAT at conf/ (base,
-# legacy-showeq compatible), Test/EQL under conf/<target>/. Everything else
-# (seqdef.xml, seqopcodes.dtd, maps/, spawnpoints/, filters/, daemon/) is shared
+# The opcode table is the ONE part of conf/ that varies per target: Live's lives
+# FLAT at conf/ (base, legacy-showeq compatible), Test/EQL under conf/<target>/.
+# Everything else (seqdef.xml, maps/, spawnpoints/, filters/, daemon/) is shared
 # at the conf/ root, so --config-dir stays "conf" for every target; the runtime
 # picks the opcode dir via the SEQ_OPCODE_SUBDIR define ("." for live).
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
+#
+# opcodes.toml is read DIRECTLY at runtime (packetinfo.cpp, via vendored
+# toml++). There is no generated XML step any more — it gave the same data two
+# on-disk representations and two ways to desync (a stale regenerated XML, and
+# a TOML syntax error leaving the old XML in place so check.sh passed).
 file(MAKE_DIRECTORY "${_seq_conf_dir}")
-set(_seq_opcodes_toml      "${_seq_conf_dir}/opcodes.toml")
-set(_seq_zoneopcodes_xml   "${_seq_conf_dir}/zoneopcodes.xml")
-set(_seq_worldopcodes_xml  "${_seq_conf_dir}/worldopcodes.xml")
-set(_seq_toml_to_xml       "${CMAKE_CURRENT_SOURCE_DIR}/tools/toml_to_xml.py")
-add_custom_command(
-  OUTPUT ${_seq_zoneopcodes_xml} ${_seq_worldopcodes_xml}
-  COMMAND ${Python3_EXECUTABLE} ${_seq_toml_to_xml}
-          ${_seq_opcodes_toml}
-          ${_seq_zoneopcodes_xml}
-          ${_seq_worldopcodes_xml}
-  DEPENDS ${_seq_opcodes_toml} ${_seq_toml_to_xml}
-  COMMENT "Regenerating ${SEQ_TARGET} opcode XML from conf/${SEQ_TARGET}/opcodes.toml"
-  VERBATIM
-)
-add_custom_target(seq-opcode-xml ALL
-  DEPENDS ${_seq_zoneopcodes_xml} ${_seq_worldopcodes_xml}
-)
 
 add_library(seq-daemon-core STATIC
   ${SEQ_DAEMON_EXTRACTED_SOURCES}
   ${SEQ_DAEMON_CORE_NEW_SOURCES}
 )
-add_dependencies(seq-daemon-core seq-opcode-xml)
 
 target_include_directories(seq-daemon-core PUBLIC
   src
   ${SEQ_STRUCT_DIR}    # per-backend everquest.h resolves here (src/ has none)
+  # Vendored toml++ (single header, MIT) — the opcode table reader. Vendored
+  # rather than fetched so configure needs no network and both CI containers
+  # build identically; refresh by replacing the one file.
+  third_party/tomlplusplus
   ${PCAP_INCLUDE_DIRS}
 )
 

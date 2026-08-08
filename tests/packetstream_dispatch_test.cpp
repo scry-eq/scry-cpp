@@ -19,16 +19,16 @@
 
 namespace {
 
-// Writes `xml` into a freshly-created file under `dir`. Returns the path.
+// Writes `toml` into a freshly-created file under `dir`. Returns the path.
 QString writeFixture(const QTemporaryDir& dir, const char* basename,
-                     const QByteArray& xml)
+                     const QByteArray& toml)
 {
     const QString path = dir.filePath(QString::fromLatin1(basename));
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly)) {
         qFatal("could not open %s for writing", qUtf8Printable(path));
     }
-    f.write(xml);
+    f.write(toml);
     f.close();
     return path;
 }
@@ -56,7 +56,7 @@ private slots:
 private:
     QTemporaryDir m_tmp;
     EQPacketTypeDB m_typeDB;
-    EQPacketOPCodeDB m_opcodeDB;
+    EQPacketOPCodeDB m_opcodeDB{QStringLiteral("zone")};
 };
 
 void PacketStreamDispatchTest::initTestCase()
@@ -65,19 +65,31 @@ void PacketStreamDispatchTest::initTestCase()
 
     // OP_Multi carries two server payloads; the typename-mismatch cases below
     // request names/types matching NEITHER, which used to bind to the second.
-    QByteArray xml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<seqopcodes>\n"
-        "  <opcode id=\"0001\" name=\"OP_Multi\">\n"
-        "    <payload dir=\"server\" typename=\"opCodeStruct\" sizechecktype=\"match\"/>\n"
-        "    <payload dir=\"server\" typename=\"uint8_t\" sizechecktype=\"none\"/>\n"
-        "  </opcode>\n"
-        "  <opcode id=\"0002\" name=\"OP_ClientOnly\">\n"
-        "    <payload dir=\"client\" typename=\"opCodeStruct\" sizechecktype=\"match\"/>\n"
-        "  </opcode>\n"
-        "</seqopcodes>\n";
+    QByteArray toml =
+        "[[zone]]\n"
+        "id      = \"0001\"\n"
+        "name    = \"OP_Multi\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"server\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"match\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"server\"\n"
+        "  typename      = \"uint8_t\"\n"
+        "  sizechecktype = \"none\"\n"
+        "\n"
+        "[[zone]]\n"
+        "id      = \"0002\"\n"
+        "name    = \"OP_ClientOnly\"\n"
+        "\n"
+        "  [[zone.payloads]]\n"
+        "  dir           = \"client\"\n"
+        "  typename      = \"opCodeStruct\"\n"
+        "  sizechecktype = \"match\"\n";
 
-    const QString path = writeFixture(m_tmp, "dispatch.xml", xml);
+    const QString path = writeFixture(m_tmp, "dispatch.toml", toml);
     QVERIFY(m_opcodeDB.load(m_typeDB, path));
 }
 

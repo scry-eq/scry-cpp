@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""One-time bootstrap: convert seqopcodes XML files to a unified opcodes.toml.
+"""Convert a seqopcodes XML table into our opcodes.toml form.
 
-After this is run once, opcodes.toml becomes the canonical source and
-toml_to_xml.py regenerates the XML on demand.
+The daemon reads opcodes.toml DIRECTLY; there is no generated XML any more
+(retired 2026-08-08). This converter therefore exists to INGEST someone else's
+table — legacy showeq and ShowEQ-Legends still ship XML — not to round-trip
+ours. Ports the hunt ladder (priority / priorityNote) too, so an import does
+not silently erase the ordering the next rotation is hunted by.
 
 Usage:
   python3 tools/xml_to_toml.py conf/zoneopcodes.xml conf/worldopcodes.xml > conf/opcodes.toml
@@ -65,10 +68,8 @@ def parse_xml(path: Path) -> list[dict]:
             "id":   opcode.get("id", "ffff"),
             "name": opcode.get("name", ""),
         }
-        # priority/priorityNote is the patch-day hunt ladder. toml_to_xml.py
-        # emits it, so dropping it here made the round-trip lossy in one
-        # direction: regenerating the TOML from an XML would silently erase the
-        # ordering the next rotation is hunted by.
+        # priority/priorityNote is the patch-day hunt ladder — carry it across,
+        # or an upstream import silently drops the ordering we hunt by.
         if (pri := opcode.get("priority")) is not None:
             entry["priority"] = int(pri)
         if (upd := opcode.get("updated")):
@@ -136,9 +137,8 @@ def main(argv: list[str]) -> int:
     world_ops = parse_xml(world_path)
 
     lines: list[str] = []
-    lines.append("# Canonical source for showeq-daemon opcodes.")
-    lines.append("# XML in conf/zoneopcodes.xml and conf/worldopcodes.xml is regenerated")
-    lines.append("# from this file by tools/toml_to_xml.py (run via CMake on build).")
+    lines.append("# Opcode table for showeq-daemon — read directly at runtime.")
+    lines.append("# Validate with tools/bindcheck.py after editing.")
     lines.append("")
     emit_section("zone", zone_ops, lines)
     emit_section("world", world_ops, lines)

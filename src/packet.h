@@ -70,8 +70,9 @@ class EQPacket : public QObject
    Q_OBJECT 
  public:
    
-   EQPacket(const QString& worldopcodesxml,
-	    const QString& zoneopcodesxml,
+   // One opcodes.toml serves both DBs — its [[world]] and [[zone]] arrays are
+   // separate id namespaces read by separate EQPacketOPCodeDBs.
+   EQPacket(const QString& opcodesToml,
 	    uint16_t m_arqSeqGiveUp,
 	    QString m_device,
 	    QString m_agent_target,
