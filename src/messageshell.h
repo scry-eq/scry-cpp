@@ -69,9 +69,7 @@ class MessageShell : public QObject
    void formattedMessageEQL(const uint8_t* cmsg, size_t, uint8_t);
    void lootMessage(const uint8_t* lmsg, size_t, uint8_t);
    void lootDrops(const uint8_t* data, size_t, uint8_t);
-   // OP_LootTransaction: server confirmation of a corpse-loot action. Carries
-   // the auto-sell proceeds as a binary field, so the amount never has to be
-   // recovered from message wording.
+   // OP_LootTransaction: item confirmation (sale proceeds) or corpse coin pile.
    void lootTransaction(const uint8_t* data, size_t, uint8_t);
    void simpleMessage(const uint8_t* cmsg, size_t, uint8_t);
    void specialMessage(const uint8_t* smsg, size_t, uint8_t);
@@ -160,7 +158,8 @@ class MessageShell : public QObject
                           const QStringList& names, const QVector<uint32_t>& icons,
                           const QVector<uint32_t>& itemIds);
    void lootTransactionReceived(uint32_t corpseId, uint32_t itemId,
-                                uint32_t quantity, uint32_t coinCopper);
+                                uint32_t quantity, uint32_t coinCopper,
+                                bool fromCorpse);
 
  protected:
    Messages* m_messages;

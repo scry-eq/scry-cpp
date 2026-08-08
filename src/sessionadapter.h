@@ -148,7 +148,8 @@ private slots:
                        const QString& channelName = QString());
     // Emits a seq.v1.LootTransaction envelope per completed corpse-loot.
     void onLootTransaction(uint32_t corpseId, uint32_t itemId,
-                           uint32_t quantity, uint32_t coinCopper);
+                           uint32_t quantity, uint32_t coinCopper,
+                           bool fromCorpse);
     // Re-emits the full group state on any GroupMgr add/remove/clear.
     void onGroupChanged();
     // Re-emits the whole roster; it is replaced wholesale, never diffed, so

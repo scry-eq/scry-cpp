@@ -299,10 +299,9 @@ void MessageShell::lootMessage(const uint8_t* data, size_t len, uint8_t dir)
 
 void MessageShell::lootTransaction(const uint8_t* data, size_t len, uint8_t dir)
 {
-  // Only the server's subcode-7 confirmation decodes; the parser rejects the
-  // other subcodes on this id. coin_copper is the sale proceeds on servers that
-  // auto-sell looted items, and 0 when the loot produced none. This replaced
-  // matching the amount out of the loot message's English text.
+  // Subcode 7 = item confirmation (sale proceeds), subcode 5 = the corpse's
+  // coin pile; the parser rejects the request/ack subcodes on this id. Corpse
+  // coin is auto-taken by the client, so both accrue.
   if (dir == DIR_Client)
     return;
   auto out = seq::rust::decode_loot_transaction(
@@ -312,7 +311,7 @@ void MessageShell::lootTransaction(const uint8_t* data, size_t len, uint8_t dir)
   if (out.coin_copper > 0)
     m_player->adjustMoney((int64_t)out.coin_copper);
   emit lootTransactionReceived(out.corpse_id, out.item_id, out.quantity,
-                               out.coin_copper);
+                               out.coin_copper, out.from_corpse);
 }
 
 // OP_LootDrops (0x6768): corpse loot window -> LootDrops proto (via SessionAdapter).

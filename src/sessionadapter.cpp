@@ -444,9 +444,9 @@ void SessionAdapter::connectPerBox()
                 this,
                 SLOT(onLootDrops(uint32_t, const QString&, const QStringList&, const QVector<uint32_t>&, const QVector<uint32_t>&)));
         connect(m_messageShell,
-                SIGNAL(lootTransactionReceived(uint32_t, uint32_t, uint32_t, uint32_t)),
+                SIGNAL(lootTransactionReceived(uint32_t, uint32_t, uint32_t, uint32_t, bool)),
                 this,
-                SLOT(onLootTransaction(uint32_t, uint32_t, uint32_t, uint32_t)));
+                SLOT(onLootTransaction(uint32_t, uint32_t, uint32_t, uint32_t, bool)));
     }
 
     if (m_guildShell) {
@@ -1016,7 +1016,8 @@ void SessionAdapter::onChatMessage(uint32_t channel, const QString& from,
 }
 
 void SessionAdapter::onLootTransaction(uint32_t corpseId, uint32_t itemId,
-                                       uint32_t quantity, uint32_t coinCopper)
+                                       uint32_t quantity, uint32_t coinCopper,
+                                       bool fromCorpse)
 {
     seq::v1::Envelope env;
     auto* lt = env.mutable_loot_transaction();
@@ -1024,6 +1025,7 @@ void SessionAdapter::onLootTransaction(uint32_t corpseId, uint32_t itemId,
     lt->set_item_id(itemId);
     lt->set_quantity(quantity);
     lt->set_coin_copper(coinCopper);
+    lt->set_coin_from_corpse(fromCorpse);
     sendOrBuffer(std::move(env));
 }
 
