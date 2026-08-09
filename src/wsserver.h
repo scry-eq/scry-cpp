@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QSet>
 #include <QHostAddress>
 #include <QObject>
 #include <QString>
@@ -27,6 +28,7 @@ class IMapPackageHost;
 class ManagerSetProvider;
 class SpawnMonitor;
 class SpawnShell;
+class LootStore;
 class SpellShell;
 class ZoneMgr;
 class ZoneServerMgr;
@@ -66,6 +68,9 @@ public:
     // SessionAdapter so clients can list/select packages. Set after
     // setState, before listen().
     void setMapPackageHost(IMapPackageHost* host) { m_mapPackageHost = host; }
+    // Backs the /loot path. Null (or a closed store, as under --replay) makes a
+    // LootQuery answer with an empty page rather than fail.
+    void setLootStore(LootStore* store) { m_lootStore = store; }
     void setManagerProvider(ManagerSetProvider* p) { m_managerProvider = p; }
 
     // Fan a server->client Envelope out to every connected session's
@@ -103,6 +108,10 @@ private:
     };
 
     void onPendingFirstBinary(QWebSocket* sock, const QByteArray& bytes);
+    // /loot connections are query-only: no SessionAdapter, no resume, no
+    // envelope stream. A loot client should not have to take the spawn
+    // firehose to read history.
+    void onLootBinary(QWebSocket* sock, const QByteArray& bytes);
     void onSocketDisconnected(QWebSocket* sock);
     void resumeSession(Session& s, QWebSocket* sock, quint64 lastSeq);
     void attachNewSession(QWebSocket* sock, const QString& sessionId);
@@ -114,6 +123,7 @@ private:
     QHash<QWebSocket*, PendingSocket>   m_pending;
     QHash<QString, Session>             m_sessions;
     QHash<QWebSocket*, QString>         m_socketToSession;
+    QSet<QWebSocket*>                   m_lootSockets;
 
     SpawnShell*    m_spawnShell    = nullptr;
     ZoneMgr*       m_zoneMgr       = nullptr;
@@ -134,5 +144,6 @@ private:
     BoxRegistry*   m_boxes         = nullptr;
     bool           m_firstClientFired = false;
     IMapPackageHost* m_mapPackageHost = nullptr;
+    LootStore*     m_lootStore     = nullptr;
     ManagerSetProvider* m_managerProvider = nullptr;
 };

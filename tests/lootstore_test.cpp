@@ -24,6 +24,8 @@ private slots:
   void dedupsAWindowRowByCorpseAndItem();
   void keepsRowsThatHaveNoStableKey();
   void reopensAnExistingDatabaseAndAppends();
+  void readOnlyServesButNeverWrites();
+  void readOnlyOnAMissingDatabaseStaysClosed();
 
 private:
   static LootRowRec sale(uint32_t sequence, const QString& item, uint32_t copper,
@@ -199,6 +201,41 @@ void LootStoreTest::reopensAnExistingDatabaseAndAppends()
   QCOMPARE(reopened.recent(10).size(), 1);
   QCOMPARE(reopened.record({sale(2, "New Row", 6)}), 1);
   QCOMPARE(reopened.recent(10).size(), 2);
+}
+
+// --replay opens read-only, so the guard is enforced by SQLite rather than by
+// remembering not to call record().
+void LootStoreTest::readOnlyServesButNeverWrites()
+{
+  QTemporaryDir dir;
+  const QString path = dir.filePath("loot.db");
+  {
+    LootStore w;
+    QVERIFY(w.setStorePath(path));
+    QCOMPARE(w.record({sale(1, "Existing", 42)}), 1);
+  }
+
+  LootStore ro;
+  QVERIFY(ro.setStorePath(path, /*readOnly=*/true));
+  QVERIFY(ro.isReadOnly());
+  QCOMPARE(ro.recent(10).size(), 1);          // history still served
+  QCOMPARE(ro.record({sale(2, "Nope", 1)}), 0);
+  QCOMPARE(ro.recent(10).size(), 1);          // and nothing was added
+
+  // Confirm on a fresh handle, not just this one's view.
+  LootStore check;
+  QVERIFY(check.setStorePath(path));
+  QCOMPARE(check.recent(10).size(), 1);
+}
+
+// A replay on a machine that has never recorded: nothing to serve, no error.
+void LootStoreTest::readOnlyOnAMissingDatabaseStaysClosed()
+{
+  QTemporaryDir dir;
+  LootStore ro;
+  QVERIFY(!ro.setStorePath(dir.filePath("absent.db"), /*readOnly=*/true));
+  QVERIFY(!ro.isOpen());
+  QVERIFY(ro.recent(10).isEmpty());
 }
 
 QTEST_MAIN(LootStoreTest)

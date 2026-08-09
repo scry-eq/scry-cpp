@@ -308,12 +308,13 @@ bool DaemonApp::start()
     // regression run would append fixture loot to the user's real DB. The
     // tracker still runs under replay — it just has nowhere to write.
     m_lootStore = std::make_unique<LootStore>();
-    if (m_cfg.replay.isEmpty()) {
+    {
         const QFileInfo lootFile = m_dataLocationMgr->findWriteFile(
             ".", "loot.db", true, true);
-        m_lootStore->setStorePath(lootFile.absoluteFilePath());
-    } else {
-        qInfo("LootStore: replay mode, recording disabled");
+        const bool replaying = !m_cfg.replay.isEmpty();
+        m_lootStore->setStorePath(lootFile.absoluteFilePath(), replaying);
+        if (replaying)
+            qInfo("LootStore: replay mode — read-only, recording disabled");
     }
 
     // PrefsBroker is the curated XMLPreferences <-> wire bridge. Constructed
@@ -375,6 +376,7 @@ bool DaemonApp::start()
                    m_packet ? &m_packet->boxRegistry() : nullptr);
     m_ws->setMapPackageHost(this);
     m_ws->setManagerProvider(this);
+    m_ws->setLootStore(m_lootStore.get());
 
     // --record-golden: spin up an internal SessionAdapter writing into a
     // FileSink. Subscribe is synthesized immediately so the on-disk

@@ -92,19 +92,30 @@ LootStore::~LootStore()
         sqlite3_close(m_db);
 }
 
-bool LootStore::setStorePath(const QString& path)
+bool LootStore::setStorePath(const QString& path, bool readOnly)
 {
     if (m_db) {
         sqlite3_close(m_db);
         m_db = nullptr;
     }
+    m_readOnly = readOnly;
     const QByteArray p = path.toUtf8();
-    if (sqlite3_open(p.constData(), &m_db) != SQLITE_OK) {
-        qWarning("LootStore: cannot open %s: %s", p.constData(),
-                 m_db ? sqlite3_errmsg(m_db) : "out of memory");
+    const int flags = readOnly ? SQLITE_OPEN_READONLY
+                               : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
+    if (sqlite3_open_v2(p.constData(), &m_db, flags, nullptr) != SQLITE_OK) {
+        // Read-only against a DB that does not exist yet is normal — there is
+        // just no history to serve — so it is not worth a warning.
+        if (!readOnly)
+            qWarning("LootStore: cannot open %s: %s", p.constData(),
+                     m_db ? sqlite3_errmsg(m_db) : "out of memory");
         sqlite3_close(m_db);
         m_db = nullptr;
         return false;
+    }
+    if (readOnly) {
+        m_path = path;
+        qInfo("LootStore: read-only, serving %s", p.constData());
+        return true;
     }
     // WAL so the reader side never blocks the writer, and vice versa — a second
     // recorder or an external sqlite3 session can read while we append.
@@ -133,7 +144,7 @@ bool LootStore::setStorePath(const QString& path)
 
 int LootStore::record(const QVector<LootRowRec>& rows)
 {
-    if (!m_db || rows.isEmpty())
+    if (!m_db || m_readOnly || rows.isEmpty())
         return 0;
 
     sqlite3_stmt* st = nullptr;

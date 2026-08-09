@@ -8,6 +8,7 @@
 #include <QWebSocketServer>
 
 #include "envelopesink.h"
+#include "lootstore.h"
 #include "sessionadapter.h"
 
 #include "seq/v1/client.pb.h"
@@ -112,6 +113,22 @@ void WsServer::onNewConnection()
 {
     while (m_server->hasPendingConnections()) {
         QWebSocket* sock = m_server->nextPendingConnection();
+
+        // /loot is a query-only path: LootQuery in, LootPage out, no session
+        // and no envelope stream. Reading history should not require taking
+        // the spawn firehose, and it keeps loot off the session's seq counter.
+        if (sock->requestUrl().path() == QLatin1String("/loot")) {
+            m_lootSockets.insert(sock);
+            connect(sock, &QWebSocket::binaryMessageReceived,
+                    this, [this, sock](const QByteArray& b) {
+                        onLootBinary(sock, b);
+                    });
+            connect(sock, &QWebSocket::disconnected,
+                    this, [this, sock] { onSocketDisconnected(sock); });
+            qInfo("ws loot client connected");
+            continue;
+        }
+
         m_pending.insert(sock, PendingSocket{sock});
 
         // First binary frame routes through onPendingFirstBinary so we
@@ -127,6 +144,53 @@ void WsServer::onNewConnection()
 
         qInfo("ws client connected (pending Subscribe)");
     }
+}
+
+// /loot: one LootQuery in, one LootPage back, on this socket only. Stateless —
+// the connection can stay open and re-query, or close after one.
+void WsServer::onLootBinary(QWebSocket* sock, const QByteArray& bytes)
+{
+    seq::v1::ClientEnvelope env;
+    if (!env.ParseFromArray(bytes.constData(), bytes.size())) {
+        qWarning("loot: malformed ClientEnvelope (%lld bytes); dropping connection",
+                 static_cast<long long>(bytes.size()));
+        sock->close();
+        return;
+    }
+    if (!env.has_loot_query()) {
+        qWarning("loot: expected LootQuery; dropping connection");
+        sock->close();
+        return;
+    }
+
+    seq::v1::Envelope reply;
+    auto* page = reply.mutable_loot_page();
+    // No store (or a closed one, as under --replay) answers an empty page: the
+    // client renders "nothing recorded", which beats a dropped connection.
+    if (m_lootStore) {
+        for (const LootRowRec& r : m_lootStore->recent(env.loot_query().limit())) {
+            auto* row = page->add_rows();
+            row->set_ts(r.ts);
+            row->set_source(r.source.toStdString());
+            row->set_item_name(r.itemName.toStdString());
+            row->set_item_id(r.itemId);
+            row->set_icon(r.icon);
+            row->set_qty(r.qty);
+            row->set_mob_name(r.mobName.toStdString());
+            row->set_mob_norm(r.mobNorm.toStdString());
+            row->set_corpse_id(r.corpseId);
+            row->set_zone_short(r.zoneShort.toStdString());
+            row->set_zone_base(r.zoneBase.toStdString());
+            row->set_instance(r.instance.toStdString());
+            row->set_sold(r.sold);
+            row->set_money_copper(r.moneyCopper);
+            row->set_disposition(r.disposition.toStdString());
+            row->set_looter(r.looter.toStdString());
+        }
+    }
+
+    const std::string buf = reply.SerializeAsString();
+    sock->sendBinaryMessage(QByteArray(buf.data(), static_cast<int>(buf.size())));
 }
 
 void WsServer::onPendingFirstBinary(QWebSocket* sock, const QByteArray& bytes)
@@ -304,6 +368,12 @@ QString WsServer::generateSessionId() const
 
 void WsServer::onSocketDisconnected(QWebSocket* sock)
 {
+    if (m_lootSockets.remove(sock)) {
+        sock->deleteLater();
+        qInfo("ws loot client disconnected");
+        return;
+    }
+
     // Pending socket that died before sending Subscribe — just clean up.
     if (m_pending.contains(sock)) {
         m_pending.remove(sock);

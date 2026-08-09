@@ -38,20 +38,26 @@ struct LootRowRec {
 // is the confirmation's monotonic request sequence for acquisitions, and
 // corpse+item / corpse+ts for the rows that have none.
 //
-// Persistence is opt-in via setStorePath(); DaemonApp withholds it under
-// --replay so a regression run cannot write fixture loot into the real DB.
+// DaemonApp opens it read-only under --replay, so a regression run serves
+// history but cannot add to it.
 class LootStore {
 public:
     ~LootStore();
 
-    // Open (creating if needed) and apply the schema. Without this the store
-    // accepts rows and drops them, which is what replay wants.
-    bool setStorePath(const QString& path);
+    // Open and apply the schema, creating the DB if needed.
+    //
+    // `readOnly` is how --replay is enforced: the handle is opened
+    // SQLITE_OPEN_READONLY, so a regression run cannot write fixture loot into
+    // the real DB even if a caller tries. Reads still work, so replaying a
+    // capture still serves real history. A read-only open of a DB that does not
+    // exist yet leaves the store closed — there is simply nothing to serve.
+    bool setStorePath(const QString& path, bool readOnly = false);
+    bool isReadOnly() const { return m_readOnly; }
     bool isOpen() const { return m_db != nullptr; }
     const QString& path() const { return m_path; }
 
-    // Append rows. No-op when closed. Returns rows actually inserted —
-    // duplicates a peer already recorded count as 0.
+    // Append rows. No-op when closed or read-only. Returns rows actually
+    // inserted — duplicates a peer already recorded count as 0.
     int record(const QVector<LootRowRec>& rows);
 
     // Newest first. `limit` is clamped to [1, kMaxLimit]; 0 means kDefaultLimit.
@@ -63,6 +69,7 @@ public:
 private:
     sqlite3* m_db = nullptr;
     QString m_path;
+    bool m_readOnly = false;
 };
 
 #endif // LOOTSTORE_H
