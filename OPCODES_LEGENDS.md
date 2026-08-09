@@ -2649,3 +2649,48 @@ scripts/profile_locate.py /tmp/pp.1.bin /tmp/pp.2.bin --truth truth.json
 capture that zones opens a fresh world socket, so the scoped default can dump nothing at all.
 
 **Ruled out** (do not re-chase): item names as strings anywhere in the profile.
+
+### 2026-08-09 — storage taxonomy from the client binary; the per-item burst lead
+
+Source: `eqgame.exe` (PE32+ x86-64, 15.5MB, **not packed** — `strings` reads cleanly), plus
+prior local RE notes. No capture needed for any of this.
+
+**The client enumerates 47 item containers.** This is the authoritative taxonomy for the
+storage work, and it names spaces the profile hunt would otherwise have to guess at:
+
+```
+Possessions  Bank  SharedBank  AltStorage  Archived  Limbo  Overflow  Trade  Corpse
+Merchant  Bazaar  Mail  Krono  DragonHoard  RealEstate  TradeskillDepot  GuildDepot
+GuildTribute  GuildTrophyTribute  Tribute  TrophyTribute  Inspect  World  PetItems
+PersonaEquip  Deleted  Invalid  Other
+  ...KeyRingItems: Activated, Augment, Equipment, Familiar, Illusion, Mount, Teleportation
+  ...ViewMod* mirrors of most of the above
+```
+
+Mapping the in-game Storage tabs onto it: **Equipment → `EquipmentKeyRingItems`**,
+**Activated Items → `ActivatedKeyRingItems`**. Both are KEY RINGS, not ordinary bags — which
+is why they have their own capacity ("n/125", "n/15") and their own purchase button. The
+`n/15` capacity matches the 15-slot empty array found at `46200..46260`, making
+`ActivatedKeyRingItems` the leading candidate for that array. Supporting symbols:
+`AltStorageWnd`, `AltStorageInstanceData`, `ArchiveStorageInstanceData`,
+`ActivatedItemKeyRingInstanceData`, `CMD_TOGGLE_KEYRINGACTIVATED`.
+
+Note **Exaltation is NOT a container type** — there is no `eItemContainerExaltation`, and the
+strings show `" (Exaltation)"` as a NAME SUFFIX plus a `Max. Items in one stack: %d` template.
+So the Exaltation tab is a view over items tagged exalted, not a distinct space. Do not go
+looking for an Exaltation array.
+
+**Per-item serialization exists, separate from the bulk profile.** Local notes on the loadout
+swap record the sequence: `c2s <request> -> ack -> a burst of SERIALIZED ITEM packets -> a
+~118KB full self-refresh -> WearChange broadcasts`. A per-item packet is a far better
+ItemCache source than any bulk blob, since it should carry one item template per fire.
+
+**The opcode ids in those notes are DEAD** — they predate the 07/14, 07/28, 07/29, 08/04 and
+08/05 rotations (07/14 alone was a full re-map). Keep the SHAPE, re-hunt the ids: the burst is
+identifiable by its position in that sequence, which is a Mode B window correlation with the
+swap request as the opening landmark.
+
+**What the binary will NOT give cheaply**: the byte offset of anything in the profile. It is
+an optimised x86-64 build with no symbols; finding the serializer is far more work than one
+paired capture. Use the client for SEMANTICS (which spaces exist, what a slot index means,
+capacities) and the wire for LAYOUT.
