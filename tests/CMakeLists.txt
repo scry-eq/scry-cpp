@@ -85,6 +85,21 @@ target_compile_options(itemcache_test PRIVATE
 
 add_test(NAME itemcache_test COMMAND itemcache_test)
 
+add_executable(lootstore_test
+  lootstore_test.cpp
+)
+
+target_link_libraries(lootstore_test PRIVATE
+  seq-daemon-core
+  Qt6::Test
+)
+
+target_compile_options(lootstore_test PRIVATE
+  -Wall
+)
+
+add_test(NAME lootstore_test COMMAND lootstore_test)
+
 add_executable(mappackages_test
   mappackages_test.cpp
 )

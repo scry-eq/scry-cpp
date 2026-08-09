@@ -23,6 +23,7 @@
 
 #include "messageshell.h"
 #include "seq-bridge-cxx/lib.h"
+#include "lootstore.h"
 #include "eqstr.h"
 #include "messages.h"
 #include "everquest.h"
@@ -37,6 +38,7 @@
 #include "util.h"
 #include "netstream.h"
 
+#include <QDateTime>
 #include <QRegularExpression>
 #include <QHash>
 #include <QSet>
@@ -67,6 +69,11 @@ QString stripEqItemLinks(const QString& in)
     return out;
 }
 
+int64_t nowMs()
+{
+    return QDateTime::currentMSecsSinceEpoch();
+}
+
 } // namespace
 
 //----------------------------------------------------------------------
@@ -84,9 +91,43 @@ MessageShell::MessageShell(Messages* messages, EQStr* eqStrings,
     m_dbStrings(dbStrings),
     m_zoneMgr(zoneMgr),
     m_spawnShell(spawnShell),
-    m_player(player)
+    m_player(player),
+    m_lootTracker(seq::rust::eql_loot_tracker_new())
 {
     setObjectName(name);
+}
+
+// Persist whatever the tracker just completed. No store (--replay) means the
+// rows are dropped, which is the point: a regression run must not write.
+void MessageShell::recordLoot(const rust::Vec<seq::rust::LootRow>& rows)
+{
+    if (!m_lootStore || rows.empty())
+        return;
+    QVector<LootRowRec> out;
+    out.reserve(static_cast<int>(rows.size()));
+    for (const auto& r : rows)
+    {
+        LootRowRec rec;
+        rec.ts = r.ts;
+        rec.source = QString::fromUtf8(r.source.data(), r.source.size());
+        rec.itemName = QString::fromUtf8(r.item_name.data(), r.item_name.size());
+        rec.itemId = r.item_id;
+        rec.icon = r.icon;
+        rec.qty = r.qty;
+        rec.mobName = QString::fromUtf8(r.mob_name.data(), r.mob_name.size());
+        rec.mobNorm = QString::fromUtf8(r.mob_norm.data(), r.mob_norm.size());
+        rec.corpseId = r.corpse_id;
+        rec.zoneShort = QString::fromUtf8(r.zone_short.data(), r.zone_short.size());
+        rec.zoneBase = QString::fromUtf8(r.zone_base.data(), r.zone_base.size());
+        rec.instance = QString::fromUtf8(r.instance.data(), r.instance.size());
+        rec.sold = r.sold;
+        rec.moneyCopper = r.money_copper;
+        rec.disposition = QString::fromUtf8(r.disposition.data(), r.disposition.size());
+        rec.looter = QString::fromUtf8(r.looter.data(), r.looter.size());
+        rec.sequence = r.sequence;
+        out.push_back(rec);
+    }
+    m_lootStore->record(out);
 }
 
 void MessageShell::channelMessage(const uint8_t* data, size_t len, uint8_t dir)
@@ -281,20 +322,22 @@ void MessageShell::formattedMessageEQL(const uint8_t* data, size_t len, uint8_t 
                    text, out.message_color);
 }
 
-// OP_LootMessage (0x7d46): eql personal auto-loot text (links already reduced to
-// the item name by the parser).
+// OP_LootMessage: eql personal auto-loot text (links already reduced to the item
+// name by the parser, which also hands back the id off the link header).
 void MessageShell::lootMessage(const uint8_t* data, size_t len, uint8_t dir)
 {
   if (dir == DIR_Client)
     return;
   auto out = seq::rust::decode_loot_message(
       rust::Slice<const uint8_t>{data, len});
-  if (!out.ok || out.message.empty())
+  if (!out.ok || out.text.empty())
     return;
-  const QString text = QString::fromUtf8(out.message.data(), out.message.size());
+  const QString text = QString::fromUtf8(out.text.data(), out.text.size());
   m_messages->addMessage(MT_General, text);
   emit chatMessage(static_cast<uint32_t>(MT_General), QString(), QString(),
-                   text, out.message_color);
+                   text, out.color);
+  recordLoot(m_lootTracker->on_loot_message(out.color, out.text, out.item_id,
+                                            out.item_name, nowMs()));
 }
 
 void MessageShell::lootTransaction(const uint8_t* data, size_t len, uint8_t dir)
@@ -312,6 +355,7 @@ void MessageShell::lootTransaction(const uint8_t* data, size_t len, uint8_t dir)
     m_player->adjustMoney((int64_t)out.coin_copper);
   emit lootTransactionReceived(out.corpse_id, out.item_id, out.quantity,
                                out.coin_copper, out.from_corpse);
+  recordLoot(m_lootTracker->on_loot_transaction(out, nowMs()));
 }
 
 // OP_LootDrops (0x6768): corpse loot window -> LootDrops proto (via SessionAdapter).
@@ -329,11 +373,14 @@ void MessageShell::lootDrops(const uint8_t* data, size_t len, uint8_t dir)
   names.reserve(static_cast<int>(out.items.size()));
   icons.reserve(static_cast<int>(out.items.size()));
   itemIds.reserve(static_cast<int>(out.items.size()));
+  const int64_t ts = nowMs();
   for (const auto& it : out.items)
   {
     names.push_back(QString::fromUtf8(it.name.data(), it.name.size()));
     icons.push_back(it.icon);
     itemIds.push_back(it.item_id);
+    recordLoot(m_lootTracker->on_loot_drop_item(out.corpse_id, out.corpse_name,
+                                                it.name, it.icon, it.item_id, ts));
   }
   emit lootDropsReceived(out.corpse_id,
                          QString::fromUtf8(out.corpse_name.data(),
@@ -697,6 +744,10 @@ void MessageShell::zoneEnd(const QString& shortZoneName,
                     "' LongName = " + longZoneName;
 
   m_messages->addMessage(MT_Zone, tempStr);
+
+  // Stamp the zone on rows from here on, and flush any narration still waiting
+  // for its confirmation so it keeps the zone it was looted in.
+  recordLoot(m_lootTracker->set_zone(shortZoneName.toStdString()));
 
   // TODO(chat-synthesis): modern EQ renders "You have entered <zone>."
   // client-side rather than sending it as chat, so the web chat panel never

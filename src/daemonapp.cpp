@@ -25,6 +25,7 @@
 #include "guildshell.h"
 #include "guild.h"
 #include "itemcache.h"
+#include "lootstore.h"
 #include "mapcore.h"
 #include "messagefilter.h"
 #include "messages.h"
@@ -300,6 +301,19 @@ bool DaemonApp::start()
         m_itemCache->setStorePath(cacheFile.absoluteFilePath());
     } else {
         qInfo("ItemCache: replay mode, persistence disabled");
+    }
+
+    // Loot history. Same replay rule as the item cache, and for a sharper
+    // reason: tests/replay/check.sh runs on every pre-push, so without this a
+    // regression run would append fixture loot to the user's real DB. The
+    // tracker still runs under replay — it just has nowhere to write.
+    m_lootStore = std::make_unique<LootStore>();
+    if (m_cfg.replay.isEmpty()) {
+        const QFileInfo lootFile = m_dataLocationMgr->findWriteFile(
+            ".", "loot.db", true, true);
+        m_lootStore->setStorePath(lootFile.absoluteFilePath());
+    } else {
+        qInfo("LootStore: replay mode, recording disabled");
     }
 
     // PrefsBroker is the curated XMLPreferences <-> wire bridge. Constructed
@@ -717,6 +731,7 @@ ManagerSet DaemonApp::buildManagerSet()
                                        m_spellMessages, m_dbStrings,
                                        ms.zoneMgr, ms.spawnShell, ms.player,
                                        this, "messageShell");
+    ms.messageShell->setLootStore(m_lootStore.get());
 
     // SpellShell tracks active buffs / outgoing casts. Wires player
     // signals + clear-on-zone, mirroring showeq interface.cpp:967-988.

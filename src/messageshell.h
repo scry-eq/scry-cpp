@@ -27,8 +27,11 @@
 #include "messages.h"
 
 #include <cstdint>
+#include <memory>
 
 #include <QObject>
+
+#include "seq-bridge-cxx/lib.h"
 
 //----------------------------------------------------------------------
 // forward declarations
@@ -36,6 +39,7 @@ class QString;
 class QDateTime;
 
 class EQStr;
+class LootStore;
 class Spells;
 class SpellMessages;
 class DbStrings;
@@ -60,6 +64,10 @@ class MessageShell : public QObject
 	       SpellMessages* spellMessages, DbStrings* dbStrings,
 	       ZoneMgr* zoneMgr, SpawnShell* spawnShell,
                Player* player, QObject* parent = 0, const char* name = 0);
+
+  // Where completed loot rows go. Left null under --replay so a regression run
+  // records nothing; the tracker still runs, it just has nowhere to write.
+  void setLootStore(LootStore* store) { m_lootStore = store; }
 
  public slots:
    void channelMessage(const uint8_t* cmsg, size_t, uint8_t);
@@ -170,6 +178,13 @@ class MessageShell : public QObject
    ZoneMgr* m_zoneMgr;
    SpawnShell* m_spawnShell;
    Player* m_player;
+   // Loot history. The tracker is per-box session state (one acquisition spans
+   // two packets); the store is daemon-global and null under --replay, which is
+   // what keeps a regression run from writing fixture loot into the real DB.
+   void recordLoot(const rust::Vec<seq::rust::LootRow>& rows);
+
+   LootStore* m_lootStore = nullptr;
+   rust::Box<seq::rust::EqlLootTracker> m_lootTracker;
 };
 
 
