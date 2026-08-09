@@ -2675,10 +2675,12 @@ is why they have their own capacity ("n/125", "n/15") and their own purchase but
 `AltStorageWnd`, `AltStorageInstanceData`, `ArchiveStorageInstanceData`,
 `ActivatedItemKeyRingInstanceData`, `CMD_TOGGLE_KEYRINGACTIVATED`.
 
-Note **Exaltation is NOT a container type** — there is no `eItemContainerExaltation`, and the
-strings show `" (Exaltation)"` as a NAME SUFFIX plus a `Max. Items in one stack: %d` template.
-So the Exaltation tab is a view over items tagged exalted, not a distinct space. Do not go
-looking for an Exaltation array.
+~~Note **Exaltation is NOT a container type**~~ — **WRONG, corrected 2026-08-09 below.** The
+reasoning was that no `eItemContainerExaltation` symbol exists and `" (Exaltation)"` appears as
+a name SUFFIX. Both facts are true; the conclusion was not. The wire assigns those items their
+own container id (33), holding exactly the four items the Exaltation tab lists. A missing enum
+NAME is not evidence of a missing container — the enum is the client's own labelling, not the
+wire's.
 
 **Per-item serialization exists, separate from the bulk profile.** Local notes on the loadout
 swap record the sequence: `c2s <request> -> ack -> a burst of SERIALIZED ITEM packets -> a
@@ -2834,3 +2836,35 @@ reads range|primary|secondary — each is a different item CLASS agreeing with t
 what makes this a real confirmation rather than a plausible-looking table.
 
 This also settles the `worn_set` semantics: slot indices are bit positions in this mask.
+
+### 2026-08-09 — record+21 is the CONTAINER ID; storage spaces are separable
+
+Same paired capture, same dumps. `OP_ItemPacket` record offset **+21** (u32, immediately after
+the 16-char serial + NUL) is the item's container. Only **six** distinct values across 271
+records, and three are confirmed by exact match against the in-game Storage UI:
+
+| +21 | count | identity | evidence |
+|---|---|---|---|
+| 33 | 4 | **Exaltation** | EXACTLY the four items the tab lists — Hand Drum, Kelin\`s Seven Stringed Lute, McVaxius\` Horn of War, Wooden Flute. UI reads 4/50. |
+| 37 | 3 | **ActivatedKeyRingItems** | 3 items; UI reads 3/15 |
+| 39 | 110 | **EquipmentKeyRingItems** | UI read 104/125 before the capture's own moves |
+| 1 | 27 | carried inventory / Possessions | backpacks, sacks, keys, small boxes |
+| 25 | 7 | unidentified | Earthshaker ×2, Brell\'s Girdle, Lustrous Russet pieces — bank or magical storage |
+| 0 | 120 | unidentified, the largest | too many to be worn slots alone |
+
+Found by diffing the paired capture STRUCTURALLY rather than bytewise: the payload is
+reordered between fires, so a byte diff is useless, but parsing to records keyed by serial
+shows only two records changing length per move. Moving the crown flipped its +21 from 39 to 0
+— the field tracks the move directly.
+
+**This is the answer to "separate the storage spaces".** It is a per-item container id, not a
+per-space array, so there is no array to find: group the records by +21.
+
+**It is NOT yet `worn_set`.** Container 0 holds 120 items, far more than the ~22 worn slots, so
+either worn items share a container with others and a second field carries the slot, or worn
+items live in a container not yet identified. `slot_mask` says where an item CAN go, never
+where it IS.
+
+Note the count for 33 and 37 matches the UI EXACTLY while 39 is 110 against a screenshot's
+104 — the screenshot predates the capture's own three moves, so treat exact matches on small
+containers as the confirmation and the large one as consistent.
