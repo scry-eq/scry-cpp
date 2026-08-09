@@ -1138,15 +1138,22 @@ comment = "old CorpseLocCode:"
   sizechecktype = "match"
 
 [[zone]]
-id      = "ffff"
+id      = "05d5"
 name    = "OP_ItemPacket"
-priority = -1
-priority_note = "noHandler"
-updated = "2026-07-14"
-comment = "STALE post-07/28: id 0b66 carried pre-patch provenance and fires ZERO times across a 440k-packet capture on the current patch, so it is unverified and ffff'd rather than left to mis-fire. Upstream remapped the ZONE set only, so its world table is equally stale here. Re-hunt on a current capture. PRIOR: EQ Legends bulk item transfer (S>C, ~1.1KB-19KB, sent on zone-in). u32@4 = item count N, then N item records ~1122-1130b each (16-char serial + name×2 + Trophy/Benefit descriptor + stats; item-id candidate = first u32). IDENTIFIED, NOT DECODED — the record layout (3-class fields etc.) is future work, and the Legends format differs from Live's itemPacketStruct, so this is intentionally NOT wired to the itemCache sink. See OPCODES_LEGENDS.md."
+priority = 10
+updated = "2026-08-09"
+comment = "RE-HUNTED 2026-08-09, restoring the mapping the 07/28 note asked for. EQ Legends bulk item set (S>C, 200-310KB) answered to a 0-byte C>S REQUEST, once per zone-in session — the old note's \"sent on zone-in\" missed the request half. Header is 4 bytes (records start at 4, not 8 as before the rotations); then a flat run of variable-length records, 16-char instance serial + name×2 (name, lore name) + stats, stride median 1090b / mean 1140b — matching the prior note's ~1122-1130b, which is what identifies this as the SAME packet at a new id rather than a new opcode. Cross-validated on two captures with identical structure: eqlegends-patch-20260806 209644B/184 records, eqlegends-inventory-paired 308865B/271 records, both first-serial@4 and stride med 1090/mean 1140. THE item name + stat source: loot events carry name+icon but no stats, and the PlayerProfile carries no storage contents at all (proven by a paired capture — three item moves changed nothing in it). u32@0 is NOT the record count (167 vs 271 serials; 271-167=104 = the equipment-storage count seen in-game, so it likely counts one tier with bag/storage contents beyond it) — walk the serials, do not trust a count field. Variable length, so uint8_t/sizechecktype=none. See OPCODES_LEGENDS.md 2026-08-09."
 
   [[zone.payloads]]
   dir           = "server"
+  typename      = "uint8_t"
+  sizechecktype = "none"
+
+  # The request half: a 0-byte C>S that triggers the bulk reply. Declared so
+  # --strict-gate-sizes stays quiet about it; without this the empty payload
+  # warns on every fire.
+  [[zone.payloads]]
+  dir           = "client"
   typename      = "uint8_t"
   sizechecktype = "none"
 
