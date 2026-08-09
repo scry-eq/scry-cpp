@@ -2755,3 +2755,57 @@ unexplained: "Apothic Crown" and the activated item are present in the BASELINE 
 **Next**: map `0x05d5` (name it deliberately — `OP_ItemPacket` and `OP_ItemPlayerPacket` are
 both free but their upstream semantics are unverified), pin the stat-block field offsets against
 a known item's in-game tooltip, then write the parser in `showeq-decoder-rs`.
+
+### 2026-08-09 — OP_ItemPacket (0x05d5) record layout; item_id + icon CONFIRMED against loot.db
+
+Method: Mode C over `eqlegends-inventory-paired.vpk`, validated against an INDEPENDENT source —
+`~/.scry/eql/loot.db`, which holds real `(item_name, item_id, icon)` triples recorded from loot
+events, so it was produced by a completely different decode path.
+
+**Record layout** (offsets from the record start, i.e. the 16-char serial):
+
+```
++0     char serial[16] NUL          "iGS000e0002S4000" — per-INSTANCE id, unique per record
++17    106 B fixed block            mostly constants + a 0xffff-heavy region; not yet decoded
++123   char name[] NUL              always at +123 — fixed, because the serial is fixed-width
++...   char lore_or_desc[] NUL      lore name (usually == name); a container puts its
+                                    description here ("Holds Giant items, Capacity 12")
++TAIL  field block                  TAIL = first byte after the two strings, so it is
+                                    RECORD-RELATIVE and varies with name length
+```
+
+**Field block, u32 grid from TAIL** (228 named records in the sample):
+
+| idx | off | population | reading |
+|---|---|---|---|
+| [0] | +0 | 228/228, 44 distinct | type / class code |
+| [1] | +4 | always 0 | padding |
+| **[2]** | **+8** | **228 distinct** | **`item_id` — CONFIRMED 6/6 vs loot.db** |
+| [3] | +12 | 227/228, 38 distinct | — |
+| [4] | +16 | 9 distinct (1, 257, 0x01000001, 0x02000101 …) | byte-packed flags |
+| [5] | +20 | 205/228, values 0/4/8/18/32/64 | `slot_mask` candidate |
+| [6] | +24 | 93/228, 63 distinct | weight or value candidate |
+| **[7]** | **+28** | **143 distinct** | **`icon` — CONFIRMED 6/6 vs loot.db** |
+| [8] | +32 | 26/228, high-half packed | AC candidate (26 ≈ the armour count) |
+
+**Stat block: signed i32 on a 4-byte grid starting at TAIL+46.** Values run −5..75 and ARE
+signed (both −1 and −5 observed), so read i32, not u32. Columns 0-13 carry data; col2 is always
+zero; col17/col18 are populated on every record and look structural rather than statistical.
+
+Getting the grid right needed care: the values first appeared in the HIGH half of u32s read on
+a TAIL+0 grid, which reads as garbage (655360 rather than 10). The block is offset by 46 from
+the tail, not aligned to it.
+
+**Still open — which column is which stat.** Assignment cannot be inferred from the wire alone:
+several items carry the same value in multiple columns, and the proto needs a definite
+`stats[7]` (STR STA AGI DEX CHA INT WIS) plus `resists[5]` order. It needs ONE in-game tooltip
+of a stat-varied item. Best candidates in this capture, most-distinct-values first:
+
+```
+Loam Encrusted Cloak   cols0-13: [3, 3, 0, 2, 0, 8, 0, 3, 1, 0, 0, 5, 0, 5]   5 distinct
+Blighted Skullcap      cols0-13: [10, 0, 0, 0, 0, 0, 0, 0, 8, 7, 10, 20, 0, 5]
+White Satin Gloves     cols0-13: [-5, 30, 0, 0, 0, 0, 0, 0, 0, 0, 25, 25, 25, 4]  (a NEGATIVE)
+```
+
+Do NOT assume Live's `ItemStatIndex` order carries over — the Legends record format already
+differs from Live's `itemPacketStruct`, and a wrong stat order decodes silently.
