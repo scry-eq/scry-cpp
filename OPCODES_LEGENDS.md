@@ -2694,3 +2694,64 @@ swap request as the opening landmark.
 an optimised x86-64 build with no symbols; finding the serializer is far more work than one
 paired capture. Use the client for SEMANTICS (which spaces exist, what a slot index means,
 capacities) and the wire for LAYOUT.
+
+### 2026-08-09 — 0x05d5 = the character's full ITEM TEMPLATE set (names + stats), request/response
+
+Capture: `tests/replay/eql/eqlegends-inventory-paired.vpk` (deliberate paired capture: zone in,
+then one item moved per zone bracket — Apothic Crown, then an activated item, then a belt).
+Method: `--opcode-stats`, then `--dump-payload 0x05d5:` + `--dump-all-sessions`.
+
+- **`0x05d5`** (S>C, 200-310KB, **currently `ffff`/unmapped**). Request/response: a **0-byte
+  C>S** triggers a single large S>C reply, once per zone-in session. Payload is a flat run of
+  per-item records:
+
+  ```
+  <16-char serial "iGS000e0002S4000"> NUL <name> NUL <lore name> NUL <stat block>
+  ```
+
+  Sample (Apothic Crown), name through +160:
+  ```
+  41706f746869632043726f776e00 41706f746869632043726f776e00 3f00000000000000
+  d7040000 03000000 0100000104000000000000000b0200000000000000000000...
+  ```
+  → two NUL-terminated copies of the name (name + lore name), then a fixed stat block.
+  Descriptions ride the same encoding elsewhere in the record ("Lightweight Bag" /
+  "Holds Giant items, Capacity 12").
+
+  **271 records** in the 2026-08-09 capture, each with a unique serial.
+
+**Cross-validated across three captures**, and the size tracks items owned over time:
+`eqlegends-patch-20260806` 209644B · `eqlegends-loot2` 271810B · `eqlegends-inventory-paired`
+308865B. Same 1×C>S(0) + 1×S>C shape in all three. No other unknown opcode is anywhere near
+that size, so there are zero competitors.
+
+**This is the ItemCache source.** It carries exactly what loot events cannot: item NAME plus
+the stat block. It is not `OP_ItemPacket` (still `ffff`/priority -1, zero fires) — the door
+was somewhere else entirely.
+
+**Negative results, equally load-bearing — the PlayerProfile does NOT carry storage contents:**
+
+- Three deliberate item moves produced **no** change to the 10-slot `0xffffffff` array at
+  `@35981`, which is byte-identical across all four profile fires.
+- **No count anywhere in the profile decrements** when an item leaves a space. Swept every u16
+  and u32 offset for a value that steps down by one and never up: zero candidates.
+- So the earlier plan of locating an "inventory block" in the profile is chasing something
+  that is not there. The keyring/storage tabs are fetched on demand — consistent with the
+  client's `AltStorageWnd` / `eItemContainerViewMod*` symbols.
+
+**A profile trap worth knowing before anyone diffs it again:** of 307 bytes that change between
+consecutive profile fires, **219 merely oscillate** (value flips and flips back), spanning
+`36211..45815` — roughly 9.6KB of ids in the 11000000 range that reorder every fire. It is an
+unordered container serialized in hash order, so it is unusable at fixed offsets AND it swamps
+a naive diff. Classify a changed byte as real only when `fire1 != fire3` or `fire2 != fire4`;
+that cut the noise from 307 bytes to 88 here.
+
+**Still open**: each item move grew the `0x05d5` payload by **exactly 4 bytes**, yet the set of
+strings is identical across all four dumps (553 distinct in every one) — so the growth is not
+a new item record. Some 4-byte-per-item list (slot assignment?) elsewhere in the payload. Also
+unexplained: "Apothic Crown" and the activated item are present in the BASELINE dump, while
+"Kitchen Tool Belt" appears in none — so this payload is not scoped to one container.
+
+**Next**: map `0x05d5` (name it deliberately — `OP_ItemPacket` and `OP_ItemPlayerPacket` are
+both free but their upstream semantics are unverified), pin the stat-block field offsets against
+a known item's in-game tooltip, then write the parser in `showeq-decoder-rs`.
