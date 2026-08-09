@@ -2868,3 +2868,44 @@ where it IS.
 Note the count for 33 and 37 matches the UI EXACTLY while 39 is 110 against a screenshot's
 104 — the screenshot predates the capture's own three moves, so treat exact matches on small
 containers as the confirmation and the large one as consistent.
+
+### 2026-08-09 — loadout-swap tail: offset pinned, contents still need a self capture
+
+Capture: `tests/replay/eql/eqlegends-inventory-paired.vpk`. Method: `--dump-payload 0xc9ac:`
++ `--dump-all-sessions`.
+
+**The tail starts at `innerLen`, not at `7 + innerLen`.** `innerLen` covers the header AND the
+embedded record, so the record is `data[7..innerLen]` and the tail is `data[innerLen..]`. On a
+broadcast the two are equal, giving `tail_len == 0`. Verified across all nine fires: sizes
+482-516 B, `innerLen` equal to the payload length every time.
+
+**That replaces the size heuristic.** The variants were previously told apart by payload size
+(~490 B broadcast vs ~118 KB self); `tail_len` is the wire saying so directly, which matters
+because a self swap on a character with little inventory need not be large.
+
+**No self variant exists in any capture.** All nine fires here are nearby players' swaps —
+zero item serials in any of them. A self variant requires the CAPTURING client to swap
+loadouts. The broadcast half already decodes end to end (identity + level + class + race +
+position, re-adding the spawn Legends deleted moments before), so what is missing is only the
+tail.
+
+**Contents remain unparsed on purpose.** The leading hypothesis is that the tail carries the
+same `serial / name / lore / field-block` records that `OP_ItemPacket` does — the 2026-07 local
+notes describe the swap sequence as `request -> ack -> a burst of serialized items -> the self
+refresh`, and the item record format is now known. But that is untested, and a speculative
+parser here would emit plausible zeros rather than fail. `tail_of()` returns the bytes; nothing
+decodes them yet.
+
+**To finish it** — one capture, and the swap must be performed BY the capturing client:
+
+```
+scripts/capture.py eqlegends-loadout-self      # start BEFORE zoning in
+# in game: zone in, then swap loadout/class ON THE CAPTURING CHARACTER
+./build/showeq-daemon --replay tests/replay/eql/eqlegends-loadout-self.vpk \
+    --config-dir conf --no-listen --dump-all-sessions --dump-payload 0xc9ac:/tmp/ls
+# the self fire is the one whose length exceeds its innerLen; scan it for "iGS" serials
+```
+
+If the tail scans as `iGS`-prefixed records, reuse `item_packet.rs`'s record walk directly
+rather than writing a second one — a duplicate record parser is exactly the footgun that bit
+`parse_spawn` in this crate before.
