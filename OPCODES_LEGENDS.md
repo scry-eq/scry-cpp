@@ -2593,3 +2593,59 @@ destinations, each with its own wording — sold, `tradeskill depot`,
 matched by showeq-web's session-window regexes, so depot/hoard/combine items
 never appeared there at all. The window now shares the loot recorder's
 `parseEqlLootMessage`, which already handled all four.
+
+### 2026-08-09 — profile storage arrays: 10-slot run @35981 reproduced; item NAMES are not in the profile
+
+Capture: `tests/replay/eql/eqlegends-patch-20260806.vpk` (post-08/05 rotation, 4 profile
+fires, one character). Method: `--dump-payload 0x371a:` + `--dump-all-sessions`, analysed with
+the new `scripts/profile_locate.py`.
+
+**Not resolved — research notes, so the next session starts here instead of re-deriving.**
+
+- **Landmarks still hold on a 46281-byte profile.** Carried money `@33687`, cursor `@33703`,
+  stance `@33777`, invocation `@33781`, and the mirror `@36245` reads the SAME value as
+  carried — so "inventory mirror" is confirmed as a mirror, not a coincidence.
+
+- **Item names are NOT serialised in the profile.** 17 probes drawn from a live Storage UI
+  (equipment, exaltation, activated, currency names) scored zero hits. Storage is
+  **item-ID arrays**, as the earlier candidate note assumed — worth knowing before anyone
+  greps for a name again. Consequence for ItemCache: the profile can give ids + slots, so a
+  NAME still needs another source (loot events already carry name+icon+item_id).
+
+- **The 10-empty-slot run `@35981` reproduced exactly**, on a different capture from the one
+  that first suggested it. Extent is `35981..36021` = 10 × `0xffffffff`; the two 0xff bytes
+  that follow belong to the next field (`@36021 = 0x9aceffff`), so do not read them as an
+  11th slot.
+
+- **A second fixed array sits at `46200..46260` = 15 slots**, all empty, near EOF (profile is
+  46281). 15 is the capacity the game UI shows for *Activated Items* (`n/15`) — suggestive,
+  unconfirmed. Shorter 2-slot runs at 28271, 28389, 36557, 46160.
+
+- **Profile size was CONSTANT (46281) across all four fires**, so these arrays are fixed-size
+  slot tables and do NOT drive the profile's length. That sits awkwardly with the note above
+  (`@36047` name offset "sits past the inventory block, so a big inventory change shifts it")
+  — either the length-driving block is something else (variable per-item records?), or that
+  drift only shows across a large enough inventory delta. Worth settling early; it decides
+  whether a fixed-offset read is safe at all.
+
+- **`@35973`, immediately before the 10-slot run, changed between two fires** (a nonzero id-
+  shaped value to 0) with no deliberate inventory action. Either the array is one slot longer
+  than the 0xff run suggests and uses 0 as a second empty marker, or 35973 is an unrelated
+  field. A paired capture settles it.
+
+**What is still missing is a controlled change.** All four fires are zone-ins with no
+inventory action, so nothing here isolates a slot. Next capture (Mode C paired diff), one
+change per capture so the diff is unambiguous:
+
+```
+scripts/capture.py eqlegends-inventory-paired     # start BEFORE zoning in
+# in game: zone in -> move/deposit ONE known item -> zone again
+./build/showeq-daemon --replay tests/replay/eql/eqlegends-inventory-paired.vpk \
+    --config-dir conf --no-listen --dump-all-sessions --dump-payload 0x371a:/tmp/pp
+scripts/profile_locate.py /tmp/pp.1.bin /tmp/pp.2.bin --truth truth.json
+```
+
+`--dump-all-sessions` is not optional: recon follows the primary box by default, and a
+capture that zones opens a fresh world socket, so the scoped default can dump nothing at all.
+
+**Ruled out** (do not re-chase): item names as strings anywhere in the profile.
