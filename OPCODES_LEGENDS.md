@@ -2783,7 +2783,7 @@ events, so it was produced by a completely different decode path.
 | **[2]** | **+8** | **228 distinct** | **`item_id` — CONFIRMED 6/6 vs loot.db** |
 | [3] | +12 | 227/228, 38 distinct | — |
 | [4] | +16 | 9 distinct (1, 257, 0x01000001, 0x02000101 …) | byte-packed flags |
-| [5] | +20 | 205/228, values 0/4/8/18/32/64 | `slot_mask` candidate |
+| **[5]** | **+20** | **21 distinct masks** | **`slot_mask` — CONFIRMED, standard EQ bitmask** |
 | [6] | +24 | 93/228, 63 distinct | weight or value candidate |
 | **[7]** | **+28** | **143 distinct** | **`icon` — CONFIRMED 6/6 vs loot.db** |
 | [8] | +32 | 26/228, high-half packed | AC candidate (26 ≈ the armour count) |
@@ -2809,3 +2809,28 @@ White Satin Gloves     cols0-13: [-5, 30, 0, 0, 0, 0, 0, 0, 0, 0, 25, 25, 25, 4]
 
 Do NOT assume Live's `ItemStatIndex` order carries over — the Legends record format already
 differs from Live's `itemPacketStruct`, and a wrong stat order decodes silently.
+
+**`slot_mask` (TAIL+20) confirmed — no tooltip required.** All 21 distinct masks in the payload
+decode to the semantically correct slot for their items under EQ's standard bitmask
+(bit2 head, bit3 face, bits1|4 ears, bit5 neck, bit6 shoulders, bit7 arms, bit8 back,
+bits9|10 wrists, bit11 range, bit12 hands, bit13 primary, bit14 secondary, bits15|16 fingers,
+bit17 chest, bit18 legs, bit19 feet, bit20 waist):
+
+```
+4       head       Lustrous Russet Helm      8192    primary            Executioner's Axe
+8       face       Polished Mithril Mask     16384   secondary          Rokyls Channelling Crystal
+18      ear1|ear2  Golden Earring            24576   primary|secondary  McVaxius` Horn of War
+32      neck       Symbol of Marr            26624   range|pri|sec      Dragoon Dirk (throwable)
+64      shoulders  Carnal Pauldrons          98304   finger1|finger2    Spiritualist`s Ring
+128     arms       Shadow Rage Sleeves       131072  chest              Disgusting Padded Shirt
+256     back       Crimson Cape              262144  legs               Insidious Pantaloons
+1536    wrist1|2   Insidious Manacle         524288  feet               Golden Efreeti Boots
+2048    range      Efreeti War Bow           1048576 waist              Belt of Tranquility
+4096    hands      Studded Leather Gloves    0       (not equippable)   Lightweight Bag
+```
+
+A container reads 0, a two-handed instrument reads primary|secondary, and a throwing dagger
+reads range|primary|secondary — each is a different item CLASS agreeing with the mask, which is
+what makes this a real confirmation rather than a plausible-looking table.
+
+This also settles the `worn_set` semantics: slot indices are bit positions in this mask.
