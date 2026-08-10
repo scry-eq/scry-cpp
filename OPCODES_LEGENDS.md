@@ -2896,7 +2896,22 @@ refresh`, and the item record format is now known. But that is untested, and a s
 parser here would emit plausible zeros rather than fail. `tail_of()` returns the bytes; nothing
 decodes them yet.
 
-**To finish it** — one capture, and the swap must be performed BY the capturing client:
+**✅ FINISHED 2026-08-10.** The capture landed and the hypothesis held: the tail is the same
+serial/name/lore/field-block record run `OP_ItemPacket` carries, so the existing walk parses it
+unchanged. Measured on a captured self swap: 308192 B payload, `innerLen` 487, a 307705-byte
+tail holding **234 items**, ids and icons matching the item packet's. Three fires in that
+capture — one broadcast (`tail_len` 0) and two self.
+
+One guard the tail forced: **a serial with NO NAME at +123 is a REFERENCE, not a record.** The
+tail opens with a short reference list — entries that are just a serial — and without the guard
+they parse as empty-named items DUPLICATING a real record's serial (236 "records" for 234 real
+ones). That reference list is the leading lead for `worn_set`, since something has to say which
+items a loadout equips.
+
+Also note the tail does not begin at its first record: ~44 KB precedes it, still unidentified.
+
+The original recipe, kept because it is the one that worked — the swap must be performed BY the
+capturing client:
 
 ```
 scripts/capture.py eqlegends-loadout-self      # start BEFORE zoning in
