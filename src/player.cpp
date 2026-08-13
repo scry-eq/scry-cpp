@@ -1161,6 +1161,30 @@ void Player::seedPurchasedAA(const std::vector<uint32_t>& ids,
     savePlayerState();
 }
 
+void Player::seedBaseStats(uint16_t str, uint16_t sta, uint16_t cha,
+                           uint16_t dex, uint16_t intel, uint16_t agi,
+                           uint16_t wis)
+{
+  // eql: base stats sit at a fixed offset in OP_PlayerProfile (read in
+  // seq-backend-eql), the same block Live's loadProfile reads six bytes
+  // earlier. Assignment mirrors loadProfile's reset-then-accumulate contract:
+  // the profile re-fires on every zone-in, so += would stack the base roll.
+  // No signal here, same as seedPurchasedAA — EqlDispatch::profile calls this
+  // before setIdentity, whose levelChanged drives the one coalesced
+  // PlayerStats snapshot that carries these.
+  m_maxSTR = str;
+  m_maxSTA = sta;
+  m_maxCHA = cha;
+  m_maxDEX = dex;
+  m_maxINT = intel;
+  m_maxAGI = agi;
+  m_maxWIS = wis;
+  m_validAttributes = true;
+
+  if (showeq_params->savePlayerState)
+    savePlayerState();
+}
+
 void Player::applySelfPosition(int16_t px, int16_t py, int16_t pz,
                                int16_t pdeltaX, int16_t pdeltaY, int16_t pdeltaZ,
                                uint16_t heading, float speed)

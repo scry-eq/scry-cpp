@@ -248,6 +248,13 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
     // read in seq-backend-eql). OP_Stance/OP_Invocation only echo on a SWAP, so
     // without this the readout stays blank until the player swaps. Only set when
     // the id resolves to a known ability (0 / out-of-range = none, or drift).
+    // Base stats from the same profile (fixed offset, read in seq-backend-eql).
+    // Seeded BEFORE setIdentity so they ride its coalesced PlayerStats snapshot,
+    // like the skills and AA seeds above.
+    m_player->seedBaseStats((uint16_t)out.str_, (uint16_t)out.sta,
+                            (uint16_t)out.cha, (uint16_t)out.dex,
+                            (uint16_t)out.int_, (uint16_t)out.agi,
+                            (uint16_t)out.wis);
     if (QString sn = stanceName(out.stance); !sn.isEmpty())
         m_player->setStance(sn);
     if (QString invName = invocationName(out.invocation); !invName.isEmpty())
