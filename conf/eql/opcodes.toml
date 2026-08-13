@@ -2865,6 +2865,11 @@ priority = 10
 updated = "2026-08-09"
 comment = "RE-HUNTED 2026-08-09 after the 08/05 rotation REGRESSED it. That rotation adopted 0861 from upstream marked PENDING content validation, but the 08/04 hunt had already found 0861 dead - and 0861 fires ZERO times across all four eql captures, so the daemon fell back to its multibox-unsafe world-recency zone binding. Content-confirmed at 2ecf: 130b S>C world, NUL-terminated hostname in char ip[128] + uint16 port @128, decoding to lvseqns-livzNN.everquestlegends.com across four captures (livz05/06/07, ports 1499/1547/2824/3229). Fire count tracks zone-ins exactly (3 fires / 3 zone-ins on the paired capture) and it is the ONLY 130b opcode in the world stream, so there are no competitors. Decode output is UNCHANGED (tier-2 golden byte-identical with and without the mapping): the recency fallback happened to guess the same box on these single-box captures, so what this fixes is the GUESS, not the result - and that guess is documented multibox-unsafe (two boxes zoning in one window can bind to each other's session). LESSON: an upstream re-map is a claim about what THEY touched, not about our wire - validate by fires before adopting, especially when a prior local hunt disagrees."
 
+  [[world.payloads]]
+  dir           = "server"
+  typename      = "zoneServerInfoStruct"
+  sizechecktype = "match"
+
 [[world]]
 id      = "fc46"
 name    = "OP_WorldComplete"
