@@ -179,6 +179,17 @@ public:
     // traffic from crying wolf over traffic that was never a zone session.
     bool looksLikeZoneServer(in_addr_t server_ip) const;
 
+    // Has ANY box ever announced a zone-server port (i.e. has
+    // OP_ZoneServerInfo decoded at least once this run)? Lets a diagnostic
+    // separate the two reasons the recency fallback fires. Before the first
+    // announcement it is expected: the FIRST zone session of any run has its
+    // OP_ZoneServerInfo behind us — sent before capture start, or before we
+    // attached mid-session — so there is nothing to match and never will be.
+    // After one, a miss is the suspicious case worth a warning. Derived from
+    // box state rather than a counter: expected_zone_server_port is set on
+    // announcement and never cleared, so this cannot drift out of sync.
+    bool anyZoneServerAnnounced() const;
+
     // Fallback for a zone SessionRequest that no box CLAIMED: the most
     // recently world-active unbound box for this client, if it was active
     // within `window_ms`. OP_ZoneServerInfo is the authoritative binding

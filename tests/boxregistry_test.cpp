@@ -48,6 +48,7 @@ private slots:
   void lookupBoundZoneMatches();
   void lookupBoundZoneFindsMergedLiveBox();
   void lookupByExpectedZoneRecencyAndSkipBound();
+  void anyZoneServerAnnouncedTracksFirstAnnouncement();
   void evictStaleReapsSupersededAlias();
   void evictStaleReapsLoggedOffGroup();
   void evictStaleProtectsPrimaryActiveFresh();
@@ -261,6 +262,30 @@ void BoxRegistryTest::lookupByExpectedZoneRecencyAndSkipBound()
   // Once b binds a live zone session it's skipped, so a wins.
   b->zone_client_port = cport(6666);
   QCOMPARE(reg.lookupByExpectedZone(kClientIp, 0x01020304, cport(7000)), a);
+}
+
+void BoxRegistryTest::anyZoneServerAnnouncedTracksFirstAnnouncement()
+{
+  BoxRegistry reg;
+  QVERIFY(!reg.anyZoneServerAnnounced());          // empty registry
+
+  Box* a = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
+  Box* b = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 2);
+  QVERIFY(!reg.anyZoneServerAnnounced());          // boxes, no announcement
+
+  // One announcement anywhere flips it: this is what separates "the opcode
+  // has never decoded" from "it decodes, but missed this port".
+  b->expected_zone_server_port = cport(7000);
+  QVERIFY(reg.anyZoneServerAnnounced());
+
+  // Binding a zone session must NOT clear it — ZoneServerObserver resets
+  // zone_client_port on a re-zone but leaves expected_zone_server_port set,
+  // which is what makes this derivable from box state instead of a counter.
+  b->zone_client_port = cport(6666);
+  QVERIFY(reg.anyZoneServerAnnounced());
+
+  a->expected_zone_server_port = cport(7001);
+  QVERIFY(reg.anyZoneServerAnnounced());
 }
 
 // --- Eviction (evictStale) -------------------------------------------------

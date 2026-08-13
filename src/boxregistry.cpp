@@ -326,6 +326,13 @@ bool BoxRegistry::hasClient(in_addr_t client_ip) const
     return false;
 }
 
+bool BoxRegistry::anyZoneServerAnnounced() const
+{
+    for (const auto& b : m_boxes)
+        if (b->expected_zone_server_port != 0) return true;
+    return false;
+}
+
 bool BoxRegistry::looksLikeZoneServer(in_addr_t server_ip) const
 {
     for (const auto& b : m_boxes) {

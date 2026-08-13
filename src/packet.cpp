@@ -976,10 +976,27 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
           box->zone_client_port = src_port;
           box->zone_server_port_bound = dst_port;
           srcIsClient = true;
-          seqWarn("BoxRegistry: bound zone session %s:%u by world recency — "
-                  "no box announced port %u (is OP_ZoneServerInfo mapped?)",
-                  qUtf8Printable(packet.getIPv4SourceA()),
-                  packet.getSourcePort(), packet.getDestPort());
+          // Two very different reasons land here, and conflating them sent
+          // people re-hunting a healthy opcode. Before the FIRST announcement
+          // of the run there is nothing to match and never will be: that zone
+          // session's OP_ZoneServerInfo was sent before we were listening
+          // (capture started mid-zone, or we attached mid-session). Expected,
+          // once, and not a mapping problem. Once some box HAS announced, the
+          // opcode demonstrably decodes, so a miss means a stale mapping or
+          // two boxes racing — worth a warning.
+          if (m_boxes.anyZoneServerAnnounced()) {
+            seqWarn("BoxRegistry: bound zone session %s:%u by world recency — "
+                    "no box announced port %u, though others have "
+                    "(stale mapping, or two boxes zoning at once?)",
+                    qUtf8Printable(packet.getIPv4SourceA()),
+                    packet.getSourcePort(), packet.getDestPort());
+          } else {
+            seqInfo("BoxRegistry: bound zone session %s:%u by world recency — "
+                    "no OP_ZoneServerInfo seen yet, expected for the first "
+                    "zone session of a run (port %u)",
+                    qUtf8Printable(packet.getIPv4SourceA()),
+                    packet.getSourcePort(), packet.getDestPort());
+          }
           return true;
         }
       }
