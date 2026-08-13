@@ -2924,3 +2924,40 @@ scripts/capture.py eqlegends-loadout-self      # start BEFORE zoning in
 If the tail scans as `iGS`-prefixed records, reuse `item_packet.rs`'s record walk directly
 rather than writing a second one — a duplicate record parser is exactly the footgun that bit
 `parse_spawn` in this crate before.
+
+### 2026-08-13 — worn-slot assignment is NOT in the loadout tail prefix (pointer soup)
+
+Chasing `worn_set`. The loadout tail's ~44 KB prefix looked like the obvious home — something
+must say which items a loadout equips — and it does contain a table of **79 entries** at a
+regular 92/124-byte stride, each holding a 16-char SERIAL FIELD, ending exactly where the item
+records begin.
+
+**Every one of those serial fields is empty** (`"0000000000000000"`), and the reason is decisive:
+the prefix is a serialized object graph whose linkage is by POINTER, not by serial.
+
+| region | size | pointer-shaped qwords (`0x00007ff6…`) | bytes differing between two self-variant tails |
+|---|---|---|---|
+| prefix | 44256 B | **101** | **1993 (4.5%)** |
+| records | 263449 B | 2 | 49 (0.02%) |
+
+Two independent signals agree. Windows user-space addresses are all over the prefix and
+essentially absent from the records; and across two captures of the same swap the prefix churns
+4.5% while the records are byte-stable. That is what a raw dump of in-memory C++ objects looks
+like, and those pointers are meaningless off-process.
+
+**So the worn assignment cannot be recovered from this prefix.** Do not spend another capture on
+it. The serial fields being empty is not a "loadout with nothing equipped" — it is the
+serializer writing an unset field while the real linkage sits in a pointer.
+
+**Also ruled out, from the item records themselves** (270 records, `eqlegends-loadout-self`):
+no per-item slot index exists. Swept every u8/u16/u32 at record offsets 17..123 for a field
+with worn-slot shape (~20 items set, values 0..25), including scoped within a single
+`container_id`. The only hit is `u8 @record+122`, which is an **is-container flag** — 1 for
+exactly the bags, sacks, boxes and backpacks, 0 otherwise. Worth having, unrelated to slots.
+
+**Next lead, cheapest first**: `OP_WearChange` is already decoded and carries `(spawn_id, slot,
+material)`. It gives the SLOT directly, and for the local player a running fold over it would
+build a worn map — but it carries a visual material id, not an item id, so it needs pairing
+with something that resolves material→item. Failing that, hunt a dedicated equipped-items
+opcode: `container_id` distinguishes the storage SPACES already, and none of the six observed
+values is a worn container, which suggests worn gear is reported by another packet entirely.
