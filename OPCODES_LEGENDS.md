@@ -2961,3 +2961,60 @@ build a worn map — but it carries a visual material id, not an item id, so it 
 with something that resolves material→item. Failing that, hunt a dedicated equipped-items
 opcode: `container_id` distinguishes the storage SPACES already, and none of the six observed
 values is a worn container, which suggests worn gear is reported by another packet entirely.
+
+### 2026-08-13 — BASE STATS resolved: `OP_PlayerProfile` +962, 7×u32
+
+Capture: the five `tests/replay/eql/eqlegends-*.vpk` fixtures (9 profile fires). Method:
+`--dump-payload 0x371a` + a structural sweep, confirmed against the in-game UI.
+
+**Base stats are 7 consecutive `u32` at profile offset 962**, in Live's `charProfileStruct`
+order — **STR, STA, CHA, DEX, INT, AGI, WIS** — i.e. Live's documented 956 block landing six
+bytes later. Zeros follow immediately at 990.
+
+Confirmed field-for-field against the client's **Adjust Loadout → Base Stats** panel. An
+iksar-race profile decodes to 85/80/65/110/90/100/85 in wire order, and the panel reads
+STR 85 · STA 80 · AGI 100 · DEX 110 · WIS 85 · INT 90 · CHA 65 — all seven agree under that
+permutation and no other.
+
+| race / class / lvl | wire @962 (STR STA CHA DEX INT AGI WIS) |
+|---|---|
+| 128 / 7 / 17 | 85 80 65 110 90 100 85 |
+| 330 / 3 / 25 | 85 105 60 110 90 110 80 |
+| 330 / 3 / 50 | 85 90 75 110 90 110 80 |
+
+**These are BASE stats, not the gear-inclusive totals** — the panel's own label. They are the
+loadout roll: race + primary class + the two additional classes. Two consequences: a loadout
+swap CHANGES them (the two race-330/class-3 rows above are the same race and primary class at
+different `class_mask` values, 4232 vs 16520), and the daemon must ASSIGN rather than `+=`,
+since the profile re-fires on every zone-in and accumulating would stack the roll.
+
+**Why the block is unambiguous**: swept every offset in the fixed prefix (0..11800, stopping
+before the skills array at 11826) for 7 adjacent `u32` that are stable across all four fires of
+the paired capture and in range. At value ceilings of 2000, 5000 and 20000 the answer is the
+same single block. **Zero competing candidates.** Corroborating the offset from the other side,
+`@954`/`@958` are a (current, max) pair — `@954 < @958` in all 9 dumps, and `@954` climbs
+between zone-ins like a regenerating resource — which is Live's field ORDER (mana, curHp, then
+the stat block) arriving in the same sequence.
+
+**Two signals that look like disconfirmation and are not** — both were nearly enough to discard
+the right answer:
+- *Every value is a multiple of 5.* Gear-inclusive totals are not — but a designed BASE roll is.
+- *Three of the seven (85, 110, 90) are identical across three characters of different race,
+  class AND level.* Shared entries in the race/class tables, not a coincidence to explain away.
+
+**Footgun that cost time**: `conf/opcodes.toml` at the repo root is the **Live** table, where
+`OP_PlayerProfile` is `d4b8`. The eql id is `371a` and lives in `conf/eql/opcodes.toml`.
+`--config-dir conf` is correct for every target (the daemon appends `eql/` itself) — the error
+is looking the id up in the flat file. Dumping Live's id against an eql capture produces no
+output and no warning, which reads exactly like "the opcode never fires".
+
+Wired end to end: `parse_player_profile` (seq-backend-eql) → `Player::seedBaseStats` (a neutral
+primitive, seeded before `setIdentity` so it rides the one coalesced `PlayerStats` snapshot,
+same contract as `seedSkills`/`seedPurchasedAA`) → proto `PlayerStats.str/sta/agi/dex/wis/int_/cha`,
+which already existed and had simply never been populated on eql. Verified on a replay: 41 of 43
+`player_stats` envelopes carry the values, matching the UI. Tier-2 goldens regenerated — the
+diff is purely additive (identical envelope count and kind tally, only the seven fields appear).
+
+**Still open**: `points`-like `@950` (constant 250 across all three characters) and the exact
+identity of the `@954`/`@958` pair are unconfirmed; food/water remain unlocated and may not be
+on this wire at all.
