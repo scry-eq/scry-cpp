@@ -238,11 +238,8 @@ public:
    // OP_PlayerProfile) + spent points, so the AA window populates at zone-in.
    void seedPurchasedAA(const std::vector<uint32_t>& ids,
                         const std::vector<uint32_t>& values, uint32_t spent);
-   // eql: seed the BASE stats from OP_PlayerProfile (fixed offset, read in
-   // seq-backend-eql). "Base" is the loadout roll — race + primary + the two
-   // additional classes — so a loadout swap changes them and they are not the
-   // gear-inclusive totals. Assignment, never +=: the profile re-fires on every
-   // zone-in, so accumulating would stack them across a multi-zone session.
+   // eql: seed BASE stats from OP_PlayerProfile (fixed offset). The loadout
+   // roll (race + primary + additional classes), not gear-inclusive totals.
    void seedBaseStats(uint16_t str, uint16_t sta, uint16_t cha, uint16_t dex,
                       uint16_t intel, uint16_t agi, uint16_t wis);
 

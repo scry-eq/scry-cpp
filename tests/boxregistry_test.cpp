@@ -273,14 +273,11 @@ void BoxRegistryTest::anyZoneServerAnnouncedTracksFirstAnnouncement()
   Box* b = reg.observe(kClientIp, kServerIp, cport(1001), kSrvPort, 2);
   QVERIFY(!reg.anyZoneServerAnnounced());          // boxes, no announcement
 
-  // One announcement anywhere flips it: this is what separates "the opcode
-  // has never decoded" from "it decodes, but missed this port".
-  b->expected_zone_server_port = cport(7000);
+  b->expected_zone_server_port = cport(7000);      // one anywhere flips it
   QVERIFY(reg.anyZoneServerAnnounced());
 
-  // Binding a zone session must NOT clear it — ZoneServerObserver resets
-  // zone_client_port on a re-zone but leaves expected_zone_server_port set,
-  // which is what makes this derivable from box state instead of a counter.
+  // Binding a zone session must NOT clear it — that's what keeps the
+  // predicate derivable from box state.
   b->zone_client_port = cport(6666);
   QVERIFY(reg.anyZoneServerAnnounced());
 

@@ -1165,13 +1165,9 @@ void Player::seedBaseStats(uint16_t str, uint16_t sta, uint16_t cha,
                            uint16_t dex, uint16_t intel, uint16_t agi,
                            uint16_t wis)
 {
-  // eql: base stats sit at a fixed offset in OP_PlayerProfile (read in
-  // seq-backend-eql), the same block Live's loadProfile reads six bytes
-  // earlier. Assignment mirrors loadProfile's reset-then-accumulate contract:
-  // the profile re-fires on every zone-in, so += would stack the base roll.
-  // No signal here, same as seedPurchasedAA — EqlDispatch::profile calls this
-  // before setIdentity, whose levelChanged drives the one coalesced
-  // PlayerStats snapshot that carries these.
+  // Assignment, not +=: the profile re-fires per zone-in and would stack the
+  // roll. No signal — EqlDispatch::profile calls this before setIdentity,
+  // whose levelChanged drives the one coalesced snapshot (cf. seedPurchasedAA).
   m_maxSTR = str;
   m_maxSTA = sta;
   m_maxCHA = cha;
