@@ -3016,5 +3016,81 @@ which already existed and had simply never been populated on eql. Verified on a 
 diff is purely additive (identical envelope count and kind tally, only the seven fields appear).
 
 **Still open**: `points`-like `@950` (constant 250 across all three characters) and the exact
-identity of the `@954`/`@958` pair are unconfirmed; food/water remain unlocated and may not be
-on this wire at all.
+identity of the `@954`/`@958` pair are unconfirmed. ~~food/water remain unlocated~~ — **found
+2026-08-13, see below.**
+
+### 2026-08-13 — OP_Stamina = `0x0fbe` (food/water), re-hunted
+
+The 08/04 rotation dropped it and upstream never re-derived it, so food/water read as "not on
+the wire". They are. Content-confirmed by SIGNATURE, never size: two `u32` ticking DOWN TOGETHER
+in lockstep steps of 32.
+
+```
+loot2  (4476,3576) -> (4444,3544) -> (4412,3512) -> (4380,3480)
+patch  (3672,4272) -> (3640,4240) -> (3608,4208) -> (3576,4176)
+```
+
+Both perfectly monotone; `loadout-self` decreases on 95/100 transitions across 101 fires, the
+exceptions being upward jumps (eating/drinking). Matches the archived 07/14 evidence exactly.
+Zero competitors — every other 8B S>C unknown fails it (`0x59b8`/`0x2301` scatter across steps
+2-6 and decrease on only ~20-35% of transitions; `0x7a55` has field0 always 0).
+
+Everything downstream was already in place (payload `staminaStruct`/match, gate size eql-owned,
+handler wired to `Player::updateStamina`) — only the id was `ffff`.
+
+**Which field is food vs water follows the stock struct order and is NOT independently
+verified.** The in-game hunger/thirst indicator is the ground truth if it ever matters.
+
+### 2026-08-13 — WORN SLOTS SOLVED: item location is `record+25`
+
+Capture: `eqlegends-loadout-self.vpk`. Method: Mode B window correlation on a loadout swap,
+then a before/after diff of the bulk item set.
+
+**`record+25` is a `u32` carrying the item's LOCATION:**
+
+```
+low  u16 = slot index WITHIN its container
+high u16 = parent bag slot; 0xFFFF = top-level (not inside a bag)
+```
+
+This is Live's `mainSlot`/`subSlot` pair (`src/itempacket.cpp` +25/+29) packed into one `u32`
+and moved INTO the record, rather than sitting in a packet wrapper. **The worn set is
+`container_id == 0` AND `high == 0xFFFF` AND `low <= 22`** (Charm..Ammo; 23-30 personal
+inventory, 35 cursor — same enum as Live).
+
+**Unique within every container**, which is what a slot assignment requires — and the maxima
+match the storage tabs measured in the container_id work:
+
+| container | records with `high==0xFFFF` | unique | max | tab |
+|---|---|---|---|---|
+| 0  | 29  | 29  | 34  | worn + inventory + cursor |
+| 1  | 12  | 12  | 14  | carried inventory |
+| 25 | 6   | 6   | 5   | unidentified |
+| 33 | 4   | 4   | 3   | Exaltation (UI showed 4) |
+| 37 | 2   | 2   | 2   | activated key ring (UI 3) |
+| 39 | 109 | 109 | 110 | equipment key ring (UI ~104) |
+
+**It tracks live equip state**, proven by a before/after diff rather than asserted. A loadout
+swap fires a burst of 14 PER-ITEM packets (`0x078d`, S>C, ~1081-2168B = one item record behind a
+4-byte header, the record starting at +4) one second before the ~308KB self-refresh. Comparing
+those 14 against the bulk `OP_ItemPacket` sets that bracket the swap:
+
+```
+burst vs PRE-swap  bulk:  1/14 agree
+burst vs POST-swap bulk: 14/14 agree
+```
+
+The 13 that disagree are exactly the items the swap moved — e.g. one goes from
+`(container 39, slot 0)` (equipment key ring) to `(container 0, slot 2)` (worn). The single
+pre-swap match is an item inside a bag (`high=19, low=24`) that the swap never touched.
+
+**Why the earlier sweep missed it**, worth remembering for the next field hunt: it read `u32` at
+each record offset looking for values `0..25`, and at +25 the `u32` is `0xFFFF00xx` ≈ 4.29
+billion — out of range. Reading `u16` there DOES give an in-range value, but unscoped across
+containers 64 records land in `0..22` with heavy duplication, so it fails a uniqueness test too.
+**The field only reads correctly when scoped by `container_id`** — the same lesson the storage
+work learned, applied one layer down.
+
+`0x078d` is left UNMAPPED deliberately: the bulk `OP_ItemPacket` already carries the same field
+for every item, so worn slots need no new opcode. Map it only if per-item live updates are
+wanted.
