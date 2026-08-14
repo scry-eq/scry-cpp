@@ -91,11 +91,11 @@ public:
         QString      mapsDir;
         // Selects the active map package (subdirectory under a maps root,
         // or "default" for the flat root). Empty = restore the persisted
-        // value (XMLPreferences [Maps] Package), itself defaulting to
+        // value (TomlPreferences [Maps] Package), itself defaulting to
         // "default". A CLI --map-package value overrides the persisted one.
         QString      mapPackage;
         // If set, raw EQ packets are recorded to this .vpk path while
-        // capturing — wraps the legacy XMLPreferences `[VPacket]` mode.
+        // capturing — wraps the legacy TomlPreferences `[VPacket]` mode.
         QString      recordVpk;
         // If set, an internal SessionAdapter writes the envelope stream
         // it would have sent to a client into this file as length-
@@ -308,7 +308,7 @@ private:
     QSet<const Box*>                m_reconRelayed;
     std::unique_ptr<MapData>        m_mapData;
     // Active map package id ("default" = flat maps root). Restored from
-    // XMLPreferences in start(), overridden by Config::mapPackage.
+    // TomlPreferences in start(), overridden by Config::mapPackage.
     QString                         m_mapPackage = QStringLiteral("default");
 
     std::unique_ptr<WsServer>       m_ws;

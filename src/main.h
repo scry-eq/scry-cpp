@@ -31,8 +31,8 @@
 #include <cstdlib>
 #include <deque>
 
-#include "xmlpreferences.h"
-extern class XMLPreferences *pSEQPrefs;
+#include "tomlpreferences.h"
+extern class TomlPreferences *pSEQPrefs;
 
 #include "config.h"
 

@@ -6,7 +6,7 @@
 
 class EQPacket;
 
-// PrefsBroker is the curated bridge between the legacy XMLPreferences
+// PrefsBroker is the curated bridge between the TOML preference store
 // store (`pSEQPrefs`) and the seq.v1 Pref wire schema. Only an
 // allowlisted subset of XML preferences is shareable; reads, writes,
 // and broadcasts all flow through this class.

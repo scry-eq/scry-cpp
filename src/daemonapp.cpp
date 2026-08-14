@@ -47,7 +47,7 @@
 #include "spellshell.h"
 #include "wsserver.h"
 #include "protoencoder.h"
-#include "xmlpreferences.h"
+#include "tomlpreferences.h"
 #include "zonemgr.h"
 #include "zoneservermgr.h"
 
@@ -109,9 +109,9 @@ bool DaemonApp::start()
     m_dataLocationMgr->setupUserDirectory();
 
     const QFileInfo defPref =
-        m_dataLocationMgr->findExistingFile(".", "seqdef.xml", true, false);
+        m_dataLocationMgr->findExistingFile(".", "seqdef.toml", true, false);
     const QFileInfo userPref =
-        m_dataLocationMgr->findWriteFile("daemon", "showeq-daemon.xml", true, true);
+        m_dataLocationMgr->findWriteFile("daemon", "showeq-daemon.toml", true, true);
     seq::initGlobals(defPref.absoluteFilePath(), userPref.absoluteFilePath());
 
     // Cross-cutting helpers the extracted managers expect to find on the
@@ -281,7 +281,7 @@ bool DaemonApp::start()
     }
 
     // CategoryMgr loads user-defined Category groupings from the
-    // pSEQPrefs XML preferences (section "CategoryMgr"). seqdef.xml ships
+    // pSEQPrefs preferences (section "CategoryMgr"). seqdef.toml ships
     // with a default set so the list is never empty.
     m_categoryMgr = new CategoryMgr(this, "categoryMgr");
 
@@ -317,7 +317,7 @@ bool DaemonApp::start()
             qInfo("LootStore: replay mode — read-only, recording disabled");
     }
 
-    // PrefsBroker is the curated XMLPreferences <-> wire bridge. Constructed
+    // PrefsBroker is the curated TomlPreferences <-> wire bridge. Constructed
     // after pSEQPrefs is initialized but before any client can connect, so
     // the very first PrefsSnapshot reflects the on-disk state.
     m_prefsBroker = new PrefsBroker(this);
@@ -611,7 +611,7 @@ bool DaemonApp::startCapture()
 {
     // Opcode tables are per-target: conf/<target>/opcodes.toml, selected by the
     // compiled SEQ_OPCODE_SUBDIR ("live"/"test"/"eql"). The rest of
-    // --config-dir (seqdef.xml, maps/, etc.) stays shared at the root. XML is
+    // --config-dir (seqdef.toml, maps/, etc.) stays shared at the root. XML is
     // now settings-only; the opcode table is read straight from the TOML that
     // was always its canonical source.
     const QString opcodeSubdir = QStringLiteral(SEQ_OPCODE_SUBDIR);
@@ -1134,8 +1134,8 @@ QString DaemonApp::setMapPackage(const QString& id)
     }
     m_mapPackage = resolved;
 
-    // Persist (XMLPreferences, [Maps] Package). Mirrors how Network/Device
-    // is read/written elsewhere via pSEQPrefs. XMLPreferences batches
+    // Persist (TomlPreferences, [Maps] Package). Mirrors how Network/Device
+    // is read/written elsewhere via pSEQPrefs. TomlPreferences batches
     // modifications in memory, so flush with save() — same pattern as
     // PrefsBroker::apply — otherwise the choice is lost on restart (the
     // daemon hot-reloads via _exit(75), bypassing any aboutToQuit flush).

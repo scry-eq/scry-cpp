@@ -44,9 +44,9 @@
 #include <QFile>
 #include <QRegularExpression>
 #include <QByteArray>
-#include "xmlpreferences.h"
+#include "tomlpreferences.h"
 
-extern XMLPreferences* pSEQPrefs;
+extern TomlPreferences* pSEQPrefs;
 
 //----------------------------------------------------------------------
 // MapParameters

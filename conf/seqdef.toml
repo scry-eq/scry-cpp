@@ -1,0 +1,1504 @@
+# showeq-daemon preferences — DEFAULTS.
+#
+# Generated from seqdef.xml by tools/prefs_xml_to_toml.py. Edit this file
+# only if you are maintaining site-wide defaults; per-user settings belong
+# in the user preferences file, which the daemon writes itself.
+
+[Network]
+# your network device
+Device = "eth0"
+# IP of EQ Client, 127.0.0.0 is a wild card used to tell showeq to automatically grab the next eq session it finds
+IP = "127.0.0.0"
+# MAC Address
+MAC = ""
+# Put network in realtime thread
+RealTimeThread = false
+# Don't use promiscous mode
+NoPromiscuous = true
+# Give up waiting for seq arq after cache fills to this size.  Don't set this too low, otherwise showeq will artificially skip packets, minimum is 32, modem users may want to set 512, dsl and cable users may choose 256 or less
+ArqSeqGiveUp = 512
+# enable/disable session tracking
+SessionTracking = true
+# Name of the file containing data about world opcodes
+WorldOPCodes = "worldopcodes.xml"
+# Name of the file containing data about zone opcodes
+ZoneOPCodes = "zoneopcodes.xml"
+
+[Defaults]
+# Attempt to autodect level/race/class
+AutoDetectCharSettings = true
+# Default level of your character
+DefaultLevel = 1
+# Default race of your character = 1 HUM, 2 BAR, 3 ERU, 4 WLF, 5 HIE, 6 DELF, 7 HEF, 8 DWF, 9 TRL, 10 OGR, 11 HAF, 12 GNO, 128 IKS
+DefaultRace = 1
+# Default class for your character = 1 WAR, 2 CLE, 3 PAL, 4 RNG, 5 SHD, 6 DRU, 7 MNK, 8 BRD, 9 ROG, 10 SHM, 11 NEC, 12 WIZ, 13 MAG, 14 ENC
+DefaultClass = 1
+# Default deity of your character = 140 Agn, 201 Bert, 202 Brell, 303 Cazic, 204 Erol, 205 Bristle, 206 Inny, 207 Karana, 208 Mith, 209 Prex, 210 Quell, 211 Rallows, 213 Solusek, 214 Tribunal, 215 Tun, 216 Rodcet, 216 Veeshan
+DefaultDeity = 140
+# Default name for your character
+DefaultName = "You"
+# Default last name of your character
+DefaultLastName = ""
+
+[Misc]
+# Create Unknown Spawns for those spawns with incomplete information
+CreateUnknownSpawns = true
+# set to true to log spawns
+SpawnLogEnabled = false
+# name of file to log spawns into
+SpawnLogFilename = "/usr/local/share/showeq/spawnlog.txt"
+# Enable / disable spell casting messages
+ShowSpellMessages = true
+# enable logging of spawns
+LogSpawns = false
+# enable logging of items
+LogItems = false
+# enable the recording of spawn walk paths
+WalkPathRecording = false
+# number of spawn walk points to save per spawn
+WalkPathLength = 25
+
+[VPacket]
+# filename to play/record packets from/to
+Filename = ""
+# set to true to record packets from session to Filename
+Record = false
+# set to true to playback packets from session in Filename
+Playback = false
+# Rate to playback; 0 = fast as possible, 1=1x, 2=2x, etc.
+PlaybackRate = false
+# Flush recorded packets to disk after each packet (useful for diagnosing crash problems)
+FlushPackets = true
+# ignore timestamps (compress time) for pckts over 1 sec
+CompressTime = 0
+
+[SkillList]
+# Skill list window caption when undocked
+Caption = "ShowEQ - Skills"
+Font = "bold=false,family=adobe-helvetica,italic=false,pointsize=10,strikeout=false,underline=false"
+# Save column widths
+SaveWidth = true
+ShowSkill = true
+ShowValue = true
+# pixel width of skill name column
+SkillWidth = 69
+# pixel width of skill value column
+ValueWidth = 30
+# Save show languages setting
+SaveShowLanguages = true
+# Skill list includes language skills
+ShowLanguages = true
+# order of columns in skill list
+ColumnOrder = "0:1"
+
+[StatList]
+# Window caption when undocked
+Caption = "ShowEQ - Stats"
+Font = "bold=false,family=adobe-helvetica,italic=false,pointsize=10,strikeout=false,underline=false"
+# order of columns in stat list display
+ColumnOrder = "0:1:2:3"
+ShowStat = true
+ShowValue = true
+ShowMax = true
+ShowPercent = true
+# Save column widths
+SaveWidth = true
+# pixel width of stat name column
+StatWidth = 35
+# pixel width of value column
+ValueWidth = 50
+# pixel width of max column
+MaxWidth = 50
+# pixel width of percent column
+PercentWidth = 30
+# Display Stamina
+showStam = false
+# Display Mana
+showMana = false
+# Display Armor Class
+showAC = false
+# Display Experience
+showExp = true
+# Display Alternative Advancement Experience
+showExpAA = true
+# Display Disease Resist
+showDR = false
+# Display Hit Points
+showHP = false
+# Display Fire Resist
+showFR = false
+# Display Water value
+showWatr = false
+# Display Poison Resist
+showPR = false
+# Display STRength
+showSTR = true
+# Display Food
+showFood = false
+# Display CHArisma
+showCHA = true
+# Display WISdom
+showWIS = true
+# Display Cold Resist
+showCR = false
+# Display AGIlity
+showAGI = false
+# Display INTelligence
+showINT = true
+# Display Magic Resistance
+showMR = false
+# Display STAmina
+showSTA = true
+# Display DEXterity
+showDEX = true
+
+[SpawnList]
+# Window caption when undocked
+Caption = "ShowEQ - Spawn List"
+Font = "bold=false,family=adobe-helvetica,italic=false,pointsize=8,strikeout=false,underline=false"
+# Save column widths
+SaveWidth = true
+# Display real eq name or formatted name
+ShowRealName = false
+ShowName = true
+ShowGuildTag = true
+ShowLevel = true
+ShowHP = false
+ShowMaxHP = false
+ShowCoord1 = false
+ShowCoord2 = false
+ShowCoord3 = false
+ShowID = false
+ShowDist = true
+ShowRace = true
+ShowClass = true
+ShowInfo = true
+ShowSpawnTime = true
+NameWidth = 155
+LevelWidth = 25
+HPWidth = 35
+MaxHPWidth = 35
+Coord1Width = 30
+Coord2Width = 30
+Coord3Width = 30
+IDWidth = 30
+DistWidth = 35
+RaceWidth = 40
+ClassWidth = 40
+InfoWidth = 40
+SpawnTimeWidth = 40
+# Order of columns
+ColumnOrder = "0:1:2:3:4:5:6:7:8:9:10:11:12"
+
+[SpawnList2]
+# Window caption when undocked
+Caption = "ShowEQ - Spawn List 2"
+Font = "bold=false,family=adobe-helvetica,italic=false,pointsize=8,strikeout=false,underline=false"
+# Save column widths
+SaveWidth = true
+KeepSelectedVisible = true
+KeepSorted = false
+ImmediateUpdate = false
+FPM = 10
+# Display real eq name or formatted name
+ShowRealName = false
+ShowName = true
+ShowLevel = true
+ShowHP = false
+ShowGuildTag = true
+ShowMaxHP = false
+ShowCoord1 = false
+ShowCoord2 = false
+ShowCoord3 = false
+ShowID = false
+ShowDist = true
+ShowRace = true
+ShowClass = true
+ShowInfo = true
+ShowSpawnTime = true
+NameWidth = 155
+LevelWidth = 25
+HPWidth = 35
+MaxHPWidth = 35
+Coord1Width = 30
+Coord2Width = 30
+Coord3Width = 30
+IDWidth = 30
+DistWidth = 35
+RaceWidth = 40
+ClassWidth = 40
+InfoWidth = 40
+SpawnTimeWidth = 40
+# Order of columns
+ColumnOrder = "0:1:2:3:4:5:6:7:8:9:10:11:12"
+
+[MapMgr]
+# Default color for new lines
+DefaultLineColor = "gray"
+# Default name for new locations
+DefaultLocationColor = "white"
+# Default name for new lines
+DefaultLineName = "line"
+
+[MapFrame]
+# Window caption when undocked
+Caption = "Map "
+# Save which controls are visible
+SaveControls = true
+# Display bottom control box
+ShowBottomControlBox = true
+# Display top control box
+ShowTopControlBox = true
+# Display the mouse location
+ShowMouseLocation = true
+# Display the player location
+ShowPlayerLocation = false
+# Display map frame rate control
+ShowFrameRate = true
+# Display map layer control
+ShowLayersControl = true
+# Display the map's runtime filter control
+ShowFilter = true
+# Display depth filter controls
+ShowDepthFilterControls = false
+# Display map panning controls
+ShowPanControls = true
+# Display zoom control
+ShowZoom = true
+
+[Map]
+# Window caption when undocked
+Caption = "ShowEQ - Map"
+# Map frame rate (number of map refreshes per second)
+Framerate = 5
+MapLayerMask = -7
+# property that controls repaints, true = Just at repaint ast Framerate, or false = Whenever spawn/map info changes in addition to Framerate
+CacheChanges = true
+# 0=Memory, 1=Normal, 2=Speed
+OptimizeMethod = 1
+# always repaint the cache (slows map repaints)
+CacheAlwaysRepaint = false
+# 0=Normal, 1=DepthFiltered, 2=FadedFloors
+MapLineStyle = 0
+# Enable spawn movement animation
+AnimateSpawnMovement = false
+# Only show spawns between +HeadRoom and -FloorRoom of player
+SpawnDepthFilter = false
+# Base size of spawn elements in display
+DrawSize = 3
+# Font used for map captions
+Font = "bold=false,family=Helvetica,italic=false,pointsize=8,strikeout=false,underline=false"
+# Distance between lines in the grid
+GridResolution = 500
+# Color of grid lines
+GridLineColor = "#194819"
+# Color of grid ticks
+GridTickColor = "#E1C819"
+# Background color
+BackgroundColor = "black"
+# Field of View Mode; 0=DistanceBased, 1=ScaledClassic, 2=Classic
+FOVMode = 0
+# Field of View Style based on Qt::BrushStyle, 0=No Background, 1=Solid, 2=94% fill, 3=88% fill, 4=63% fill, 5=50% fill, 6=37% fill, 7=12% fill, 8=Horizontal lines, 9=Vertical lines, 10=Crossing lines, 11=Diagonal lines (/), 12=Diagonal lines (\), 13=Diagonal crossing lines
+FOVStyle = 8
+# Field of View Color
+FOVColor = "#505050"
+# Field of View Distance
+FOVDistance = 200
+# Distance above player for spawn/map depth filtering
+HeadRoom = 75
+# Distance below player for spawn/map depth filtering
+FloorRoom = 75
+# Enable Deity PVP display
+DeityPvP = false
+# Enable Race PVP display
+RacePvP = false
+# Gives you info about the spawn your mouse is over
+ShowTooltips = true
+# Display grid lines
+ShowGridLines = true
+# Display grid ticks
+ShowGridTicks = true
+# Display background image
+ShowBackgroundImage = true
+# Display debug info
+ShowDebugInfo = false
+# Display player
+ShowPlayer = true
+# Display player background
+ShowPlayerBackground = true
+# Display Player View
+ShowPlayerView = true
+# Display Map Lines
+ShowMapLines = true
+# Display Map Points (locations)
+ShowMapPoints = true
+# Display Dropped Items
+ShowDroppedItems = true
+# Display Spawns
+ShowSpawns = true
+# Display Spawn Points
+ShowSpawnPoints = true
+# Display Unknown Spawns
+ShowUnknownSpawns = false
+# Display Spawn Names
+ShowSpawnNames = false
+# Display Dropped Coins
+ShowDroppedCoins = false
+# Display Doors
+ShowDoors = false
+# Display Walk Path of Selected Spawn
+WalkPathShowSelect = true
+# Highlight Considered Spawns
+HighlightConsideredSpawns = true
+# Display Velocity Lines
+VelocityLines = true
+# Key to zoom map out
+ZoomOutKey = "-"
+# Key to zoom map in
+ZoomInKey = "+"
+# Key to center map
+CenterSelectedKey = "Ctrl+5"
+# Key to Lock View
+ViewLockKey = "Ctrl+0"
+# Key to Pan Down to the Left
+PanDownLeftKey = "Ctrl+1"
+# key to Pan Down
+PanDownKey = "Ctrl+2"
+# Key to Pan Down to the Right
+PanDownRightKey = "Ctrl+3"
+# Key to Pan Left
+PanLeftKey = "Ctrl+4"
+# Key to Pan Right
+PanRightKey = "Ctrl+6"
+# Key to Pan Up to the Left
+PanUpLeftKey = "Ctrl+7"
+# key to Pan Up
+PanUpKey = "Ctrl+8"
+# Key to Pan Up to the Right
+PanUpRightKey = "Ctrl+9"
+# Key used to add a location
+AddLocationKey = "Ctrl+O"
+# Key used to start a new line
+StartLineKey = "Ctrl+L"
+# Key used to add a line point
+AddLinePointKey = "Ctrl+P"
+# Key used to delete a line point
+DelLinePointKey = "Ctrl+D"
+# Key to switch map to Normal Line display
+MapLineNormalKey = "Alt+1"
+# Key to switch map to Depth Filtered Line display
+MapLineDepthFilteredKey = "Alt+2"
+# Key to switch map to Faded Floors Line display
+MapLineFadedFloorsKey = "Alt+3"
+# Key to toggle spawn depth filtering
+SpawnDepthFilteredKey = "Alt+5"
+
+[Map2Frame]
+# Window caption when undocked
+Caption = "Map 2"
+# Save which controls are visible
+SaveControls = true
+# Display bottom control box
+ShowBottomControlBox = true
+# Display top control box
+ShowTopControlBox = true
+# Display the mouse location
+ShowMouseLocation = true
+# Display the player location
+ShowPlayerLocation = false
+# Display map frame rate control
+ShowFrameRate = true
+# Display map layer control
+ShowLayersControl = true
+# Display the map's runtime filter control
+ShowFilter = true
+# Display depth filter controls
+ShowDepthFilterControls = false
+# Display map panning controls
+ShowPanControls = true
+# Display zoom control
+ShowZoom = true
+
+[Map2]
+# Window caption when undocked
+Caption = "ShowEQ - Map2"
+# Map frame rate (number of map refreshes per second)
+Framerate = 5
+MapLayerMask = -7
+# property that controls repaints, true = Just at repaint ast Framerate, or false = Whenever spawn/map info changes in addition to Framerate
+CacheChanges = true
+# 0=Memory, 1=Normal, 2=Speed
+OptimizeMethod = 1
+# always repaint the cache (slows map repaints)
+CacheAlwaysRepaint = false
+# 0=Normal, 1=DepthFiltered, 2=FadedFloors
+MapLineStyle = 0
+# Enable spawn movement animation
+AnimateSpawnMovement = false
+# Only show spawns between +HeadRoom and -FloorRoom of player
+SpawnDepthFilter = false
+# Base size of spawn elements in display
+DrawSize = 3
+# Font used for map captions
+Font = "bold=false,family=Helvetica,italic=false,pointsize=8,strikeout=false,underline=false"
+# Distance between lines in the grid
+GridResolution = 500
+# Color of grid lines
+GridLineColor = "#194819"
+# Color of grid ticks
+GridTickColor = "#E1C819"
+# Background color
+BackgroundColor = "black"
+# Field of View Mode; 0=DistanceBased, 1=ScaledClassic, 2=Classic
+FOVMode = 0
+# Field of View Style based on Qt::BrushStyle, 0=No Background, 1=Solid, 2=94% fill, 3=88% fill, 4=63% fill, 5=50% fill, 6=37% fill, 7=12% fill, 8=Horizontal lines, 9=Vertical lines, 10=Crossing lines, 11=Diagonal lines (/), 12=Diagonal lines (\), 13=Diagonal crossing lines
+FOVStyle = 8
+# Field of View Color
+FOVColor = "#505050"
+# Field of View Distance
+FOVDistance = 200
+# Distance above player for spawn/map depth filtering
+HeadRoom = 75
+# Distance below player for spawn/map depth filtering
+FloorRoom = 75
+# Enable Deity PVP display
+DeityPvP = false
+# Enable Race PVP display
+RacePvP = false
+# Gives you info about the spawn your mouse is over
+ShowTooltips = true
+# Display grid lines
+ShowGridLines = true
+# Display grid ticks
+ShowGridTicks = true
+# Display background image
+ShowBackgroundImage = true
+# Display debug info
+ShowDebugInfo = false
+# Display player
+ShowPlayer = true
+# Display player background
+ShowPlayerBackground = true
+# Display Player View
+ShowPlayerView = true
+# Display Map Lines
+ShowMapLines = true
+# Display Map Points (locations)
+ShowMapPoints = true
+# Display Dropped Items
+ShowDroppedItems = true
+# Display Spawns
+ShowSpawns = true
+# Display Spawn Points
+ShowSpawnPoints = true
+# Display Unknown Spawns
+ShowUnknownSpawns = false
+# Display Spawn Names
+ShowSpawnNames = false
+# Display Dropped Coins
+ShowDroppedCoins = false
+# Display Doors
+ShowDoors = false
+# Display Walk Path of Selected Spawn
+WalkPathShowSelect = true
+# Highlight Considered Spawns
+HighlightConsideredSpawns = true
+# Display Velocity Lines
+VelocityLines = true
+# Key to zoom map out
+ZoomOutKey = "-"
+# Key to zoom map in
+ZoomInKey = "+"
+# Key to center map
+CenterSelectedKey = "Ctrl+5"
+# Key to Lock View
+ViewLockKey = "Ctrl+0"
+# Key to Pan Down to the Left
+PanDownLeftKey = "Ctrl+1"
+# key to Pan Down
+PanDownKey = "Ctrl+2"
+# Key to Pan Down to the Right
+PanDownRightKey = "Ctrl+3"
+# Key to Pan Left
+PanLeftKey = "Ctrl+4"
+# Key to Pan Right
+PanRightKey = "Ctrl+6"
+# Key to Pan Up to the Left
+PanUpLeftKey = "Ctrl+7"
+# key to Pan Up
+PanUpKey = "Ctrl+8"
+# Key to Pan Up to the Right
+PanUpRightKey = "Ctrl+9"
+# Key used to add a location
+AddLocationKey = "Ctrl+O"
+# Key used to start a new line
+StartLineKey = "Ctrl+L"
+# Key used to add a line point
+AddLinePointKey = "Ctrl+P"
+# Key used to delete a line point
+DelLinePointKey = "Ctrl+D"
+# Key to switch map to Normal Line display
+MapLineNormalKey = "Alt+1"
+# Key to switch map to Depth Filtered Line display
+MapLineDepthFilteredKey = "Alt+2"
+# Key to switch map to Faded Floors Line display
+MapLineFadedFloorsKey = "Alt+3"
+# Key to toggle spawn depth filtering
+SpawnDepthFilteredKey = "Alt+5"
+
+[Map3Frame]
+# Window caption when undocked
+Caption = "Map 3"
+# Save which controls are visible
+SaveControls = true
+# Display bottom control box
+ShowBottomControlBox = true
+# Display top control box
+ShowTopControlBox = true
+# Display the mouse location
+ShowMouseLocation = true
+# Display the player location
+ShowPlayerLocation = false
+# Display map frame rate control
+ShowFrameRate = true
+# Display map layer control
+ShowLayersControl = true
+# Display the map's runtime filter control
+ShowFilter = true
+# Display depth filter controls
+ShowDepthFilterControls = false
+# Display map panning controls
+ShowPanControls = true
+# Display zoom control
+ShowZoom = true
+
+[Map3]
+# Window caption when undocked
+Caption = "ShowEQ - Map3"
+# Map frame rate (number of map refreshes per second)
+Framerate = 5
+MapLayerMask = -7
+# property that controls repaints, true = Just at repaint ast Framerate, or false = Whenever spawn/map info changes in addition to Framerate
+CacheChanges = true
+# 0=Memory, 1=Normal, 2=Speed
+OptimizeMethod = 1
+# always repaint the cache (slows map repaints)
+CacheAlwaysRepaint = false
+# 0=Normal, 1=DepthFiltered, 2=FadedFloors
+MapLineStyle = 0
+# Enable spawn movement animation
+AnimateSpawnMovement = false
+# Only show spawns between +HeadRoom and -FloorRoom of player
+SpawnDepthFilter = false
+# Base size of spawn elements in display
+DrawSize = 3
+# Font used for map captions
+Font = "bold=false,family=Helvetica,italic=false,pointsize=8,strikeout=false,underline=false"
+# Distance between lines in the grid
+GridResolution = 500
+# Color of grid lines
+GridLineColor = "#194819"
+# Color of grid ticks
+GridTickColor = "#E1C819"
+# Background color
+BackgroundColor = "black"
+# Field of View Mode; 0=DistanceBased, 1=ScaledClassic, 2=Classic
+FOVMode = 0
+# Field of View Style based on Qt::BrushStyle, 0=No Background, 1=Solid, 2=94% fill, 3=88% fill, 4=63% fill, 5=50% fill, 6=37% fill, 7=12% fill, 8=Horizontal lines, 9=Vertical lines, 10=Crossing lines, 11=Diagonal lines (/), 12=Diagonal lines (\), 13=Diagonal crossing lines
+FOVStyle = 8
+# Field of View Color
+FOVColor = "#505050"
+# Field of View Distance
+FOVDistance = 200
+# Distance above player for spawn/map depth filtering
+HeadRoom = 75
+# Distance below player for spawn/map depth filtering
+FloorRoom = 75
+# Enable Deity PVP display
+DeityPvP = false
+# Enable Race PVP display
+RacePvP = false
+# Gives you info about the spawn your mouse is over
+ShowTooltips = true
+# Display grid lines
+ShowGridLines = true
+# Display grid ticks
+ShowGridTicks = true
+# Display background image
+ShowBackgroundImage = true
+# Display debug info
+ShowDebugInfo = false
+# Display player
+ShowPlayer = true
+# Display player background
+ShowPlayerBackground = true
+# Display Player View
+ShowPlayerView = true
+# Display Map Lines
+ShowMapLines = true
+# Display Map Points (locations)
+ShowMapPoints = true
+# Display Dropped Items
+ShowDroppedItems = true
+# Display Spawns
+ShowSpawns = true
+# Display Spawn Points
+ShowSpawnPoints = true
+# Display Unknown Spawns
+ShowUnknownSpawns = false
+# Display Spawn Names
+ShowSpawnNames = false
+# Display Dropped Coins
+ShowDroppedCoins = false
+# Display Doors
+ShowDoors = false
+# Display Walk Path of Selected Spawn
+WalkPathShowSelect = true
+# Highlight Considered Spawns
+HighlightConsideredSpawns = true
+# Display Velocity Lines
+VelocityLines = true
+# Key to zoom map out
+ZoomOutKey = "-"
+# Key to zoom map in
+ZoomInKey = "+"
+# Key to center map
+CenterSelectedKey = "Ctrl+5"
+# Key to Lock View
+ViewLockKey = "Ctrl+0"
+# Key to Pan Down to the Left
+PanDownLeftKey = "Ctrl+1"
+# key to Pan Down
+PanDownKey = "Ctrl+2"
+# Key to Pan Down to the Right
+PanDownRightKey = "Ctrl+3"
+# Key to Pan Left
+PanLeftKey = "Ctrl+4"
+# Key to Pan Right
+PanRightKey = "Ctrl+6"
+# Key to Pan Up to the Left
+PanUpLeftKey = "Ctrl+7"
+# key to Pan Up
+PanUpKey = "Ctrl+8"
+# Key to Pan Up to the Right
+PanUpRightKey = "Ctrl+9"
+# Key used to add a location
+AddLocationKey = "Ctrl+O"
+# Key used to start a new line
+StartLineKey = "Ctrl+L"
+# Key used to add a line point
+AddLinePointKey = "Ctrl+P"
+# Key used to delete a line point
+DelLinePointKey = "Ctrl+D"
+# Key to switch map to Normal Line display
+MapLineNormalKey = "Alt+1"
+# Key to switch map to Depth Filtered Line display
+MapLineDepthFilteredKey = "Alt+2"
+# Key to switch map to Faded Floors Line display
+MapLineFadedFloorsKey = "Alt+3"
+# Key to toggle spawn depth filtering
+SpawnDepthFilteredKey = "Alt+5"
+
+[Map4Frame]
+# Window caption when undocked
+Caption = "Map 4"
+# Save which controls are visible
+SaveControls = true
+# Display bottom control box
+ShowBottomControlBox = true
+# Display top control box
+ShowTopControlBox = true
+# Display the mouse location
+ShowMouseLocation = true
+# Display the player location
+ShowPlayerLocation = false
+# Display map frame rate control
+ShowFrameRate = true
+# Display map layer control
+ShowLayersControl = true
+# Display the map's runtime filter control
+ShowFilter = true
+# Display depth filter controls
+ShowDepthFilterControls = false
+# Display map panning controls
+ShowPanControls = true
+# Display zoom control
+ShowZoom = true
+
+[Map4]
+# Window caption when undocked
+Caption = "ShowEQ - Map4"
+# Map frame rate (number of map refreshes per second)
+Framerate = 5
+MapLayerMask = -7
+# property that controls repaints, true = Just at repaint ast Framerate, or false = Whenever spawn/map info changes in addition to Framerate
+CacheChanges = true
+# 0=Memory, 1=Normal, 2=Speed
+OptimizeMethod = 1
+# always repaint the cache (slows map repaints)
+CacheAlwaysRepaint = false
+# 0=Normal, 1=DepthFiltered, 2=FadedFloors
+MapLineStyle = 0
+# Enable spawn movement animation
+AnimateSpawnMovement = false
+# Only show spawns between +HeadRoom and -FloorRoom of player
+SpawnDepthFilter = false
+# Base size of spawn elements in display
+DrawSize = 3
+# Font used for map captions
+Font = "bold=false,family=Helvetica,italic=false,pointsize=8,strikeout=false,underline=false"
+# Distance between lines in the grid
+GridResolution = 500
+# Color of grid lines
+GridLineColor = "#194819"
+# Color of grid ticks
+GridTickColor = "#E1C819"
+# Background color
+BackgroundColor = "black"
+# Field of View Mode; 0=DistanceBased, 1=ScaledClassic, 2=Classic
+FOVMode = 0
+# Field of View Style based on Qt::BrushStyle, 0=No Background, 1=Solid, 2=94% fill, 3=88% fill, 4=63% fill, 5=50% fill, 6=37% fill, 7=12% fill, 8=Horizontal lines, 9=Vertical lines, 10=Crossing lines, 11=Diagonal lines (/), 12=Diagonal lines (\), 13=Diagonal crossing lines
+FOVStyle = 8
+# Field of View Color
+FOVColor = "#505050"
+# Field of View Distance
+FOVDistance = 200
+# Distance above player for spawn/map depth filtering
+HeadRoom = 75
+# Distance below player for spawn/map depth filtering
+FloorRoom = 75
+# Enable Deity PVP display
+DeityPvP = false
+# Enable Race PVP display
+RacePvP = false
+# Gives you info about the spawn your mouse is over
+ShowTooltips = true
+# Display grid lines
+ShowGridLines = true
+# Display grid ticks
+ShowGridTicks = true
+# Display background image
+ShowBackgroundImage = true
+# Display debug info
+ShowDebugInfo = false
+# Display player
+ShowPlayer = true
+# Display player background
+ShowPlayerBackground = true
+# Display Player View
+ShowPlayerView = true
+# Display Map Lines
+ShowMapLines = true
+# Display Map Points (locations)
+ShowMapPoints = true
+# Display Dropped Items
+ShowDroppedItems = true
+# Display Spawns
+ShowSpawns = true
+# Display Spawn Points
+ShowSpawnPoints = true
+# Display Unknown Spawns
+ShowUnknownSpawns = false
+# Display Spawn Names
+ShowSpawnNames = false
+# Display Dropped Coins
+ShowDroppedCoins = false
+# Display Doors
+ShowDoors = false
+# Display Walk Path of Selected Spawn
+WalkPathShowSelect = true
+# Highlight Considered Spawns
+HighlightConsideredSpawns = true
+# Display Velocity Lines
+VelocityLines = true
+# Key to zoom map out
+ZoomOutKey = "-"
+# Key to zoom map in
+ZoomInKey = "+"
+# Key to center map
+CenterSelectedKey = "Ctrl+5"
+# Key to Lock View
+ViewLockKey = "Ctrl+0"
+# Key to Pan Down to the Left
+PanDownLeftKey = "Ctrl+1"
+# key to Pan Down
+PanDownKey = "Ctrl+2"
+# Key to Pan Down to the Right
+PanDownRightKey = "Ctrl+3"
+# Key to Pan Left
+PanLeftKey = "Ctrl+4"
+# Key to Pan Right
+PanRightKey = "Ctrl+6"
+# Key to Pan Up to the Left
+PanUpLeftKey = "Ctrl+7"
+# key to Pan Up
+PanUpKey = "Ctrl+8"
+# Key to Pan Up to the Right
+PanUpRightKey = "Ctrl+9"
+# Key used to add a location
+AddLocationKey = "Ctrl+O"
+# Key used to start a new line
+StartLineKey = "Ctrl+L"
+# Key used to add a line point
+AddLinePointKey = "Ctrl+P"
+# Key used to delete a line point
+DelLinePointKey = "Ctrl+D"
+# Key to switch map to Normal Line display
+MapLineNormalKey = "Alt+1"
+# Key to switch map to Depth Filtered Line display
+MapLineDepthFilteredKey = "Alt+2"
+# Key to switch map to Faded Floors Line display
+MapLineFadedFloorsKey = "Alt+3"
+# Key to toggle spawn depth filtering
+SpawnDepthFilteredKey = "Alt+5"
+
+[Map5Frame]
+# Window caption when undocked
+Caption = "Map 5"
+# Save which controls are visible
+SaveControls = true
+# Display bottom control box
+ShowBottomControlBox = true
+# Display top control box
+ShowTopControlBox = true
+# Display the mouse location
+ShowMouseLocation = true
+# Display the player location
+ShowPlayerLocation = false
+# Display map frame rate control
+ShowFrameRate = true
+# Display map layer control
+ShowLayersControl = true
+# Display the map's runtime filter control
+ShowFilter = true
+# Display depth filter controls
+ShowDepthFilterControls = false
+# Display map panning controls
+ShowPanControls = true
+# Display zoom control
+ShowZoom = true
+
+[Map5]
+# Window caption when undocked
+Caption = "ShowEQ - Map5"
+# Map frame rate (number of map refreshes per second)
+Framerate = 5
+MapLayerMask = -7
+# property that controls repaints, true = Just at repaint ast Framerate, or false = Whenever spawn/map info changes in addition to Framerate
+CacheChanges = true
+# 0=Memory, 1=Normal, 2=Speed
+OptimizeMethod = 1
+# always repaint the cache (slows map repaints)
+CacheAlwaysRepaint = false
+# 0=Normal, 1=DepthFiltered, 2=FadedFloors
+MapLineStyle = 0
+# Enable spawn movement animation
+AnimateSpawnMovement = false
+# Only show spawns between +HeadRoom and -FloorRoom of player
+SpawnDepthFilter = false
+# Base size of spawn elements in display
+DrawSize = 3
+# Font used for map captions
+Font = "bold=false,family=Helvetica,italic=false,pointsize=8,strikeout=false,underline=false"
+# Distance between lines in the grid
+GridResolution = 500
+# Color of grid lines
+GridLineColor = "#194819"
+# Color of grid ticks
+GridTickColor = "#E1C819"
+# Background color
+BackgroundColor = "black"
+# Field of View Mode; 0=DistanceBased, 1=ScaledClassic, 2=Classic
+FOVMode = 0
+# Field of View Style based on Qt::BrushStyle, 0=No Background, 1=Solid, 2=94% fill, 3=88% fill, 4=63% fill, 5=50% fill, 6=37% fill, 7=12% fill, 8=Horizontal lines, 9=Vertical lines, 10=Crossing lines, 11=Diagonal lines (/), 12=Diagonal lines (\), 13=Diagonal crossing lines
+FOVStyle = 8
+# Field of View Color
+FOVColor = "#505050"
+# Field of View Distance
+FOVDistance = 200
+# Distance above player for spawn/map depth filtering
+HeadRoom = 75
+# Distance below player for spawn/map depth filtering
+FloorRoom = 75
+# Enable Deity PVP display
+DeityPvP = false
+# Enable Race PVP display
+RacePvP = false
+# Gives you info about the spawn your mouse is over
+ShowTooltips = true
+# Display grid lines
+ShowGridLines = true
+# Display grid ticks
+ShowGridTicks = true
+# Display background image
+ShowBackgroundImage = true
+# Display debug info
+ShowDebugInfo = false
+# Display player
+ShowPlayer = true
+# Display player background
+ShowPlayerBackground = true
+# Display Player View
+ShowPlayerView = true
+# Display Map Lines
+ShowMapLines = true
+# Display Map Points (locations)
+ShowMapPoints = true
+# Display Dropped Items
+ShowDroppedItems = true
+# Display Spawns
+ShowSpawns = true
+# Display Spawn Points
+ShowSpawnPoints = true
+# Display Unknown Spawns
+ShowUnknownSpawns = false
+# Display Spawn Names
+ShowSpawnNames = false
+# Display Dropped Coins
+ShowDroppedCoins = false
+# Display Doors
+ShowDoors = false
+# Display Walk Path of Selected Spawn
+WalkPathShowSelect = true
+# Highlight Considered Spawns
+HighlightConsideredSpawns = true
+# Display Velocity Lines
+VelocityLines = true
+# Key to zoom map out
+ZoomOutKey = "-"
+# Key to zoom map in
+ZoomInKey = "+"
+# Key to center map
+CenterSelectedKey = "Ctrl+5"
+# Key to Lock View
+ViewLockKey = "Ctrl+0"
+# Key to Pan Down to the Left
+PanDownLeftKey = "Ctrl+1"
+# key to Pan Down
+PanDownKey = "Ctrl+2"
+# Key to Pan Down to the Right
+PanDownRightKey = "Ctrl+3"
+# Key to Pan Left
+PanLeftKey = "Ctrl+4"
+# Key to Pan Right
+PanRightKey = "Ctrl+6"
+# Key to Pan Up to the Left
+PanUpLeftKey = "Ctrl+7"
+# key to Pan Up
+PanUpKey = "Ctrl+8"
+# Key to Pan Up to the Right
+PanUpRightKey = "Ctrl+9"
+# Key used to add a location
+AddLocationKey = "Ctrl+O"
+# Key used to start a new line
+StartLineKey = "Ctrl+L"
+# Key used to add a line point
+AddLinePointKey = "Ctrl+P"
+# Key used to delete a line point
+DelLinePointKey = "Ctrl+D"
+# Key to switch map to Normal Line display
+MapLineNormalKey = "Alt+1"
+# Key to switch map to Depth Filtered Line display
+MapLineDepthFilteredKey = "Alt+2"
+# Key to switch map to Faded Floors Line display
+MapLineFadedFloorsKey = "Alt+3"
+# Key to toggle spawn depth filtering
+SpawnDepthFilteredKey = "Alt+5"
+
+[PacketLogging]
+# Log al packets to global log file
+LogAllPackets = false
+# Log zone packets to zone log file
+LogZonePackets = false
+# Log bazaar packets to bazaar log file
+LogBazaarPackets = false
+# Log unknown packets to unknown zone log file
+LogUnknownZonePackets = false
+# view unknown packets
+ViewUnknown = false
+# log encrypted packets to encrypted log file
+LogEncrypted = false
+# Global log file (enabled with LogAllPackets)
+GlobalLogFilename = "global.log"
+# Zone log file (enabled with LogZonePackets)
+ZoneLogFilename = "zone.log"
+# Zone log file (enabled with LogBazaarPackets)
+BazaarLogFilename = "bazaar.log"
+# Unknown Zone log file (enabled with LogUnknownZonePackets)
+UnknownZoneLogFilename = "unknownzone.log"
+# Encrypted log file (enabled with LogEncrypted)
+EncryptedLogFilenameBase = "encrypted"
+PktLoggerMask = ""
+PktLoggerFilename = "packet.log"
+
+[Interface_StatusBar]
+# Display Experience total
+ShowExp = false
+# Display Alternative Advancement Experience total
+ShowExpAA = false
+# Display packet counter
+ShowPacketCounter = false
+# Display spawn count
+ShowSpawns = false
+# Display general status
+ShowStatus = true
+# Display zone name
+ShowZone = true
+# Display EQ Time
+ShowEQTime = true
+# Display StatusBar
+StatusBarActive = true
+
+[Filters]
+# Name of default filter file
+FilterFile = "global.xml"
+# Log spawns that match the specified logable filters
+Log = 0
+# Use case sensitive matches on filters
+IsCaseSensitive = false
+# Display additional spawn information in alert message
+AlertInfo = false
+# if true use sound device
+Audio = false
+# Command line to exectue when an alertable new spawn is seen
+SpawnAudioCommand = "/usr/bin/esdplay /usr/local/share/showeq/spawn.wave &"
+# Command line to exectue when an alertable spawn despawns
+DeSpawnAudioCommand = "/usr/bin/esdplay /usr/local/share/showeq/despawn.wave &"
+# Command line to exectue when an alertable spawn dies
+DeathAudioCommand = "/usr/bin/esdplay /usr/local/share/showeq/death.wave &"
+# Command line to exectue when a new Locate spawn is seen
+LocateSpawnAudioCommand = "/usr/bin/esdplay /usr/local/share/showeq/locatespawn.wave &"
+# Command line to exectue when a new Caution spawn is seen
+CautionSpawnAudioCommand = "/usr/bin/esdplay /usr/local/share/showeq/cautionspawn.wave &"
+# Command line to exectue when a new Hunt spawn is seen
+HuntSpawnAudioCommand = "/usr/bin/esdplay /usr/local/share/showeq/huntspawn.wave &"
+# Command line to exectue when a new Danger spawn is seen
+DangerSpawnAudioCommand = "/usr/bin/esdplay /usr/local/share/showeq/dangerspawn.wave &"
+
+[ItemDB]
+# Enables ItemDB, setting to false will disable all ItemDB functionality within ShowEQ
+Enabled = false
+# Databases enables is the logical or of the following values: DATA_DB=0, RAW_DATA_DB=4.  So, to enable all database use 4 (DATA_DB|RAW_DATA_DB), the default is 4 (DATA_DB|RAW_DATA_DB)
+DatabasesEnabled = 4
+# Name of file that contains item data in ShowEQ format
+DataDBFilename = "/usr/local/share/showeq/itemdata2"
+# Name of file that contains item data in Raw EQ format
+RawDataDBFilename = "/usr/local/share/showeq/itemrawdata2"
+
+[SpellList]
+# Save column widths
+SaveSettings = true
+ShowSpellName = true
+ShowSpellID = false
+ShowCasterID = false
+ShowCasterName = false
+ShowTargetID = false
+ShowTargetName = true
+ShowCastTime = false
+ShowRemainTime = true
+SpellNameWidth = 90
+SpellIDWidth = 35
+CasterIDWidth = 35
+CasterNameWidth = 60
+TargetIDWidth = 35
+TargetNameWidth = 90
+CastTimeWidth = 60
+RemainTimeWidth = 60
+# Order of columns
+ColumnOrder = "0:1:2:3:4:5:6:7"
+SortColumn = 7
+SortIncreasing = true
+SpellTimer = 6
+
+[Interface]
+# Window caption
+Caption = "ShowEQ - Main (ctrl+alt+t to toggle menubar)"
+# Save window x, y, width, height
+SavePosition = true
+# Use window position information
+UseWindowPos = true
+# Select spawn on consider
+SelectOnCon = false
+# Select spawn on target
+SelectOnTarget = false
+# Display network statistics/diagnostics window
+ShowNetDiag = false
+# Uses Y,X,Z coordinates
+RetardedCoords = false
+# Colors spawnlist and map based on PvP teams
+PvPTeamColoring = false
+# Colors spawnlist and map based on Deity PvP teams
+DeityPvPTeamColoring = false
+# Keeps the selected spawn in view
+KeepSelected = true
+# Print messages to stdout
+UseStdout = false
+# Display compass
+ShowCompass = false
+# Display Player Skill List
+ShowPlayerSkills = false
+# Display Player Stats List
+ShowPlayerStats = false
+# Display Spawn List
+ShowSpawnList = false
+# Display New Spawn List
+ShowSpawnList2 = true
+# Display Spawn Point List
+ShowSpawnPointList = true
+# Display Experience Window
+ShowExpWindow = false
+# Display Combat Window
+ShowCombatWindow = false
+# Display Spell List
+ShowSpellList = true
+# Display time in unix time (seconds since 1970)
+SystimeSpawntime = false
+# Display Map
+ShowMap = true
+# Display Map 2
+ShowMap2 = false
+# Display Map 3
+ShowMap3 = false
+# Display Map 4
+ShowMap4 = false
+# Display Map 5
+ShowMap5 = false
+# Dock Player Skill List
+DockedPlayerSkills = false
+# Dock Player Stats
+DockedPlayerStats = false
+# Dock Spawn List
+DockedSpawnList = true
+# Dock Spawn List
+DockedSpawnList2 = true
+# Dock Spawn Point List
+DockedSpawnPoint = true
+# Dock Spell List
+DockedSpellList = true
+# Dock Map
+DockedMap = true
+# Dock Map 2
+DockedMap2 = false
+# Dock Map 3
+DockedMap3 = false
+# Dock Map 4
+DockedMap4 = false
+# Dock Map 5
+DockedMap5 = false
+# Dock Compass
+DockedCompass = true
+# Location of file containing formatted strings
+FormatFile = "eqstr_us.txt"
+# Location of file containing spell information
+SpellsFile = "spells_us.txt"
+# set to true to print bank/inventory items to stdout
+NoBank = true
+# Automatically generated window position information
+DockingInfo = " ShowEQ - Experience,ShowEQ Combat, [ShowEQ - Experience,400,360,800,480,0][ShowEQ Combat,400,360,800,480,0]       ShowEQ - Spawn List 2,ShowEQ - Spawn Points,ShowEQ - Spell List,Map , [ShowEQ - Spawn List 2,64,1,378,190,1][ShowEQ - Spawn Points,0,0,378,118,1][ShowEQ - Spell List,0,0,378,136,1][Map ,0,1,378,766,1] "
+# Location of file containing guild strings
+GuildsFile = "guilds3.dat"
+# Location to write plain text file containing guild strings
+GuildsDumpFile = "guilds.txt"
+
+[Combat]
+# Window caption when undocked
+Caption = "ShowEQ Combat"
+
+[SaveState]
+# Save the decode key for the current session/zone
+DecodeKey = true
+# Save the current player state
+PlayerState = true
+# Save the spawn list
+Spawns = false
+# number of milliseconds between spawn list saves
+SpawnsFrequency = 120000
+# Base filename used to construct the others, so for example the DecodeKey would be in /usr/local/share/showeq/lastKey.dat using the default location
+BaseFilename = "last"
+
+[KeyFile]
+# Base filename used to construct the others, so for example the DecodeKey would be in /usr/local/share/showeq/keyfile.dat using the default location
+KeyBaseFilename = "/usr/local/share/showeq/keyfile.dat"
+# Port that key will be sent to
+KeyPort = 10000
+
+[Experience]
+# Window Caption
+Title = "ShowEQ - Experience"
+
+[OpCodeMonitoring]
+# ONLY Enable this if you are a developer...
+Enable = false
+# A list of OpCodes seperated by commas...
+# 
+# Each Opcode has 4 arguments, only one of which is actually necessary...
+# They are:
+# 
+# OpCode:    16-bit HEX value of the OpCode
+# (REQUIRED - No Default)
+# 
+# Alias:     Name used when displaying the Opcode
+# (DEFAULT: Monitored OpCode)
+# 
+# Direction: 1 = Client ---> Server
+# 2 = Client <--- Server
+# 3 = Client <--> Server (BOTH)
+# (DEFAULT: 3)
+# 
+# Show known 1 = Show if OpCode is marked as known.
+# 0 = Ignore if OpCode is known.
+# (DEFAULT: 0)
+# 
+# The way which you include the arguments in the list of OpCodes is:
+# adding a ':' inbetween arguments and a ',' after the last OpCode
+# argument.
+# 
+# (i.e. 7F21:Mana Changed:3:1, 7E21:Unknown Spell Event(OUT):1,
+# 7E21:Unknown Spell Event(IN):2 )
+# 
+# If any argument is left blank, it is filled in with its default...
+# (see defaults above)
+OpCodeList = ""
+Log = false
+View = false
+LogFilename = "opcodemonitor.log"
+
+[NetDiag]
+# Window caption when undocked
+Caption = "ShowEQ - Network Diagnostics"
+
+[Compass]
+# Window caption when undocked
+Caption = "ShowEQ - Compass"
+
+[CategoryMgr]
+# Category for all spawns but filtered
+Category1_Name = "All"
+# regular expression for all filtered spawns
+Category1_Filter = "."
+Category1_Color = "black"
+# Category for all NPC's
+Category2_Name = "NPCs"
+# regular expression for all NPC's
+Category2_Filter = "NPC:1"
+Category2_Color = "black"
+# Category for all Player's
+Category3_Name = "Players"
+# regular expression to match all PC's
+Category3_Filter = "NPC:0"
+Category3_Color = "black"
+# Category for Shopkeepers and Bankers
+Category4_Name = "Shop and Bank"
+# regular expression to match shopkeepers and bankers
+Category4_Filter = "Class:Shopkeeper|Class:Banker"
+Category4_Color = "black"
+# Category matching all will-o-wisp's carrying GLS's
+Category5_Name = "Will-o-Wisps"
+# regular expression to match all will-o-wisp's carrying GLS's
+Category5_Filter = ":Race:Will[^:]:Light:GLS:"
+Category5_Color = "black"
+# Player Corpses
+Category6_Name = "Corpses/Players"
+# regular expression to match all PC corpses
+Category6_Filter = "NPC:2"
+Category6_Color = "black"
+# NPC Corpses
+Category7_Name = "Corpses/NPCs"
+# regular expresssion matching all NPC corpses
+Category7_Filter = "NPC:3"
+Category7_Color = "black"
+# category for all spawns matching Hunt filter
+Category8_Name = "Hunting"
+# regular expression matching Hunt filters
+Category8_Filter = ":Hunt:"
+Category8_Color = "DarkBlue"
+# Category for all spawns matching all spwawns we want to be alerted about
+Category9_Name = "Alert"
+# Regular expression matching Alert filters
+Category9_Filter = ":Alert:"
+Category9_Color = "DarkMagenta"
+# Category for all spawns we want located
+Category10_Name = "Locate"
+# Regular expression matching Locate filters
+Category10_Filter = ":Locate:"
+Category10_Color = "black"
+# Category matching all filtered spawns
+Category11_Name = "Filtered"
+# regular expression matching filtered spawns
+Category11_Filter = ":Filtered:"
+Category11_Color = "black"
+# Category for spawns matching map Find queries
+Category12_Name = "Map Found"
+# regular expression matching any of the Maps 1-5
+Category12_Filter = ":Map[2-5]{0,1}:"
+Category12_Color = "black"
+
+[MessageWindow1]
+# Window caption
+Caption = "ShowEQ - Channel Messages"
+# Causes this window to be created
+Create = true
+DefaultColor = "black"
+DefaultBGColor = "white"
+GuildColor = "green"
+GroupColor = "cyan"
+ShoutColor = "red"
+AuctionBGColor = "green"
+OOCColor = "darkGreen"
+TellColor = "magenta"
+SayColor = "green"
+GMTellColor = "red"
+RaidColor = "darkCyan"
+SpellColor = "blue"
+AlertBGColor = "magenta"
+DangerBGColor = "red"
+CautionBGColor = "yellow"
+HuntBGColor = "cyan"
+LocateBGColor = "blue"
+
+[MessageWindow2]
+# Window caption
+Caption = "ShowEQ - Channel Messages 2"
+# Causes this window to be created
+Create = true
+DefaultColor = "black"
+DefaultBGColor = "white"
+GuildColor = "green"
+GroupColor = "cyan"
+ShoutColor = "red"
+AuctionBGColor = "green"
+OOCColor = "darkGreen"
+TellColor = "magenta"
+SayColor = "green"
+GMTellColor = "red"
+RaidColor = "darkCyan"
+SpellColor = "blue"
+AlertBGColor = "magenta"
+DangerBGColor = "red"
+CautionBGColor = "yellow"
+HuntBGColor = "cyan"
+LocateBGColor = "blue"
+
+[MessageWindow3]
+# Window caption
+Caption = "ShowEQ - Channel Messages 3"
+# Causes this window to be created
+Create = false
+DefaultColor = "black"
+DefaultBGColor = "white"
+GuildColor = "green"
+GroupColor = "cyan"
+ShoutColor = "red"
+AuctionBGColor = "green"
+OOCColor = "darkGreen"
+TellColor = "magenta"
+SayColor = "green"
+GMTellColor = "red"
+RaidColor = "darkCyan"
+SpellColor = "blue"
+AlertBGColor = "magenta"
+DangerBGColor = "red"
+CautionBGColor = "yellow"
+HuntBGColor = "cyan"
+LocateBGColor = "blue"
+
+[MessageWindow4]
+# Window caption
+Caption = "ShowEQ - Channel Messages 4"
+# Causes this window to be created
+Create = false
+DefaultColor = "black"
+DefaultBGColor = "white"
+GuildColor = "green"
+GroupColor = "cyan"
+ShoutColor = "red"
+AuctionBGColor = "green"
+OOCColor = "darkGreen"
+TellColor = "magenta"
+SayColor = "green"
+GMTellColor = "red"
+RaidColor = "darkCyan"
+SpellColor = "blue"
+AlertBGColor = "magenta"
+DangerBGColor = "red"
+CautionBGColor = "yellow"
+HuntBGColor = "cyan"
+LocateBGColor = "blue"
+
+[MessageWindow5]
+# Window caption
+Caption = "ShowEQ - Channel Messages 5"
+# Causes this window to be created
+Create = false
+DefaultColor = "black"
+DefaultBGColor = "white"
+GuildColor = "green"
+GroupColor = "cyan"
+ShoutColor = "red"
+AuctionBGColor = "green"
+OOCColor = "darkGreen"
+TellColor = "magenta"
+SayColor = "green"
+GMTellColor = "red"
+RaidColor = "darkCyan"
+SpellColor = "blue"
+AlertBGColor = "magenta"
+DangerBGColor = "red"
+CautionBGColor = "yellow"
+HuntBGColor = "cyan"
+LocateBGColor = "blue"
+
+[MessageWindow6]
+# Window caption
+Caption = "ShowEQ - Channel Messages 6"
+# Causes this window to be created
+Create = false
+DefaultColor = "black"
+DefaultBGColor = "white"
+GuildColor = "green"
+GroupColor = "cyan"
+ShoutColor = "red"
+AuctionBGColor = "green"
+OOCColor = "darkGreen"
+TellColor = "magenta"
+SayColor = "green"
+GMTellColor = "red"
+RaidColor = "darkCyan"
+SpellColor = "blue"
+AlertBGColor = "magenta"
+DangerBGColor = "red"
+CautionBGColor = "yellow"
+HuntBGColor = "cyan"
+LocateBGColor = "blue"
+
+[SpawnPointList]
+Font = "bold=false,family=Helvetica,italic=false,pointsize=8,strikeout=false,underline=false"
+ShowCoord1 = true
+ShowCoord2 = true
+ShowCoord3 = true
+ShowRemaining = true
+ShowName = true
+ShowLast = true
+ShowSpawned = true
+ShowCount = true
+Coord1Width = 40
+Coord2Width = 40
+Coord3Width = 40
+RemainingWidth = 60
+NameWidth = 100
+LastWidth = 100
+SpawnedWidth = 60
+CountWidth = 35
+ColumnOrder = "0:1:2:3:4:5:6:7"
+SortColumn = 3
+SortIncreasing = true
+
+[Player]
+GrayBase = "#4d624d"
+GreenBase = "#00e800"
+CyanBase = "#00ffff"
+BlueBase = "#0000a0"
+Even = "#ffffff"
+YellowBase = "#ffff00"
+RedBase = "#7f0000"
+Unknown = "#646468"

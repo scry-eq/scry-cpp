@@ -203,7 +203,7 @@ set(SEQ_DAEMON_EXTRACTED_SOURCES
   src/util.cpp
   src/vpacket.cpp
   src/xmlconv.cpp
-  src/xmlpreferences.cpp
+  src/tomlpreferences.cpp
   src/zonemgr.cpp
 )
 
@@ -231,7 +231,7 @@ set(SEQ_DAEMON_CORE_NEW_SOURCES
 
 # The opcode table is the ONE part of conf/ that varies per target: Live's lives
 # FLAT at conf/ (base, legacy-showeq compatible), Test/EQL under conf/<target>/.
-# Everything else (seqdef.xml, maps/, spawnpoints/, filters/, daemon/) is shared
+# Everything else (seqdef.toml, maps/, spawnpoints/, filters/, daemon/) is shared
 # at the conf/ root, so --config-dir stays "conf" for every target; the runtime
 # picks the opcode dir via the SEQ_OPCODE_SUBDIR define ("." for live).
 #

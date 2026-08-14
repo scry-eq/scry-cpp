@@ -12,16 +12,16 @@
  */
 
 #include "main.h"
-#include "xmlpreferences.h"
+#include "tomlpreferences.h"
 
 struct ShowEQParams* showeq_params = nullptr;
-XMLPreferences*      pSEQPrefs     = nullptr;
+TomlPreferences*     pSEQPrefs     = nullptr;
 
 namespace seq {
 // Called from DaemonApp before any extracted classes are constructed.
 void initGlobals(const QString& configDef, const QString& configFile)
 {
-    pSEQPrefs     = new XMLPreferences(configDef, configFile);
+    pSEQPrefs     = new TomlPreferences(configDef, configFile);
     showeq_params = new ShowEQParams();
     // Fields are zero/false by default; opt-ins below match showeq's
     // usual "sensible runtime" settings rather than its XML defaults.
