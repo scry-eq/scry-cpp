@@ -4,7 +4,7 @@
 
 #include "main.h"
 #include "packet.h"
-#include "xmlpreferences.h"
+#include "tomlpreferences.h"
 
 namespace {
 
@@ -68,7 +68,7 @@ bool PrefsBroker::apply(const seq::v1::Pref& pref)
         if (pref.value_case() != seq::v1::Pref::kStringValue) return false;
         pSEQPrefs->setPrefString(
             key, section, QString::fromStdString(pref.string_value()));
-        // XMLPreferences batches modifications; flush so the change
+        // The preference store batches modifications; flush so the change
         // survives a daemon restart.
         pSEQPrefs->save();
         emit prefChanged(pref);

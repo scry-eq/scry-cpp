@@ -38,6 +38,24 @@ target_compile_options(seqcolor_test PRIVATE
 
 add_test(NAME seqcolor_test COMMAND seqcolor_test)
 
+add_executable(tomlpreferences_test
+  tomlpreferences_test.cpp
+)
+
+target_link_libraries(tomlpreferences_test PRIVATE
+  seq-daemon-core
+  Qt6::Test
+)
+
+target_compile_options(tomlpreferences_test PRIVATE
+  -Wall
+  -Wno-unused-parameter
+  -Wno-deprecated-declarations
+)
+
+add_test(NAME tomlpreferences_test COMMAND tomlpreferences_test)
+
+
 add_executable(packetinfo_test
   packetinfo_test.cpp
 )

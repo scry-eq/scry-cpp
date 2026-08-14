@@ -22,7 +22,7 @@ struct NamedColor
 // CSS3/SVG named colors. Values match Qt5's QColor::setNamedColor(),
 // which is the SVG list (NOT the Qt::GlobalColor enum — e.g. SVG
 // "green" is #008000, not Qt::green's #00ff00; SVG "gray" is #808080,
-// not Qt::gray's #a0a0a4). Used by both conf/seqdef.xml prefs and the
+// not Qt::gray's #a0a0a4). Used by both conf/seqdef.toml prefs and the
 // 64-entry SEQMAP_COLOR_TABLE in mapcolors.h. Lookup is case-
 // insensitive.
 constexpr std::array<NamedColor, 148> kNamedColors = {{

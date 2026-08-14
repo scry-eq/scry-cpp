@@ -131,7 +131,7 @@ void fillSpawn(seq::v1::Spawn* out, const Item& it,
     }
 
     if (categories) {
-        // Several seqdef.xml categories key off filter-type names that
+        // Several seqdef.toml categories key off filter-type names that
         // never appear in Spawn::filterString itself — Hunting matches
         // ":Hunt:", Alert matches ":Alert:", Filtered matches
         // ":Filtered:". showeq's spawnlist2 prepends the FilterMgr's
