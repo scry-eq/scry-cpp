@@ -53,7 +53,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake pkg-config \
             qt6-base-dev qt6-websockets-dev qt6-5compat-dev \
-            libpcap-dev libprotobuf-dev protobuf-compiler zlib1g-dev
+            libpcap-dev libprotobuf-dev protobuf-compiler zlib1g-dev libsqlite3-dev
 
       - name: install build deps (Fedora)
         if: matrix.os == 'fedora'
@@ -61,7 +61,7 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False \
             gcc gcc-c++ make cmake pkgconf-pkg-config cargo \
             qt6-qtbase-devel qt6-qtwebsockets-devel \
-            libpcap-devel protobuf-devel protobuf-compiler zlib-devel
+            libpcap-devel protobuf-devel protobuf-compiler zlib-devel sqlite-devel
 
       - name: configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSEQ_DECODER_RS_DIR=$GITHUB_WORKSPACE/scry-decoder-rs
@@ -138,7 +138,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake pkg-config \
             qt6-base-dev qt6-websockets-dev qt6-5compat-dev \
-            libpcap-dev libprotobuf-dev protobuf-compiler zlib1g-dev
+            libpcap-dev libprotobuf-dev protobuf-compiler zlib1g-dev libsqlite3-dev
 
       - name: configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSEQ_TARGET=${{ matrix.seq_target }} -DSEQ_DECODER_RS_DIR=$GITHUB_WORKSPACE/scry-decoder-rs
