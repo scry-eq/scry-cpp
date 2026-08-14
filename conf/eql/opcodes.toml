@@ -314,11 +314,11 @@ comment = "STALE post-07/28: id 4170 carried pre-patch provenance and fires ZERO
   sizechecktype = "none"
 
 [[zone]]
-id      = "ffff"
+id      = "0fbe"
 name    = "OP_Stamina"
 priority = 4
-updated = "2026-08-02"
-comment = "UNMAPPED by the 08/04 rotation (was 03ce); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 17a1) - confirmed on our 07/29 capture: 1 fires, S>C 1  sizes=8:1. PRIOR: 07/14 id 0x3b0c (adopted from legacy showeqlegends, capture-verified): stock 8B staminaStruct {u32 food, u32 water} — 'ticks till next eat'. Fires 71x S>C at 8B in the fight capture; food/water tick DOWN together (3396->3364->3332, 4596->4564->4532, step 32). Wired Player::updateStamina; size eql-owned in seq-backend-eql size_overrides()."
+updated = "2026-08-13"
+comment = "RE-HUNTED 2026-08-13 after the 08/04 rotation dropped it. Content-confirmed by the staminaStruct signature, not by size: two u32 that tick DOWN TOGETHER in lockstep steps of 32. loot2 (4476,3576)->(4444,3544)->(4412,3512)->(4380,3480) and patch-20260806 (3672,4272)->(3640,4240)->(3608,4208)->(3576,4176) are both perfectly monotone, and loadout-self decreases on 95/100 transitions across 101 fires (the exceptions are upward jumps = eating/drinking). Matches the archived 07/14 evidence exactly (3396->3364->3332 / 4596->4564->4532, step 32). Zero competitors: every other 8B S>C unknown fails the signature - 0x59b8 and 0x2301 have scattered steps 2-6 and decrease on only ~20-35% of transitions, 0x7a55 has field0 always 0. NOTE the food/water ASSIGNMENT within the pair follows the stock struct order and is not independently verified; the in-game hunger/thirst indicator is the ground truth if it ever matters. PRIOR: UNMAPPED by the 08/04 rotation (was 03ce); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 17a1) - confirmed on our 07/29 capture: 1 fires, S>C 1  sizes=8:1. PRIOR: 07/14 id 0x3b0c (adopted from legacy showeqlegends, capture-verified): stock 8B staminaStruct {u32 food, u32 water} — 'ticks till next eat'. Fires 71x S>C at 8B in the fight capture; food/water tick DOWN together (3396->3364->3332, 4596->4564->4532, step 32). Wired Player::updateStamina; size eql-owned in seq-backend-eql size_overrides()."
 
   [[zone.payloads]]
   dir           = "server"
