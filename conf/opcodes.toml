@@ -882,11 +882,11 @@ comment = "old CorpseLocCode:"
   sizechecktype = "match"
 
 [[zone]]
-id      = "ffff"
+id      = "0699"
 name    = "OP_ItemPacket"
-priority = -1
-updated = "2026-07-17"
-comment = "S>C variable-length serialized item delivery (~946-1011b/item). Wrapper unchanged post-patch: {u32 packetType(0x74/0x76/0x78), char[16] instanceId, u8 nul, u32 stack, u32 mainSlot, u16 subSlot}, then serialized item blob with inline ASCII name. Per-item, fires on slot move and zone-in pickup; legacy bulk OP_ItemPlayerPacket obsolete on current Live. Re-confirmed post-2026-05-22 patch via inline item names + instance-id wrapper."
+priority = 10
+updated = "2026-08-13"
+comment = "MAPPED 2026-08-13 to 0699, content-confirmed against the wrapper this entry already documented: packetType@0 = 0x76 (in the documented 0x74/0x76/0x78 set), a 16-char ASCII instanceId@4 that increments across consecutive fires, NUL@20, then stack/mainSlot/subSlot decoding sensibly - stack 20 on exactly the stackables (Bread Cakes, Skin of Milk, Bandages) and 1 elsewhere, mainSlot 41 with subSlot running 0..14 (a bag at slot 41), and inline ASCII item names. 15 fires on live-guild at 946-973B, inside the ~946-1011b/item this entry predicted. Competitors ruled out by content, not size: 0xce67 and 0xd437 are in the same size band but carry binary at +0 and no ASCII instanceId. PRIOR: S>C variable-length serialized item delivery (~946-1011b/item). Wrapper unchanged post-patch: {u32 packetType(0x74/0x76/0x78), char[16] instanceId, u8 nul, u32 stack, u32 mainSlot, u16 subSlot}, then serialized item blob with inline ASCII name. Per-item, fires on slot move and zone-in pickup; legacy bulk OP_ItemPlayerPacket obsolete on current Live. Re-confirmed post-2026-05-22 patch via inline item names + instance-id wrapper."
 
   [[zone.payloads]]
   dir           = "server"
