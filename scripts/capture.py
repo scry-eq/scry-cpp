@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 DAEMON_DIR = Path(__file__).resolve().parent.parent
-DAEMON_BIN = DAEMON_DIR / "build" / "showeq-daemon"
+DAEMON_BIN = DAEMON_DIR / "build" / "scryd"
 BUILD_DIR = DAEMON_DIR / "build"
 CONF_DIR = DAEMON_DIR / "conf"
 REPLAY_DIR = DAEMON_DIR / "tests" / "replay"

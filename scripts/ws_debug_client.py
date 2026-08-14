@@ -272,7 +272,7 @@ def main():
     ap.add_argument("--max-seconds", type=float, default=45.0,
                     help="hard cap on total run time (default 45; the replay's own "
                          "buffs timer means it never goes fully idle)")
-    ap.add_argument("--daemon", default=os.path.join(REPO, "build", "showeq-daemon"))
+    ap.add_argument("--daemon", default=os.path.join(REPO, "build", "scryd"))
     ap.add_argument("--config-dir", default=os.path.join(REPO, "conf"))
     args = ap.parse_args()
 

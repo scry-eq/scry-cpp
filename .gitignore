@@ -22,10 +22,15 @@ compile_commands.json
 # under --config-dir <conf> it lands here in the working tree).
 # Old root-level path covers state written before the daemon/ subdir
 # split landed; new path is the current location.
+conf/scryd.toml
+conf/daemon/scryd.toml
+# Pre-rename / pre-TOML names, so an old working tree stays clean.
 conf/showeq-daemon.xml
 conf/showeq-daemon.xml.bak
 conf/daemon/showeq-daemon.xml
 conf/daemon/showeq-daemon.xml.bak
+conf/showeq-daemon.toml
+conf/daemon/showeq-daemon.toml
 
 # Runtime-written SpawnMonitor per-zone spawn-point cache.
 conf/spawnpoints/

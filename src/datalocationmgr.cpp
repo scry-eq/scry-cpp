@@ -31,8 +31,8 @@
 #include <QRegularExpression>
 
 // Under sudo, $HOME (and QDir::homePath) resolve to /root, not the invoking
-// user's home — so a bare homeSubDir like ".showeq" would silently land in
-// /root/.showeq instead of the user's actual data dir. SUDO_USER is set by
+// user's home — so a bare homeSubDir like ".scry" would silently land in
+// /root/.scry instead of the user's actual data dir. SUDO_USER is set by
 // sudo to the original username; use it to reconstruct the right path.
 static QString invokingUserHome()
 {
@@ -59,6 +59,13 @@ DataLocationMgr::DataLocationMgr(const QString& homeSubDir,
     m_userData = homeSubDir;
   else
     m_userData = invokingUserHome() + "/" + homeSubDir;
+
+  // Read-only fallback to the pre-rename root. An absolute homeSubDir (tests)
+  // opts out, as does a legacy namespace resolving to the same place.
+  const QString legacySubDir = QStringLiteral(SEQ_LEGACY_DATA_NAMESPACE);
+  if (!legacySubDir.isEmpty() && !QDir::isAbsolutePath(homeSubDir) &&
+      legacySubDir != homeSubDir)
+    m_legacyUserData = invokingUserHome() + "/" + legacySubDir;
 }
 
 DataLocationMgr::~DataLocationMgr()
@@ -73,8 +80,8 @@ bool DataLocationMgr::setupUserDirectory()
   if (!userDataDirInfo.exists())
   {
     // no, then attempt to create it. Use mkpath (not mkdir) so a nested
-    // namespace root like ~/.showeq/eql creates its ~/.showeq parent too —
-    // Live's flat ~/.showeq is unaffected (mkpath makes the single leaf).
+    // namespace root like ~/.scry/eql creates its ~/.scry parent too —
+    // Live's flat ~/.scry is unaffected (mkpath makes the single leaf).
     if (!QDir().mkpath(m_userData))
     {
       seqWarn("Failed to create '%s'\n", QDir(m_userData).absolutePath().toLatin1().data());
@@ -91,10 +98,37 @@ QFileInfo DataLocationMgr::findExistingFile(const QString& subdir,
 					  bool preferUser) const
 {
   // find the file using the preferred search ordering
+  QFileInfo fileInfo;
   if (preferUser)
-    return findFile(m_userData, m_pkgData, subdir, filename, caseSensitive);
+    fileInfo = findFile(m_userData, m_pkgData, subdir, filename, caseSensitive);
   else
-    return findFile(m_pkgData, m_userData, subdir, filename, caseSensitive);
+    fileInfo = findFile(m_pkgData, m_userData, subdir, filename, caseSensitive);
+
+  // Not in the current roots — try the pre-rename root.
+  if (!fileInfo.exists() && !m_legacyUserData.isEmpty())
+  {
+    QDir dir(m_legacyUserData);
+    if (dir.exists() && dir.cd(subdir))
+    {
+      const QFileInfo legacyInfo = findFile(dir, filename, caseSensitive, false);
+      if (legacyInfo.exists())
+      {
+        const QString path = legacyInfo.absoluteFilePath();
+        if (!m_legacyReported.contains(path))
+        {
+          m_legacyReported.insert(path);
+          seqWarn("legacy data dir: read '%s' from pre-rename root '%s'; "
+                  "move it under '%s' to drop the fallback.",
+                  path.toLatin1().data(),
+                  m_legacyUserData.toLatin1().data(),
+                  m_userData.toLatin1().data());
+        }
+        return legacyInfo;
+      }
+    }
+  }
+
+  return fileInfo;
 }
 
 QFileInfo DataLocationMgr::findWriteFile(const QString& subdir, 

@@ -1,4 +1,4 @@
-# showeq-daemon
+# scry-cpp
 
 Headless packet-capture and state-tracking daemon for
 [ShowEQ](https://sourceforge.net/projects/seq/). Extracted from the legacy
@@ -16,7 +16,7 @@ WebSocket + protobuf.
 
 ## What it is not
 
-- Not a GUI. For a UI, run one of the clients (see `showeq-web`, or run the
+- Not a GUI. For a UI, run one of the clients (see `scry-web`, or run the
   legacy `showeq` standalone).
 - Not a replacement for `showeq` yet. Until feature parity is reached,
   `showeq` remains the reference implementation and regression oracle.
@@ -61,38 +61,38 @@ For the optional Rust decoder integration, see [RUST.md](RUST.md).
 libpcap requires CAP_NET_RAW or root:
 
 ```sh
-sudo build/showeq-daemon --device eth0 --listen 127.0.0.1:9090
+sudo build/scryd --device eth0 --listen 127.0.0.1:9090
 ```
 
 For LAN-reachable mode (trusted LAN only — no auth, no TLS in v1):
 
 ```sh
-sudo build/showeq-daemon --device eth0 --listen 0.0.0.0:9090
+sudo build/scryd --device eth0 --listen 0.0.0.0:9090
 ```
 
 ## Running as a service
 
-A systemd unit lives at `packaging/systemd/showeq-daemon.service`.
+A systemd unit lives at `packaging/systemd/scryd.service`.
 First-time install (assumes the daemon binary is already at
-`/usr/local/bin/showeq-daemon` and config files at
-`/usr/local/share/showeq-daemon`):
+`/usr/local/bin/scryd` and config files at
+`/usr/local/share/scryd`):
 
 ```sh
-sudo install -d /etc/showeq-daemon /var/lib/showeq-daemon
-sudo install -m 0644 packaging/systemd/showeq-daemon.env.example \
-    /etc/showeq-daemon/showeq-daemon.env
-sudo $EDITOR /etc/showeq-daemon/showeq-daemon.env       # set SEQ_DEVICE etc.
-sudo install -m 0644 packaging/systemd/showeq-daemon.service \
-    /etc/systemd/system/showeq-daemon.service
+sudo install -d /etc/scryd /var/lib/scryd
+sudo install -m 0644 packaging/systemd/scryd.env.example \
+    /etc/scryd/scryd.env
+sudo $EDITOR /etc/scryd/scryd.env       # set SEQ_DEVICE etc.
+sudo install -m 0644 packaging/systemd/scryd.service \
+    /etc/systemd/system/scryd.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now showeq-daemon
+sudo systemctl enable --now scryd
 ```
 
 Logs land in the journal — the daemon's Qt message handler already
 prepends ISO timestamps and `[INFO ]`/`[WARN ]`/`[ERROR]` tags:
 
 ```sh
-journalctl -u showeq-daemon -f
+journalctl -u scryd -f
 ```
 
 The unit runs as root for `CAP_NET_RAW` + `CAP_NET_ADMIN`. To drop
@@ -108,7 +108,7 @@ src/              # Daemon sources (extracted from showeq + new glue)
   sessionadapter.*# Per-client adapter: QObject signals -> protobuf
   protoencoder.*  # Pure translation functions
   ...             # Packet layer + managers, see extraction inventory
-proto/            # git submodule -> showeq-proto
+proto/            # git submodule -> scry-proto
 conf/             # Opcode XML + preference schema
 docs/             # patch-day.md and friends
 tests/            # tier-1 ctest suite + tier-2 replay scripts

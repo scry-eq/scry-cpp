@@ -2,7 +2,7 @@
 # Pre-push hook: re-build the daemon and run the tier-2 replay check
 # against local fixtures so a code change that shifts the envelope
 # stream can't slip out without me knowing. Also checks that
-# showeq-decoder-rs/bindings.rs is fresh whenever everquest.h changes.
+# scry-decoder-rs/bindings.rs is fresh whenever everquest.h changes.
 #
 # Bypass with: git push --no-verify
 set -euo pipefail
@@ -26,13 +26,13 @@ echo "pre-push: checking opcode bindings (all targets)..."
 python3 tools/bindcheck.py
 
 echo "pre-push: rebuilding daemon (incremental)..."
-cmake --build build --target showeq-daemon -j >/dev/null
+cmake --build build --target scryd -j >/dev/null
 
 echo "pre-push: running tier-2 replay check..."
 echo "${PUSH_INFO}" | tests/replay/check.sh
 
 # ── Proto submodule sync check ───────────────────────────────────────────────
-# The proto/ submodule must match canonical showeq-proto. A pointer AHEAD of
+# The proto/ submodule must match canonical scry-proto. A pointer AHEAD of
 # origin/proto (unpushed) leaves a dangling submodule that breaks clones/CI
 # (the cross-repo push-order footgun); one BEHIND means the daemon — and scry,
 # which regenerates its Elixir proto from this submodule — build against a stale
@@ -54,7 +54,7 @@ if [[ -d proto ]]; then
         else
             echo "" >&2
             echo "ERROR: proto submodule ${PROTO_SUB:0:12} is not on origin/proto main." >&2
-            echo "       Push showeq-proto FIRST (cross-repo order: proto → daemon → web)." >&2
+            echo "       Push scry-proto FIRST (cross-repo order: proto → daemon → web)." >&2
             exit 1
         fi
     else
@@ -63,7 +63,7 @@ if [[ -d proto ]]; then
 fi
 
 # ── Rust bindings freshness check ────────────────────────────────────────────
-DECODER_RS="${REPO}/../showeq-decoder-rs"
+DECODER_RS="${REPO}/../scry-decoder-rs"
 if [[ ! -d "${DECODER_RS}" ]]; then
     exit 0
 fi
@@ -122,10 +122,10 @@ rm -f "${SAVED_LIVE}" "${SAVED_TEST}"
 
 if [[ "${STALE}" -eq 1 ]]; then
     echo ""
-    echo "ERROR: showeq-decoder-rs bindings are stale." >&2
+    echo "ERROR: scry-decoder-rs bindings are stale." >&2
     echo "       everquest.h changed but bindings.rs was not regenerated." >&2
-    echo "       Run: (cd ../showeq-decoder-rs && python3 tools/gen_eqstructs.py all)" >&2
-    echo "       Then commit and push showeq-decoder-rs before retrying." >&2
+    echo "       Run: (cd ../scry-decoder-rs && python3 tools/gen_eqstructs.py all)" >&2
+    echo "       Then commit and push scry-decoder-rs before retrying." >&2
     exit 1
 fi
 

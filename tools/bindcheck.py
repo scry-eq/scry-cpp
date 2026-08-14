@@ -23,7 +23,7 @@ OP_SpawnAppearance2 dead on SEQ_TARGET=test for weeks (fixed a089d21): live and
 test SHARE wire_live.cpp, the live table was corrected and the test one was not.
 
 Handles both call forms and both table formats, so it covers the sibling
-codebases too: showeq-daemon uses `wire()` + TOML, showeq-daemon-quarm uses
+codebases too: scry-cpp uses `wire()` + TOML, scry-cpp-quarm uses
 `connect2()` + TOML, and legacy showeq uses `connect2()` + XML. Siblings are
 checked when present and reported ADVISORY — a pre-existing issue next door
 must not fail this repo's hook, or the check guarding this repo gets bypassed.
@@ -58,8 +58,8 @@ TARGETS = [
 # daemon's wire() lambda, and legacy still ships XML tables — hence the parser
 # handling both call forms and both table formats.
 SIBLINGS = [
-    ("quarm", "../showeq-daemon-quarm/src/daemonapp.cpp",
-     ["../showeq-daemon-quarm/conf/opcodes.toml"]),
+    ("quarm", "../scry-cpp-quarm/src/daemonapp.cpp",
+     ["../scry-cpp-quarm/conf/opcodes.toml"]),
     ("legacy", "../showeq/src/interface.cpp",
      ["../showeq/conf/zoneopcodes.xml", "../showeq/conf/worldopcodes.xml"]),
 ]
@@ -71,7 +71,7 @@ SZT_NAMES = {"SZC_None": "none", "SZC_Match": "match", "SZC_Modulus": "modulus"}
 # Both call forms register the same tuple:
 #   wire("OP_X", SP_Zone, DIR_Server | DIR_Client, "typename", SZC_Match, handler)
 #   m_packet->connect2("OP_X", SP_Zone, DIR_Server, "typename", SZC_Match, recv, SLOT(..))
-# showeq-daemon uses the first (typed dispatch); quarm and legacy showeq use the
+# scry-cpp uses the first (typed dispatch); quarm and legacy showeq use the
 # second (Qt SLOT dispatch). The resolution rule is identical in both.
 WIRE_RE = re.compile(
     r'(?:wire|connect2)\(\s*"(OP_\w+)"\s*,\s*SP_\w+\s*,\s*([A-Za-z_|\s]+?)\s*,\s*'

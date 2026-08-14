@@ -133,7 +133,7 @@ void LootStoreTest::clampsTheLimit()
   QCOMPARE(s.recent(0).size(), 5);
 }
 
-// The reason the key exists: showeq-daemon and scry both watch the same
+// The reason the key exists: scry-cpp and scry both watch the same
 // capture, so both see every event.
 void LootStoreTest::dedupsAnAcquisitionBySequence()
 {
@@ -184,7 +184,7 @@ void LootStoreTest::keepsRowsThatHaveNoStableKey()
   QCOMPARE(s.record({coin(100, 2881, 7001)}), 1);
 }
 
-// The existing loot.db was written by showeq-web's recorder, which had no
+// The existing loot.db was written by scry-web's recorder, which had no
 // dedup_key column. Opening it must add the column rather than fail, and the
 // pre-existing rows (NULL key) must neither collide nor be lost.
 void LootStoreTest::reopensAnExistingDatabaseAndAppends()

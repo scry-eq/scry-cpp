@@ -34,7 +34,7 @@
 //----------------------------------------------------------------------
 // RemoteCaptureThread
 //
-// A capture source that sources frames from a remote `seq-agent` over TCP
+// A capture source that sources frames from a remote `scry-agent` over TCP
 // instead of a local libpcap device — the C++ analogue of scry's RemoteCapture.
 // The agent listens; the daemon dials in, sends a SEQA ClientHello naming the
 // BPF filter it wants captured, reads the agent's Hello (link type / snaplen /

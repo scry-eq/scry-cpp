@@ -40,11 +40,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: checkout showeq-decoder-rs (Corrosion hard-dep)
+      - name: checkout scry-decoder-rs (Corrosion hard-dep)
         uses: actions/checkout@v5
         with:
-          repository: showeq-unofficial/showeq-decoder-rs
-          path: showeq-decoder-rs
+          repository: scry-eq/scry-decoder-rs
+          path: scry-decoder-rs
 
       - name: install build deps (Ubuntu)
         if: matrix.os == 'ubuntu'
@@ -64,7 +64,7 @@ jobs:
             libpcap-devel protobuf-devel protobuf-compiler zlib-devel
 
       - name: configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSEQ_DECODER_RS_DIR=$GITHUB_WORKSPACE/showeq-decoder-rs
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSEQ_DECODER_RS_DIR=$GITHUB_WORKSPACE/scry-decoder-rs
 
       - name: build
         run: cmake --build build -j
@@ -85,7 +85,7 @@ jobs:
           printf '1\n0\n' > conf/eqstr_us.txt
           touch /tmp/empty.vpk
           set -o pipefail
-          ./build/showeq-daemon --replay /tmp/empty.vpk --no-listen --config-dir conf \
+          ./build/scryd --replay /tmp/empty.vpk --no-listen --config-dir conf \
               --strict-gate-sizes 2>&1 | tee /tmp/smoke.log
 
           # A payload typename in the opcode table that no handler registers
@@ -126,11 +126,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: checkout showeq-decoder-rs (Corrosion hard-dep)
+      - name: checkout scry-decoder-rs (Corrosion hard-dep)
         uses: actions/checkout@v5
         with:
-          repository: showeq-unofficial/showeq-decoder-rs
-          path: showeq-decoder-rs
+          repository: scry-eq/scry-decoder-rs
+          path: scry-decoder-rs
 
       - name: install build deps
         run: |
@@ -141,7 +141,7 @@ jobs:
             libpcap-dev libprotobuf-dev protobuf-compiler zlib1g-dev
 
       - name: configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSEQ_TARGET=${{ matrix.seq_target }} -DSEQ_DECODER_RS_DIR=$GITHUB_WORKSPACE/showeq-decoder-rs
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSEQ_TARGET=${{ matrix.seq_target }} -DSEQ_DECODER_RS_DIR=$GITHUB_WORKSPACE/scry-decoder-rs
 
       - name: build
         run: cmake --build build -j
@@ -157,7 +157,7 @@ jobs:
           printf '1\n0\n' > conf/eqstr_us.txt
           touch /tmp/empty.vpk
           set -o pipefail
-          ./build/showeq-daemon --replay /tmp/empty.vpk --no-listen --config-dir conf \
+          ./build/scryd --replay /tmp/empty.vpk --no-listen --config-dir conf \
               --strict-gate-sizes 2>&1 | tee /tmp/smoke.log
 
           # Same unbound-handler guard as the live job's smoke step (see there

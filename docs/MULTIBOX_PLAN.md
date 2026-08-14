@@ -147,7 +147,7 @@ present via `--opcode-stats`. Lands in `tests/replay/multibox-2c.*`.
 - `proto/seq/v1/client.proto`: add `SetActiveBox { string box_id; }`.
 - `SessionAdapter` emits `BoxListUpdated` on box add/remove/active
   change; handles incoming `SetActiveBox` by rebinding.
-- `showeq-web`: dropdown in the header; emits `SetActiveBox`. Snapshot
+- `scry-web`: dropdown in the header; emits `SetActiveBox`. Snapshot
   flushed and refetched on switch (server re-emits as if
   `Subscribe.replay_since` were unset).
 

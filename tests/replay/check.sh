@@ -20,7 +20,7 @@ DAEMON_DIR="$(cd "${REPLAY_DIR}/../.." && pwd)"
 # subdirs (live/ eql/ test/) and we validate just the current build's set.
 # SEQ_BUILD_DIR lets a dev point at a sibling build dir (build-test/ etc.).
 BUILD_DIR="${SEQ_BUILD_DIR:-${DAEMON_DIR}/build}"
-DAEMON="${BUILD_DIR}/showeq-daemon"
+DAEMON="${BUILD_DIR}/scryd"
 CONF_DIR="${DAEMON_DIR}/conf"
 FILTER="${1:-}"
 
@@ -38,12 +38,12 @@ detect_target() {
 }
 TARGET="${SEQ_CHECK_TARGET:-$(detect_target)}"
 GOLDEN_DIR="${REPLAY_DIR}/${TARGET}"
-# Mirrors the compiled SEQ_DATA_NAMESPACE: live is flat at ~/.showeq, other
+# Mirrors the compiled SEQ_DATA_NAMESPACE: live is flat at ~/.scry, other
 # targets nest under it.
 if [[ "${TARGET}" == "live" ]]; then
-    GUILD_CACHE="${HOME}/.showeq/tmp/guilds2.dat"
+    GUILD_CACHE="${HOME}/.scry/tmp/guilds2.dat"
 else
-    GUILD_CACHE="${HOME}/.showeq/${TARGET}/tmp/guilds2.dat"
+    GUILD_CACHE="${HOME}/.scry/${TARGET}/tmp/guilds2.dat"
 fi
 echo "tier-2 target=${TARGET} (from ${BUILD_DIR##*/}/CMakeCache.txt); fixtures in ${GOLDEN_DIR#${REPLAY_DIR}/}/"
 

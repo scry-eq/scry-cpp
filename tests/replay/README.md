@@ -84,8 +84,8 @@ Easiest is `scripts/capture.py <scenario>` — it runs `setcap`, records with
 into the matching target subdir:
 
 ```sh
-cd showeq-daemon
-sudo ./build/showeq-daemon \
+cd scry-cpp
+sudo ./build/scryd \
     --device eth0 \
     --config-dir conf \
     --record-vpk tests/replay/<target>/<scenario>.vpk   # <target> = live|eql|test
@@ -105,7 +105,7 @@ hundreds of KB to a few MB.
 ### 2. Generate the deterministic envelope golden
 
 ```sh
-./build/showeq-daemon \
+./build/scryd \
     --replay tests/replay/<target>/<scenario>.vpk \
     --config-dir conf \
     --record-golden tests/replay/<target>/<scenario>.pbstream

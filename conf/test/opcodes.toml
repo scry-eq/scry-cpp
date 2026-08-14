@@ -1,4 +1,4 @@
-# Canonical source for showeq-daemon opcodes.
+# Canonical source for scry-cpp opcodes.
 # XML in conf/zoneopcodes.xml and conf/worldopcodes.xml is regenerated
 # from this file by tools/toml_to_xml.py (run via CMake on build).
 

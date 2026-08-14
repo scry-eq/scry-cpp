@@ -686,7 +686,7 @@ void SessionAdapter::sendSnapshot()
     auto* snap = env.mutable_snapshot();
     snap->set_session_id(m_sessionId.toStdString());
     // Backend data namespace (compile-time per SEQ_TARGET) so clients can keep
-    // per-backend data (loot DB, etc.) apart: ".showeq" (Live) / ".showeq/eql".
+    // per-backend data (loot DB, etc.) apart: ".scry" (Live) / ".scry/eql".
     snap->set_data_namespace(SEQ_DATA_NAMESPACE);
     if (m_zoneMgr) {
         snap->set_zone_short(m_zoneMgr->shortZoneName().toStdString());

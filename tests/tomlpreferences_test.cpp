@@ -222,8 +222,8 @@ void TomlPreferencesTest::migratesLegacyXmlOnce()
 {
   QTemporaryDir dir;
   const QString def = dir.filePath("def.toml");
-  const QString usr = dir.filePath("showeq-daemon.toml");
-  const QString xml = dir.filePath("showeq-daemon.xml");
+  const QString usr = dir.filePath("scryd.toml");
+  const QString xml = dir.filePath("scryd.xml");
   write(def, kDefaults);
   write(xml,
         "<?xml version='1.0' encoding='UTF-8'?>\n"

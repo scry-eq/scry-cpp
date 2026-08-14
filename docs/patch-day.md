@@ -2,14 +2,14 @@
 
 EverQuest ships periodic patches that change network opcodes and/or struct
 layouts. When this happens, both `showeq` (the legacy Qt app — the
-regression oracle) and `showeq-daemon` (this repo) must be updated in
+regression oracle) and `scry-cpp` (this repo) must be updated in
 lockstep until `showeq` is eventually retired.
 
 This document is the checklist.
 
 ## Files that change on patch day
 
-Three source categories, **in both `showeq/` and `showeq-daemon/`**:
+Three source categories, **in both `showeq/` and `scry-cpp/`**:
 
 | File | What changes | Notes |
 |---|---|---|
@@ -28,10 +28,10 @@ fast path.
 
 2. **Capture a fresh `.vpk`.** Log into the patched client; walk around a
    zone; have combat happen; zone; camp out. Save as
-   `showeq-daemon/tests/replay/YYYY-MM-DD-<zone>.vpk`.
+   `scry-cpp/tests/replay/YYYY-MM-DD-<zone>.vpk`.
 
    ```sh
-   sudo build/showeq-daemon --device eth0 \
+   sudo build/scryd --device eth0 \
      --record-golden tests/replay/$(date +%F)-gfay.vpk
    ```
 
@@ -44,11 +44,11 @@ fast path.
    tradition; everyone coordinates there. If someone else already landed it
    upstream, pull.
 
-4. **Mirror the edits into `showeq-daemon`.** The three files are
+4. **Mirror the edits into `scry-cpp`.** The three files are
    byte-for-byte identical between the two repos. Simplest procedure:
 
    ```sh
-   cd showeq-daemon
+   cd scry-cpp
    cp ../showeq/src/everquest.h        src/everquest.h
    cp ../showeq/conf/worldopcodes.xml  conf/worldopcodes.xml
    cp ../showeq/conf/zoneopcodes.xml   conf/zoneopcodes.xml
@@ -61,7 +61,7 @@ fast path.
 
    ```sh
    cd showeq && make -j
-   cd ../showeq-daemon && cmake --build build -j
+   cd ../scry-cpp && cmake --build build -j
    ```
 
    Compile errors here are almost always a missed struct change.
@@ -76,7 +76,7 @@ fast path.
    diverged intentionally (new fields added), update the golden:
 
    ```sh
-   cd showeq-daemon/build
+   cd scry-cpp/build
    ./replay_test --record tests/replay/YYYY-MM-DD-<zone>.vpk \
      > ../tests/replay/YYYY-MM-DD-<zone>.pbstream
    ```
@@ -86,11 +86,11 @@ fast path.
 
    ```
    showeq:       Add opcodes for YYYY-MM-DD patch. Thanks <name>.
-   showeq-daemon:  Sync everquest.h + opcode XML with YYYY-MM-DD patch.
+   scry-cpp:  Sync everquest.h + opcode XML with YYYY-MM-DD patch.
    ```
 
 9. **Tag a release** once parity is confirmed: `v6.4.N` in `showeq`,
-   `v0.N` in `showeq-daemon`. Tag both on the same day.
+   `v0.N` in `scry-cpp`. Tag both on the same day.
 
 ## Things that break this workflow
 
@@ -105,7 +105,7 @@ fast path.
 
 ## When to stop dual-maintaining
 
-Once `showeq-web` reaches feature parity and there's no remaining user of
+Once `scry-web` reaches feature parity and there's no remaining user of
 `showeq` for production play (target: end of Phase 5), freeze `showeq`.
-Subsequent patch days edit only `showeq-daemon`. Document the transition
+Subsequent patch days edit only `scry-cpp`. Document the transition
 here when it happens.

@@ -295,7 +295,7 @@ EQPacket::EQPacket(const QString& opcodesToml,
 
   if (m_playbackPackets == PLAYBACK_OFF)
   {
-    // Remote seq-agent source (--agent) or a local libpcap device. Both are
+    // Remote scry-agent source (--agent) or a local libpcap device. Both are
     // real-time frame sources drained by the same processPackets() loop; the
     // remote one ignores the device name and dials the agent instead.
     if (!m_agent.isEmpty())
@@ -1587,7 +1587,8 @@ namespace {
   {
     if (!configDir.isEmpty())
       return configDir + "/.handoff";
-    return QDir::homePath() + "/.showeq/daemon/.handoff";
+    // Compiled namespace, not a literal — else this drifts off the real root.
+    return QDir::homePath() + "/" SEQ_DATA_NAMESPACE "/daemon/.handoff";
   }
 } // namespace
 

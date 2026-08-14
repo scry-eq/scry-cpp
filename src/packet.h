@@ -235,7 +235,7 @@ class EQPacket : public QObject
 
    uint16_t m_arqSeqGiveUp;
    QString m_device;
-   QString m_agent;      // seq-agent "host:port" (remote capture source), or empty
+   QString m_agent;      // scry-agent "host:port" (remote capture source), or empty
    QString m_ip;
    QString m_mac;
    bool m_realtime;

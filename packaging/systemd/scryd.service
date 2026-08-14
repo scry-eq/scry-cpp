@@ -1,6 +1,6 @@
 [Unit]
 Description=ShowEQ packet-capture daemon
-Documentation=https://github.com/showeq-unofficial/showeq-daemon
+Documentation=https://github.com/scry-eq/scry-cpp
 After=network-online.target
 Wants=network-online.target
 
@@ -8,15 +8,15 @@ Wants=network-online.target
 Type=simple
 
 # All daemon flags come from this file so the unit itself doesn't need
-# editing per host. See showeq-daemon.env.example for the keys.
-EnvironmentFile=/etc/showeq-daemon/showeq-daemon.env
+# editing per host. See scryd.env.example for the keys.
+EnvironmentFile=/etc/scryd/scryd.env
 
 # Read-only opcode XML / spells_us.txt / eqstr_us.txt are picked up from
-# the compiled-in PKGDATADIR (default /usr/local/share/showeq-daemon).
+# the compiled-in PKGDATADIR (default /usr/local/share/scryd).
 # Writable user state lands in $HOME/.showeq — the same dir legacy
 # showeq writes, so filters/, maps/, spawnpoints/ etc. interop directly.
 # Set User= below to your account so $HOME resolves to /home/<you>.
-ExecStart=/usr/local/bin/showeq-daemon \
+ExecStart=/usr/local/bin/scryd \
     --device=${SEQ_DEVICE} \
     --listen=${SEQ_LISTEN} \
     $SEQ_EXTRA_ARGS

@@ -30,10 +30,10 @@ struct LootRowRec {
 };
 
 // Durable loot history, one SQLite file per backend data namespace. Schema is
-// the one showeq-web's recorder created, so an existing loot.db is opened and
+// the one scry-web's recorder created, so an existing loot.db is opened and
 // appended to rather than migrated.
 //
-// Writes are INSERT OR IGNORE against a natural key: showeq-daemon and scry can
+// Writes are INSERT OR IGNORE against a natural key: scry-cpp and scry can
 // watch the same capture at once, and both will see every loot event. The key
 // is the confirmation's monotonic request sequence for acquisitions, and
 // corpse+item / corpse+ts for the rows that have none.

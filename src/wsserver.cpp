@@ -51,7 +51,7 @@ constexpr int kPruneAfterMs = 30 * 1000;
 WsServer::WsServer(QObject* parent)
     : QObject(parent)
     , m_server(std::make_unique<QWebSocketServer>(
-          QStringLiteral("showeq-daemon"),
+          QStringLiteral("scryd"),
           QWebSocketServer::NonSecureMode))
 {
     connect(m_server.get(), &QWebSocketServer::newConnection,

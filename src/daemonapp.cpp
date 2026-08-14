@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QSet>
+#include <QFile>
 #include <QFileInfo>
 #include <QLoggingCategory>
 #include <QStandardPaths>
@@ -89,9 +90,9 @@ bool DaemonApp::start()
 
     // DataLocationMgr resolves file paths against the per-target writable root
     // SEQ_DATA_NAMESPACE (user) and PKGDATADIR (install prefix). The namespace
-    // is compiled in: Live uses ".showeq" FLAT so filters/, maps/, spawnpoints/
-    // interop directly with legacy showeq; Test/EQL nest under ".showeq/<target>"
-    // so their item cache / spawn points / maps can't collide with Live's.
+    // is compiled in: Live uses ".scry" FLAT so filters/, maps/, spawnpoints/
+    // interop with the Elixir scry daemon (same namespace scheme); Test/EQL
+    // nest under ".scry/<target>" so their data can't collide with Live's.
     // Daemon-only writes (prefs, per-daemon state) go under <root>/daemon/. When
     // --config-dir is passed, it substitutes for the read-only PKGDATADIR slot
     // (build-tree conf/ standing in for the install path) — the user dir stays
@@ -111,7 +112,18 @@ bool DaemonApp::start()
     const QFileInfo defPref =
         m_dataLocationMgr->findExistingFile(".", "seqdef.toml", true, false);
     const QFileInfo userPref =
-        m_dataLocationMgr->findWriteFile("daemon", "showeq-daemon.toml", true, true);
+        m_dataLocationMgr->findWriteFile("daemon", "scryd.toml", true, true);
+    // One-shot adoption of pre-rename prefs (old root and/or old filename).
+    // findExistingFile also searches the legacy root, so this covers both.
+    if (!userPref.exists()) {
+        const QFileInfo oldPref =
+            m_dataLocationMgr->findExistingFile("daemon", "showeq-daemon.toml", true, true);
+        if (oldPref.exists() &&
+            QFile::copy(oldPref.absoluteFilePath(), userPref.absoluteFilePath()))
+            qInfo("preferences: adopted '%s' -> '%s'",
+                  qUtf8Printable(oldPref.absoluteFilePath()),
+                  qUtf8Printable(userPref.absoluteFilePath()));
+    }
     seq::initGlobals(defPref.absoluteFilePath(), userPref.absoluteFilePath());
 
     // Cross-cutting helpers the extracted managers expect to find on the
@@ -286,7 +298,7 @@ bool DaemonApp::start()
     m_categoryMgr = new CategoryMgr(this, "categoryMgr");
 
     // Daemon-side itemId -> ItemTemplate cache. Persisted as JSON under
-    // ~/.showeq/daemon/itemcache.json so worn-gear stats survive across
+    // ~/.scry/daemon/itemcache.json so worn-gear stats survive across
     // daemon restarts (we don't see OP_ItemPacket for items the user
     // hasn't moved this session). Wiring of the OP_ItemPacket signal
     // happens in wireZoneMgr() once m_packet is alive.
@@ -601,7 +613,7 @@ bool DaemonApp::startServer()
                   m_cfg.listenPort);
         return false;
     }
-    qInfo("showeq-daemon listening on %s:%u",
+    qInfo("scryd listening on %s:%u",
           qUtf8Printable(m_cfg.listenHost.toString()),
           m_cfg.listenPort);
     return true;
@@ -616,11 +628,11 @@ bool DaemonApp::startCapture()
     // was always its canonical source.
     const QString opcodeSubdir = QStringLiteral(SEQ_OPCODE_SUBDIR);
     // preferUser=false: the opcode table is shipped config (conf/), NOT user
-    // data. The user data dir (~/.showeq) is SHARED with legacy showeq, whose
-    // flat table the user may swap per target (e.g. EQL opcodes for legacy
-    // headless .vpk playback). Preferring user-data there made the LIVE daemon
-    // (SEQ_OPCODE_SUBDIR=".") load ~/.showeq's EQL table for a live capture →
-    // total mis-decode / SessionDisconnect. conf/ wins; ~/.showeq stays a
+    // data. The user data dir (~/.scry) is SHARED, and its flat table may be
+    // swapped per target (e.g. EQL opcodes for legacy headless .vpk
+    // playback). Preferring user-data there made the LIVE daemon
+    // (SEQ_OPCODE_SUBDIR=".") load ~/.scry's EQL table for a live capture →
+    // total mis-decode / SessionDisconnect. conf/ wins; ~/.scry stays a
     // fallback only when conf/ lacks the file.
     const QFileInfo opcodesToml =
         m_dataLocationMgr->findExistingFile(opcodeSubdir, "opcodes.toml", false, false);
@@ -691,7 +703,7 @@ ManagerSet DaemonApp::buildManagerSet()
     ms.spawnMonitor = new SpawnMonitor(m_dataLocationMgr.get(),
                                        ms.zoneMgr, ms.spawnShell,
                                        this, "spawnMonitor");
-    // --replay: don't load/save ~/.showeq/spawnpoints/*.sp. Those files are
+    // --replay: don't load/save ~/.scry/spawnpoints/*.sp. Those files are
     // written in QHash order and reloaded on zone, so persisting during a
     // replay makes spawn-point emission order (and tier-2 goldens)
     // non-deterministic run-to-run. Mirrors the ItemCache handling above.
@@ -952,8 +964,8 @@ static QStringList mapSearchPaths(const QString& override,
                                   const DataLocationMgr* dlm)
 {
     // Override wins; otherwise the DataLocationMgr cascade (user → pkg).
-    // The user dir is ~/.showeq/maps — shared with showeq — so no
-    // separate legacy fallback is needed.
+    // The user dir is ~/.scry/maps; DataLocationMgr already falls back to the
+    // pre-rename root, so no separate handling here.
     QStringList paths;
     if (!override.isEmpty()) {
         paths.append(override);

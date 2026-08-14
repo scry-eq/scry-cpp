@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(showeq-daemon CXX)
+project(scry-cpp CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -64,22 +64,27 @@ else()                                       # live | test share the live wiring
 endif()
 
 # Live is the base target: its opcode table lives FLAT at conf/ and its data
-# dir is FLAT at ~/.showeq, both kept backwards-compatible with legacy showeq
-# (which shares that conf/ tree + ~/.showeq). Test/EQL nest under a per-target
-# subdir so their opcode tables + item/spawn data never collide with Live's.
+# dir is FLAT at ~/.scry. Test/EQL nest under a per-target subdir so their
+# opcode tables + item/spawn data never collide with Live's.
+#
+# SEQ_LEGACY_DATA_NAMESPACE is the pre-rename root (also legacy showeq's).
+# DataLocationMgr reads from it when a file is missing from the new root,
+# never writes there. Drop it once the old dir is no longer needed.
 if(SEQ_TARGET STREQUAL "live")
-  set(SEQ_DATA_NAMESPACE ".showeq")          # flat — shared with legacy showeq
+  set(SEQ_DATA_NAMESPACE ".scry")            # flat
+  set(SEQ_LEGACY_DATA_NAMESPACE ".showeq")   # flat — legacy showeq shares this
   set(SEQ_OPCODE_SUBDIR ".")                 # runtime: conf/ root (flat)
   set(_seq_conf_dir "${CMAKE_CURRENT_SOURCE_DIR}/conf")
 else()
-  set(SEQ_DATA_NAMESPACE ".showeq/${SEQ_TARGET}")
+  set(SEQ_DATA_NAMESPACE ".scry/${SEQ_TARGET}")
+  set(SEQ_LEGACY_DATA_NAMESPACE ".showeq/${SEQ_TARGET}")
   set(SEQ_OPCODE_SUBDIR "${SEQ_TARGET}")     # runtime: conf/<target>/
   set(_seq_conf_dir "${CMAKE_CURRENT_SOURCE_DIR}/conf/${SEQ_TARGET}")
 endif()
-message(STATUS "SEQ_TARGET=${SEQ_TARGET} (structs: ${SEQ_STRUCT_DIR}, data ns: ${SEQ_DATA_NAMESPACE}, opcodes: ${_seq_conf_dir})")
+message(STATUS "SEQ_TARGET=${SEQ_TARGET} (structs: ${SEQ_STRUCT_DIR}, data ns: ${SEQ_DATA_NAMESPACE}, legacy ns: ${SEQ_LEGACY_DATA_NAMESPACE}, opcodes: ${_seq_conf_dir})")
 
 # --- Rust decoder bridge -----------------------------------------------------
-# showeq-decoder-rs is a sibling repo. seq-bridge is a cxx staticlib exposing
+# scry-decoder-rs is a sibling repo. seq-bridge is a cxx staticlib exposing
 # the per-opcode Rust decoders (seq::rust::decode_*) to C++. Rust is the only
 # decoder — no C++ fallback, no SEQ_USE_RUST toggle. Corrosion builds seq-bridge
 # with exactly one backend feature, matched 1:1 to SEQ_TARGET (live|test|eql).
@@ -93,13 +98,13 @@ FetchContent_MakeAvailable(Corrosion)
 
 # Defaults to the sibling checkout; override with -DSEQ_DECODER_RS_DIR=<path>
 # (CI checks the crate out inside the workspace, not as a true sibling).
-set(SEQ_DECODER_RS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../showeq-decoder-rs"
-    CACHE PATH "Path to the showeq-decoder-rs checkout")
+set(SEQ_DECODER_RS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../scry-decoder-rs"
+    CACHE PATH "Path to the scry-decoder-rs checkout")
 if(NOT EXISTS "${SEQ_DECODER_RS_DIR}/Cargo.toml")
   message(FATAL_ERROR
-    "showeq-decoder-rs not found at ${SEQ_DECODER_RS_DIR}.\n"
-    "Clone github.com/showeq-unofficial/showeq-decoder-rs as a sibling of "
-    "showeq-daemon, or pass -DSEQ_DECODER_RS_DIR=<path>.")
+    "scry-decoder-rs not found at ${SEQ_DECODER_RS_DIR}.\n"
+    "Clone github.com/scry-eq/scry-decoder-rs as a sibling of "
+    "scry-cpp, or pass -DSEQ_DECODER_RS_DIR=<path>.")
 endif()
 
 corrosion_import_crate(
@@ -114,7 +119,7 @@ corrosion_add_cxxbridge(seq-bridge-cxx
 )
 
 # --- protobuf ----------------------------------------------------------------
-# The schema lives in the showeq-proto submodule under proto/.
+# The schema lives in the scry-proto submodule under proto/.
 set(SEQ_PROTO_DIR "${CMAKE_SOURCE_DIR}/proto")
 set(SEQ_PROTO_FILES
   "${SEQ_PROTO_DIR}/seq/v1/events.proto"
@@ -123,7 +128,7 @@ set(SEQ_PROTO_FILES
 
 if(NOT EXISTS "${SEQ_PROTO_DIR}/seq/v1/events.proto")
   message(FATAL_ERROR
-    "showeq-proto submodule is not checked out. Run:\n"
+    "scry-proto submodule is not checked out. Run:\n"
     "  git submodule update --init --recursive")
 endif()
 
@@ -290,25 +295,27 @@ if(HAVE_W_SFINAE_INCOMPLETE)
   target_compile_options(seq-daemon-core PRIVATE -Wno-error=sfinae-incomplete)
 endif()
 
-# Matches showeq's Makefile.am: INCLUDES = ... -DPKGDATADIR="..."
+# Matches legacy showeq's Makefile.am: INCLUDES = ... -DPKGDATADIR="..."
 # datalocationmgr.cpp reads this; tests get the same install path so the
 # extracted code keeps its single source of truth.
 target_compile_definitions(seq-daemon-core PRIVATE
-  PKGDATADIR="${CMAKE_INSTALL_PREFIX}/share/showeq-daemon/"
+  PKGDATADIR="${CMAKE_INSTALL_PREFIX}/share/scryd/"
 )
 
 # Backend-target identity, PUBLIC so the executable + tests inherit them.
 # SEQ_TARGET_<X> lets the rare target-aware spot branch without hardcoding;
 # SEQ_DATA_NAMESPACE is the DataLocationMgr writable-root subdir (flat
-# ".showeq" for live, nested ".showeq/<target>" otherwise).
+# ".scry" for live, nested ".scry/<target>" otherwise), and
+# SEQ_LEGACY_DATA_NAMESPACE is the pre-rename root it falls back to on read.
 target_compile_definitions(seq-daemon-core PUBLIC
   SEQ_TARGET_${SEQ_TARGET_UPPER}=1
   SEQ_DATA_NAMESPACE="${SEQ_DATA_NAMESPACE}"
+  SEQ_LEGACY_DATA_NAMESPACE="${SEQ_LEGACY_DATA_NAMESPACE}"
   SEQ_OPCODE_SUBDIR="${SEQ_OPCODE_SUBDIR}"
 )
 
 # --- daemon executable -------------------------------------------------------
-add_executable(showeq-daemon
+add_executable(scryd
   src/main.cpp
   src/daemonapp.cpp
   src/wsserver.cpp
@@ -316,12 +323,12 @@ add_executable(showeq-daemon
   ${SEQ_BACKEND_SOURCES}   # per-target wiring TU (+ EqlDispatch for eql)
 )
 
-target_link_libraries(showeq-daemon PRIVATE
+target_link_libraries(scryd PRIVATE
   seq-daemon-core
   Qt6::WebSockets
 )
 
-target_compile_options(showeq-daemon PRIVATE
+target_compile_options(scryd PRIVATE
   -Wall
   -Wno-unused-parameter
   -Wno-deprecated-declarations
@@ -334,9 +341,9 @@ target_compile_options(showeq-daemon PRIVATE
 # the default `all` target — invoke explicitly:
 #   cmake --build build --target setcap
 add_custom_target(setcap
-  COMMAND sudo -n /usr/sbin/setcap cap_net_admin,cap_net_raw=eip $<TARGET_FILE:showeq-daemon>
-  DEPENDS showeq-daemon
-  COMMENT "Restoring cap_net_admin,cap_net_raw on showeq-daemon"
+  COMMAND sudo -n /usr/sbin/setcap cap_net_admin,cap_net_raw=eip $<TARGET_FILE:scryd>
+  DEPENDS scryd
+  COMMENT "Restoring cap_net_admin,cap_net_raw on scryd"
   VERBATIM
 )
 

@@ -137,7 +137,7 @@ def main(argv: list[str]) -> int:
     world_ops = parse_xml(world_path)
 
     lines: list[str] = []
-    lines.append("# Opcode table for showeq-daemon — read directly at runtime.")
+    lines.append("# Opcode table for scry-cpp — read directly at runtime.")
     lines.append("# Validate with tools/bindcheck.py after editing.")
     lines.append("")
     emit_section("zone", zone_ops, lines)

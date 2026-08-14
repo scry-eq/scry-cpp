@@ -1,4 +1,4 @@
-# showeq-daemon regression tests
+# scry-cpp regression tests
 
 The harness has three planned tiers. Tiers 1 and 2 are runnable today;
 tier 3 is gated on the Rust decoder track standing up. Tier 2 needs a
@@ -8,7 +8,7 @@ catch regressions.
 ## Running
 
 ```sh
-cd showeq-daemon
+cd scry-cpp
 cmake -B build && cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
@@ -83,14 +83,14 @@ The full capture-and-verify procedure is in
 
 ```sh
 # Once: capture from live EQ + generate the golden.
-sudo ./build/showeq-daemon --device eth0 --config-dir conf \
+sudo ./build/scryd --device eth0 --config-dir conf \
     --record-vpk tests/replay/<scenario>.vpk
-./build/showeq-daemon --replay tests/replay/<scenario>.vpk \
+./build/scryd --replay tests/replay/<scenario>.vpk \
     --config-dir conf \
     --record-golden tests/replay/<scenario>.pbstream
 
 # Per change: regenerate + cmp.
-./build/showeq-daemon --replay tests/replay/<scenario>.vpk \
+./build/scryd --replay tests/replay/<scenario>.vpk \
     --config-dir conf \
     --record-golden /tmp/check.pbstream
 cmp tests/replay/<scenario>.pbstream /tmp/check.pbstream && echo OK
@@ -100,7 +100,7 @@ cmp tests/replay/<scenario>.pbstream /tmp/check.pbstream && echo OK
 
 ## Tier 3 — cross-decoder diff *(future, gated on Phase 4)*
 
-When the Rust decoder track in `showeq-decoder-rs` starts producing
+When the Rust decoder track in `scry-decoder-rs` starts producing
 `Envelope` output, the same `.vpk` fixtures from tier 2 are the input
 to a cross-decoder diff: feed the same packets through both decoders,
 compare their `seq.v1` output byte-for-byte.

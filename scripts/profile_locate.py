@@ -5,7 +5,7 @@ Mode C tooling (see .claude/skills/opcode-hunt). The EQL profile is ~40KB of
 mostly-unmapped blob with a handful of verified landmarks; this narrows a search
 by hunting for values the operator can read off the game UI.
 
-    ./build/showeq-daemon --replay cap.vpk --config-dir conf --no-listen \\
+    ./build/scryd --replay cap.vpk --config-dir conf --no-listen \\
         --dump-payload 0x371a:/tmp/pp
     scripts/profile_locate.py /tmp/pp.1.bin --truth truth.json
 

@@ -194,7 +194,7 @@ void OpcodeStatsLogger::writeReport()
         out << "\n";
     };
 
-    out << "# showeq-daemon opcode-stats report\n";
+    out << "# scryd opcode-stats report\n";
     out << "# Generated at process exit; covers everything EQPacket decoded\n";
     out << "# during this run. Use to spot id=\"ffff\" opcodes by matching\n";
     out << "# their payload sizes against known-struct sizes (see candidate\n";

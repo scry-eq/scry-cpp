@@ -102,13 +102,13 @@ int main(int argc, char** argv)
     qInstallMessageHandler(messageHandler);
 
     QCoreApplication app(argc, argv);
-    QCoreApplication::setApplicationName("showeq-daemon");
+    QCoreApplication::setApplicationName("scryd");
     QCoreApplication::setApplicationVersion("0.0.1");
 
     installSignalBridge();
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("Headless ShowEQ packet-capture daemon");
+    parser.setApplicationDescription("Headless Scry packet-capture daemon");
     parser.addHelpOption();
     parser.addVersionOption();
 
@@ -133,7 +133,7 @@ int main(int argc, char** argv)
         "applied so mixed captures (TCP/HTTPS/etc.) decode cleanly. Mutually "
         "exclusive with --replay.", "file");
     QCommandLineOption agentOpt(QStringList{"agent"},
-        "Capture from a remote seq-agent at host:port (default port 9099) "
+        "Capture from a remote scry-agent at host:port (default port 9099) "
         "instead of a local device: the daemon dials the agent and asks it to "
         "capture EQ UDP with a BPF filter (scoped by --ip). Needs no "
         "cap_net_raw locally. Mutually exclusive with --device and --replay.",
@@ -141,11 +141,11 @@ int main(int argc, char** argv)
     QCommandLineOption configDirOpt(QStringList{"c", "config-dir"},
         "Directory holding opcode XML and other shared read-only config. "
         "Overrides the compiled-in PKGDATADIR; the writable user dir "
-        "stays at ~/.showeq. Convenient for running from the build tree.",
+        "stays at ~/.scry. Convenient for running from the build tree.",
         "dir");
     QCommandLineOption mapsDirOpt(QStringList{"m", "maps-dir"},
         "Directory holding zone .map / .txt files. Defaults to "
-        "~/.showeq/maps (shared with showeq), falling back to "
+        "~/.scry/maps, falling back to "
         "$config-dir/maps.", "dir");
     QCommandLineOption mapPackageOpt(QStringList{"map-package"},
         "Active map package: a subdirectory under a maps root holding a "

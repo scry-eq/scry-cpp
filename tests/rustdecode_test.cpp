@@ -1,7 +1,7 @@
 /*
  * rustdecode_test.cpp — smoke test that the seq::rust::decode_* FFI works across
  * the cxx ABI from C++. Deliberately minimal: the parsers have exhaustive Rust
- * unit tests (`cargo test` in showeq-decoder-rs) and the tier-2 replay goldens
+ * unit tests (`cargo test` in scry-decoder-rs) and the tier-2 replay goldens
  * cover full Live decode byte-identically. This guards the C++-side bridge in
  * CI, where the developer-local replay goldens don't run.
  */

@@ -70,7 +70,7 @@ public:
         // multiple EQ clients share a LAN — the auto-detect path locks
         // onto whichever client's session it sees first.
         QString      ip;
-        // If set ("host:port"), capture frames from a remote seq-agent over TCP
+        // If set ("host:port"), capture frames from a remote scry-agent over TCP
         // instead of a local libpcap device — the daemon dials the agent and
         // requests a BPF filter. Mutually exclusive with a live --device;
         // ignored when replaying. Needs no cap_net_raw (the agent captures).
@@ -87,7 +87,7 @@ public:
         // without installing to PKGDATADIR.
         QString      configDir;
         // Overrides the zone-map search directory. Empty string triggers
-        // the default cascade: ~/.showeq/maps → $configDir/maps.
+        // the default cascade: ~/.scry/maps → $configDir/maps.
         QString      mapsDir;
         // Selects the active map package (subdirectory under a maps root,
         // or "default" for the flat root). Empty = restore the persisted

@@ -27,6 +27,7 @@
 #include <QString>
 #include <QDir>
 #include <QFileInfo>
+#include <QSet>
 
 class DataLocationMgr
 {
@@ -61,6 +62,11 @@ class DataLocationMgr
 
   QString m_pkgData;
   QString m_userData;
+  // Pre-rename root (SEQ_LEGACY_DATA_NAMESPACE): READ-ONLY fallback for
+  // findExistingFile. Empty disables it. Warn once per file — a silent
+  // fallback makes the break untestable.
+  QString m_legacyUserData;
+  mutable QSet<QString> m_legacyReported;
 };
 
 #endif // _DATALOCATIONMGR_H_

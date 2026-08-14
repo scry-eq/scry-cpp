@@ -6,7 +6,7 @@
 
 namespace {
 
-// The table showeq-web's recorder created, verbatim, so an existing loot.db is
+// The table scry-web's recorder created, verbatim, so an existing loot.db is
 // appended to rather than migrated. `dedup_key` is ours: a natural key so a
 // second recorder watching the same capture is a no-op instead of a duplicate.
 // It is added to old tables too — SQLite backfills NULL, and NULLs do not

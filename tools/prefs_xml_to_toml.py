@@ -88,7 +88,7 @@ def main() -> int:
     root = ET.parse(src).getroot()
 
     out = [
-        "# showeq-daemon preferences — DEFAULTS.",
+        "# scryd preferences — DEFAULTS.",
         "#",
         "# Generated from seqdef.xml by tools/prefs_xml_to_toml.py. Edit this file",
         "# only if you are maintaining site-wide defaults; per-user settings belong",

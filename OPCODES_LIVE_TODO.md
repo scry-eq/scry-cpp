@@ -1,6 +1,6 @@
 # Unresolved opcodes (live)
 
-`showeq-daemon/conf/zoneopcodes.xml` has **188 of 218** zone opcodes still set to `id="ffff"`. `worldopcodes.xml` is **11 of 22 mapped** — the 07/15 rotation moved every world id and legacy's world table (dated 2010-2016) matched nothing on the wire; see the 2026-07-28 entry at the bottom. Unmapped world entries carry a `priority` (10 = hunt first) for patch-day triage.
+`scry-cpp/conf/zoneopcodes.xml` has **188 of 218** zone opcodes still set to `id="ffff"`. `worldopcodes.xml` is **11 of 22 mapped** — the 07/15 rotation moved every world id and legacy's world table (dated 2010-2016) matched nothing on the wire; see the 2026-07-28 entry at the bottom. Unmapped world entries carry a `priority` (10 = hunt first) for patch-day triage.
 
 Target server: **live EQ** (Tasks/AA/DZ/Tribute/Fellowship/Marketplace/Mercenaries/etc. all in scope).
 
@@ -461,7 +461,7 @@ In that window exactly one unknown C>S opcode fired exactly four times at 16 byt
 | 3 | `[3, 13, 0, 0]` | rank 2 |
 | 4 | `[3, 13, 0, 0]` | rank 3 |
 
-Decode matches EQMacEmu's `AA_Action { action, ability, unknown08, exp_value }` 16-byte struct. Resolution landed in both `showeq-daemon/conf/zoneopcodes.xml` and legacy `showeq/conf/zoneopcodes.xml`.
+Decode matches EQMacEmu's `AA_Action { action, ability, unknown08, exp_value }` 16-byte struct. Resolution landed in both `scry-cpp/conf/zoneopcodes.xml` and legacy `showeq/conf/zoneopcodes.xml`.
 
 The same opcode also fires 400× S>C at 12 bytes across the full capture — a companion server-side message (legacy XML comment hinted at multi-purpose: "changing percent, buying, activating skills"). Not investigated; the C>S resolution alone covers the user-visible "buy AA" event.
 
@@ -491,7 +491,7 @@ Wire gives BASE values; equipped augments contribute via separate OP_ItemPacket 
 
 Notable: legacy bulk OP_ItemPlayerPacket appears obsolete on current Live. Modern Live sends per-item OP_ItemPacket fires for both zone-in pickup and slot moves.
 
-Daemon side: parser in `src/itempacket.{h,cpp}`, persistent itemId → ItemTemplate cache at `~/.showeq/daemon/itemcache.json` (`src/itemcache.{h,cpp}`), emitted to clients as ItemLearned + ItemCacheTotals envelopes (proto messages 33/34, plus Snapshot fields 8/9). Web client renders an InventoryStatsPanel.
+Daemon side: parser in `src/itempacket.{h,cpp}`, persistent itemId → ItemTemplate cache at `~/.scry/daemon/itemcache.json` (`src/itemcache.{h,cpp}`), emitted to clients as ItemLearned + ItemCacheTotals envelopes (proto messages 33/34, plus Snapshot fields 8/9). Web client renders an InventoryStatsPanel.
 
 ### 2026-05-02 — OP_PlayerProfile worn-slot decode: stalled (research notes)
 

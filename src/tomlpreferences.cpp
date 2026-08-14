@@ -382,7 +382,7 @@ bool TomlPreferences::save()
     return false;
   }
   std::ostringstream ss;
-  ss << "# showeq-daemon preferences — written by the daemon.\n\n" << doc << "\n";
+  ss << "# scryd preferences — written by the daemon.\n\n" << doc << "\n";
   const std::string text = ss.str();
   out.write(text.data(), qint64(text.size()));
   if (!out.commit())

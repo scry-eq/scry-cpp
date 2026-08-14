@@ -16,7 +16,7 @@ Live table. This file tracks the Legends-specific opcode + struct mapping.
 
 Decode captures with the raw-pcap replay path:
 ```
-./build/showeq-daemon --replay-pcap <capture>.pcap --config-dir conf --no-listen \
+./build/scryd --replay-pcap <capture>.pcap --config-dir conf --no-listen \
     --opcode-stats out.opcodestats.txt --list-events out.events.txt \
     --dump-payload 0xXXXX:out/prefix
 ```
@@ -1309,7 +1309,7 @@ The single u32 item-id that appears/vanishes localizes the storage array; the ch
 `0x2735` is the high-volume S>C **message channel** (1026 fires in the Nektulos
 capture, 571 in Upper Guk; variable 5–53 B). It's multiplexed — each message type has
 its own small struct keyed by an eqstr/dbstr string-id; render via
-`~/.showeq/eql/eqstr_us.txt` (id → template) + `dbstr_us.txt`.
+`~/.scry/eql/eqstr_us.txt` (id → template) + `dbstr_us.txt`.
 
 **Sense Heading** message = **6 B** `{u32 direction_string_id, u16 unk}`. The direction
 id is an eqstr id `12427–12434` = **N / NE / E / SE / S / SW / W / NW** (clockwise), which
@@ -2590,7 +2590,7 @@ re-derived, hunt its *shape*, not its number.
 **Also found, unrelated to coin.** EQL routes a looted item to one of four
 destinations, each with its own wording — sold, `tradeskill depot`,
 `Dragon Hoard`, and `to create a <upgraded item>`. Only the sale form was
-matched by showeq-web's session-window regexes, so depot/hoard/combine items
+matched by scry-web's session-window regexes, so depot/hoard/combine items
 never appeared there at all. The window now shares the loot recorder's
 `parseEqlLootMessage`, which already handled all four.
 
@@ -2640,7 +2640,7 @@ change per capture so the diff is unambiguous:
 ```
 scripts/capture.py eqlegends-inventory-paired     # start BEFORE zoning in
 # in game: zone in -> move/deposit ONE known item -> zone again
-./build/showeq-daemon --replay tests/replay/eql/eqlegends-inventory-paired.vpk \
+./build/scryd --replay tests/replay/eql/eqlegends-inventory-paired.vpk \
     --config-dir conf --no-listen --dump-all-sessions --dump-payload 0x371a:/tmp/pp
 scripts/profile_locate.py /tmp/pp.1.bin /tmp/pp.2.bin --truth truth.json
 ```
@@ -2756,7 +2756,7 @@ unexplained: "Apothic Crown" and the activated item are present in the BASELINE 
 
 **Next**: map `0x05d5` (name it deliberately — `OP_ItemPacket` and `OP_ItemPlayerPacket` are
 both free but their upstream semantics are unverified), pin the stat-block field offsets against
-a known item's in-game tooltip, then write the parser in `showeq-decoder-rs`.
+a known item's in-game tooltip, then write the parser in `scry-decoder-rs`.
 
 ### 2026-08-09 — OP_ItemPacket (0x05d5) record layout; item_id + icon CONFIRMED against loot.db
 
@@ -2916,7 +2916,7 @@ capturing client:
 ```
 scripts/capture.py eqlegends-loadout-self      # start BEFORE zoning in
 # in game: zone in, then swap loadout/class ON THE CAPTURING CHARACTER
-./build/showeq-daemon --replay tests/replay/eql/eqlegends-loadout-self.vpk \
+./build/scryd --replay tests/replay/eql/eqlegends-loadout-self.vpk \
     --config-dir conf --no-listen --dump-all-sessions --dump-payload 0xc9ac:/tmp/ls
 # the self fire is the one whose length exceeds its innerLen; scan it for "iGS" serials
 ```

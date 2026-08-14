@@ -74,13 +74,13 @@ channels are the priority — don't stress hitting every combat line.
 2. Batch-dump every opcode in one replay pass:
    ```sh
    args=(); for op in $(grep -oE '^0x[0-9a-f]{4}' <stats>); do args+=(--dump-payload "$op:dumps/$op"); done
-   ./build/showeq-daemon --replay tests/replay/eql/<name>.vpk --config-dir conf --no-listen "${args[@]}"
+   ./build/scryd --replay tests/replay/eql/<name>.vpk --config-dir conf --no-listen "${args[@]}"
    ```
 3. `grep -rl "<phrase>" dumps/` → the exact opcode carrying each phrase, for both
    the C>S send and the S>C broadcast.
 4. Decode each: direction + channel field + from/to-name offsets → map to
    `OP_CommonMessage` (`channelMessageStruct`) etc. Any combat/system line that is
-   NOT found as a literal is a string-id → cross-ref `~/.showeq/eql/eqstr_us.txt`
+   NOT found as a literal is a string-id → cross-ref `~/.scry/eql/eqstr_us.txt`
    / `dbstr_us.txt`.
 5. Set the ids in `conf/eql/opcodes.toml` → the pre-wired `MessageShell` handlers
    fire → `ChatMessage` envelopes → web chat panel. Verify via a recorded golden

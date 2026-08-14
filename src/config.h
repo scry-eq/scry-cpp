@@ -10,7 +10,7 @@
 #pragma once
 
 #ifndef VERSION
-#define VERSION "showeq-daemon"
+#define VERSION "scryd"
 #endif
 
 #define SHOWEQ_DAEMON_BUILD 1

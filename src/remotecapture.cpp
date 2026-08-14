@@ -36,7 +36,7 @@
 #include "diagnosticmessages.h"
 
 //----------------------------------------------------------------------
-// SEQA v2 wire protocol (mirrors seq-agent's src/proto.rs, the normative spec).
+// SEQA v2 wire protocol (mirrors scry-agent's src/proto.rs, the normative spec).
 // All ints little-endian. Every message carries a uniform length-prefixed
 // envelope, so an unknown type is skipped by its length instead of desyncing
 // the stream:
@@ -112,7 +112,7 @@ void RemoteCaptureThread::start(const char* device, const char* host,
     m_pcache_closed = false;
     m_stop.store(false);
 
-    seqInfo("RemoteCapture: connecting to seq-agent at %s:%u",
+    seqInfo("RemoteCapture: connecting to scry-agent at %s:%u",
             m_host.toUtf8().constData(), m_port);
 
     pthread_create(&m_tid, NULL, loop, (void*)this);
