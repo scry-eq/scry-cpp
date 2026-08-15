@@ -1,49 +1,164 @@
-The pre-push hook is committed at `scripts/hooks/pre-push` (shared model — activate a fresh clone with `git config core.hooksPath scripts/hooks`); besides the tier-2 check it also verifies the `proto/` submodule is in sync with canonical `origin/proto` (not behind / not a dangling pointer — scry regenerates its Elixir proto from this submodule) and that the Rust bindings are fresh when `everquest.h` changed. Pre-push hook runs `tests/replay/check.sh` (tier-2). `.pbstream` goldens are gitignored; regen on legitimate behavior change with `cp *.check.pbstream *.pbstream`. For brand-new fixtures without an existing golden use `--replay <name>.vpk --record-golden <name>.pbstream --no-listen` instead. `check.sh` + `scripts/capture.py` **auto-detect the backend** from `build/CMakeCache.txt` (`SEQ_TARGET`, unset=live, same parse as build.sh) and only touch `tests/replay/<target>/` — so an eql/test `build/` validates *its own* goldens (or SKIPs cleanly when it has none yet) instead of failing another target's. The old "`build.sh --target live` → confirm green → push → `--target eql` back" dance for the hook is **gone** (fixed 5c22789; fixtures now live in per-target subdirs `tests/replay/{live,eql,test}/`, migrated by a local `mv` since they're gitignored). Overrides: `SEQ_CHECK_TARGET=<t>` forces the target, `SEQ_BUILD_DIR=<dir>` points at a sibling build dir. Touching shared core (spawnshell/packet/daemonapp — and equally player/sessionadapter/protoencoder, which backend work reaches more often than that list suggests) during backend work still warrants a genuine Live pass — build live (or `SEQ_CHECK_TARGET=live` + `SEQ_BUILD_DIR` at a live build dir) and confirm `check.sh` green — but that's real coverage, not hook appeasement. **Fixture sets are gitignored and therefore per-machine — check what this checkout actually holds before calling any pass real.** As of 2026-08-08: `live/` has 2 (`eq-live`, `live-guild`), `eql/` has 2 (`eqlegends-droptest`, `eqlegends-patch-20260806`), `test/` has NONE — so the `test` target currently has ZERO tier-2 coverage and its changes are only ever validated by the CI smoke path. TWO different things exit 0 while proving nothing, and the `summary: … 0 fail` line looks identical for both: a target with no fixtures at all prints "no .vpk fixtures … nothing to check" (that is `test` today), and a fixture present but with no recorded golden prints `SKIP <name> (no .pbstream …)` (that is `eq-live` today — deliberately left unrecorded). Read the PER-FIXTURE lines, never just the summary. Re-capture with `scripts/capture.py`; record a missing golden with `--replay <name>.vpk --record-golden <name>.pbstream --no-listen`. Docs-only commits from a non-live `build/` may push `--no-verify`.
-After regenerating tier-2 goldens (`cp *.check.pbstream *.pbstream`), re-run `check.sh` 2–3× to confirm `0 fail` is stable before relying on it — a fixture can capture a transient divergence in a single full-suite run (wallclock-sensitive paths, e.g. `SpellShell`'s 6s buff-duration timer — the reason `buffs` is on check.sh's skip list).
-Qt6-only (`find_package(Qt6 ... Core Network Xml WebSockets)`, headless — no Gui/Widgets); CI is Ubuntu + Fedora (`.github/workflows/ci.yml`). Qt5 support was dropped 2026-07-07 (no `SEQ_USE_QT5`, no `--qt5`). The old Qt5/Qt6 divergences survive as plain correct-Qt6 code, not compat shims — behavioral, keep them: `packetinfo.cpp` near `QXmlStreamReader::name()` handled a string-view return-type difference; `mapcore.cpp` explicitly trims NUL-only lines (Qt5 dropped them implicitly); `sessionadapter.cpp` guards signal-arg-drop behavior. `seqcolor.h`/`.cpp` (why `SeqColor` replaces `QColor`, how to dispatch its QVariant) is unrelated to the Qt version and still current.
-If `AutoMoc warning: includes the moc file "X.moc"...` reappears, it's the qmake `#ifndef QMAKEBUILD / #include "X.moc" / #endif` block sneaking back in. CMake AutoMoc generates `moc_X.cpp` from the header's `Q_OBJECT`; the cpp's `.moc` include is needed only for inline-in-cpp `Q_OBJECT` (which the daemon doesn't use). Just delete the block.
-New struct from `everquest.h`? Also `AddStruct(<name>);` in `s_everquest.h` (size registry — without it `connect2 SZC_Match` silently drops every packet with `OP_X (...) doesn't match: sizeof():0` in stderr) AND a `StructHint` row in `opcodestats.cpp` for `--opcode-stats` candidate matching. If the struct is in `scry-decoder-rs`'s allowlist, also regenerate bindings: `(cd ../scry-decoder-rs && python3 tools/gen_eqstructs.py src/everquest.h)` — the pre-push hook enforces this and will block the push if bindings are stale.
-`OP_Stamina` is hunger/thirst (`staminaStruct{food, water}`, max 127); the run/jump endurance bar EQ paints yellow is `OP_EndUpdate` (`endUpdateStruct{spawn_id, cur, max}`) — don't conflate when chasing "stamina" issues.
-`OPCODES_LIVE_TODO.md` is the work-of-record for the 226 unresolved zone opcodes — append a dated confirmation entry per find (capture name, method, sample bytes, struct fit, ruled-out leads) and tick only the opcode actually confirmed. The `/opcode-hunt` skill (`.claude/skills/opcode-hunt/`) walks the full procedure.
-Recon flag triad on the daemon: `--opcode-stats FILE` (count + size + dir tally), `--list-events FILE` (per-packet timeline; each line tags stream as `world` or `zone` — use this to verify world-stage handshake opcodes (Login, ChatServer, ZoneServerInfo, ExpansionInfo, MOTD) actually fire in the world stream before assigning, and zone-stream chatter doesn't masquerade as a handshake opcode), `--dump-payload OPCODE:PATH` (raw bytes per fire). All three require an explicit FILE arg — omitting it eats the next flag silently. Session scoping: recon follows the primary box by default; `--dump-all-sessions` forwards every box, `--only-session <charname|N|first>` restricts to one (char name matches case-insensitively once it resolves — profile on live, own-spawn adoption on eql; the adoption path also promotes eql boxes in BoxRegistry, so the web picker shows real names instead of Unknown). **The scoping default mimics a decode failure**: the primary box is whichever world session is seen FIRST, and on a capture where the client zones (a fresh world socket per zone-in) that session may never zone — so `--opcode-stats` reports `zone opcodes (0 distinct)` while decode is actually fine. Confirmed 2026-07-28: a 3-world-session Live capture read 0 zone opcodes scoped, 191 with `--dump-all-sessions`. Before diagnosing a binding bug from a zero zone tally, re-run with `--dump-all-sessions`; the real binding-failure signature is 0 zone opcodes *even then* (that one means OP_ZoneServerInfo is unmapped). Pair with `--no-listen` for any client-less run. `--dump-payload`'s OPCODE arg needs `0x` prefix (`0xe284`, not `e284`) — without it the daemon logs "bad opcode" and silently produces no dumps.
-When widening any spell/ID type across the SpellShell/Spells/util chain, audit upstream *narrow signed* wire fields (e.g. `int16_t spell` in `actionStruct` / `actionAltStruct`) — modern IDs above 32767 sign-extend through `int → uint32` (=0xFFFFxxxx) and a prior truncating uint16 param was silently masking the bug. Fix at the struct definition (use unsigned), not at every call site.
-Variable-size opcode structure discovery: dump-payload across captures, pick the smallest variant + a larger variant, locate a known anchor (spell ID, spawn ID) in both, and the offset delta reveals embedded sub-block size + position. Established cracking OP_Buff 0x18b4: spell ID 0x019c at offset 15 (30b form) vs offset 36 (51b form) = 21-byte caster-block insertion.
-Cracking a position/movement opcode: `--dump-payload OP:PATH` dumps BOTH directions into one counter — split S>C vs C>S by payload byte-size. Correlate the unknown stream's candidate bitfields against a known-good stream (MobUpdate `0x67e0`) per-spawn *median*, but only **stationary** spawns match (sparse streams aren't time-aligned). Clinch it with trajectory self-consistency: a real walk decodes to a smooth ~8-units/tick path; a wrong bit-extraction gives thousand-unit jumps. A spawn seen in both streams should decode to an identical centroid. (Established cracking the 28B S>C OP_ClientUpdate, 2026-07-10.)
-Position cross-referencing: EQ REUSES SPAWN IDS PER ZONE, so on a multi-zone capture scope ground truth to one zone visit (match within ~120s of the record's own timestamp) or you fabricate matches; and score candidate offsets PER AXIS — a summed x+y+z error is dominated by wandering NPCs and hides the correct offset entirely.
-To timestamp dumped payloads: `--list-events` filtered to one opcode pairs 1:1 in order with `--dump-payload`'s `prefix.N.bin` files.
-Re-derive an opcode against the PACKET, never against the entry's newest comment — a self-contradicting comment history means the mapping already drifted (and cross-check the mapped id's size against what the wiring code's comment expects).
-EQL opcode hunting: try Live's existing wire format FIRST — byte-identical so far: OP_NpcMoveUpdate (BitStream), OP_MobUpdate (= `spawnPositionUpdate`), OP_TargetMouse (`clientTargetStruct`), OP_EnterWorld (72B, name@0). A coordinate that "wraps" at a power of two, or per-axis divisors that look arbitrary (÷8 / ÷64 / unscaled), means a TRUNCATED read of Live's packed 19-bit ×8 bitfields — not a wire quirk needing unwrap heuristics. Decisive cheap test: **sign-fill** — the bits above a signed bitfield must equal its sign bit across every captured packet (0 violations over 1665 packets settled OP_MobUpdate). Float/int32 scans CANNOT detect byte-straddling bitfields, so "no wider field found" from such a scan proves nothing.
-A capture that starts mid-session (missing the SOE session handshake) replays to ZERO decoded packets — and its capture-time opcodestats/events artifacts are empty too, so check them before relying on a fixture. Start recording BEFORE the client logs in / zones in (each zone-in opens a fresh world socket, so "from zone-in" suffices per session). Partial salvage without the daemon is possible: scan the raw `.vpk` for zlib streams (`78 9c`) + uncompressed opcode-signature bytes and hand-decode messages (recovered 216 MobUpdates from an otherwise-dead multibox capture).
-Sharper replay trap (distinct from the empty mid-session capture): a `.vpk` that zone-changes BEFORE the event you care about decodes EVERY app opcode (opcodestats non-zero) but never rebinds player-id/box tracking for the later session — `m_player->id()` sticks at the earlier session's self-id, so player-id-dependent behavior (self-death/corpse, self-pos re-adoption) can't be replay-verified. Verify those only with a capture that starts before zoning INTO the target zone (`eqlegends-death-respawn` works; `eqlegends-corpsepin`, zone-spanning, does not).
-`SessionAdapter::sendSnapshot` sorts spawns by `(id, name)` — EQ reuses ids across spawn types (a Door and a NPC can both have id 199), so id-only sort leaves duplicate-id pairs in QHash-randomized order and tier-2 goldens flap.
-`BoxRegistry` routing keys on the zone 5-tuple, NOT box identity — never skip `is_merged()` boxes in the routing lookups (`lookupBoundZone`/`lookupByExpectedZone`/`lookupByWorld`). `merged_into` is UI/identity grouping only (`currentBoxFor`/`lookupByName`/`distinctCount`), set at OP_PlayerProfile *after* the new zone session binds — so a merged-skip makes the just-bound live session unroutable (symptom: name+zone decode once, then no spawns / frozen position). Any client that zones ≥1× has 2+ boxes (fresh world socket per zone), so this hits single-client multi-zone decode too.
-Don't use proto3 `map<>` in committed schemas — protobuf 3.21's `SetSerializationDeterministic` doesn't reliably sort nested map entries, so the on-disk pbstream flips between hash orderings per run. Use parallel `repeated int32 keys` + `repeated uint32 values` sorted by key (see `WornSet.slot_indices` / `item_ids`).
-Proto field name `slots` collides with Qt's `slots:` access-label keyword in the generated `events.pb.h` — name the field `slot_indices` (or any non-keyword) and rename local C++ vars likewise.
-**Proto-drift: the `proto/` submodule is a shared source, keep it in sync.** This submodule is what the daemon generates C++ from AND what scry regenerates its Elixir `lib/proto` from (scry has no submodule; it runs `protoc` against `../scry-cpp/proto`). So its SHA drifting has cross-repo blast radius: BEHIND canonical `origin/proto` → the daemon *and* scry build against a stale schema; a pointer AHEAD/unpushed → a dangling submodule that breaks web+scry clones/CI (the cross-repo push-order footgun — push scry-proto FIRST). The pre-push hook now guards both (it fetches origin/proto first: a stale cached `origin/main` will otherwise mislead the comparison — learned the hard way when a phantom `f7c9c66` looked "ahead" until a fetch showed canonical was really the committed SHA). Editing proto is the two-clone dance (edit `scry-proto/seq/v1/*.proto` AND the `proto/` submodule clone, bump the SHA — see the meta-repo CLAUDE.md); after ANY new proto message, regenerate every consumer — scry (`protoc --elixir_out=lib/proto`) and web (`bun run gen`) — or they silently lag (scry surfaces it as a compile-time `Seq.V1.<Msg>.__struct__/1 undefined`; web as an unknown-field no-op).
-`scripts/capture.py <name>` records a tier-2 fixture: runs `cmake --build build --target setcap` then daemon with `--device sniff0 --config-dir conf --record-vpk tests/replay/<name>.vpk --opcode-stats tests/replay/<name>.opcodestats.txt --list-events tests/replay/<name>.events.txt --no-listen`. Ctrl-C finalizes. Use `--no-stats` / `--no-events` to skip artifacts. Supersedes README's `sudo ./build/scryd` flow.
-`scripts/capture.py --ip <EQ_client_ip>` targets one EQ client when multiple share the LAN; run one daemon instance per client in separate terminals. Omit for single-client captures.
-`scripts/decode_pbstream.py <golden.pbstream>` decodes a recorded golden into per-event summaries — use it to *verify a handler's behavioral effect* (e.g. a new opcode adds N `spawn_updated` events, or the player's own buffs surface with the right spell ids), not just check.sh's pass/fail. It parses the length-delimited Envelope stream **in-process** (self-contained pure-Python protobuf decoder driven by a schema parsed from `proto/seq/v1/*.proto`; validated byte-for-byte against `protoc --decode`) — NO per-envelope `protoc` subprocess, so a 359MB golden tallies in <1s. Modes: default = kind tally + first sample per kind; `--kind X` = concise per-envelope summary (`--full` for protoc-like text); `--grep S` = envelopes whose decoded text contains S; `--buffs` = own-buff spell-id sets grouped by owner (`Buff.target_id`, players flagged via `Snapshot.player_id`, deduped on raw payload); `--spawns` = distinct spawns from `spawn_added`; `--spawn-id N` = envelopes referencing spawn id N; `--limit N` caps output (0 = unlimited). `--grep`/`--spawn-id`/`--full` render/decode per-envelope (O(file)) — pair with `--limit` on a huge golden so they stop at the first N matches instead of full-scanning. When the `google.protobuf` runtime is importable it's auto-bootstrapped into `scripts/.pbgen/` (gitignored) for canonical `--full` text; otherwise the built-in renderer is used (pass `--no-codegen` to force it). Note proto `Pos` pre-negates X/Y into screen space (protoencoder), so decoded proto x = −(gameX).
-Cross-client disambiguation: run two `scripts/capture.py` instances simultaneously (one `--ip` per client). Opcodes that appear only on the acting client's side are personal server responses; those appearing on all nearby clients are zone broadcasts. Faster than `--list-events` for the personal-vs-broadcast question.
-Profile fields `MANA` (offset 950) and `curHp` (offset 954) are STALE snapshots, not authoritative cur values — don't seed `m_mana`/`m_curHP` from them; wait for OP_ManaChange / OP_HPUpdate. Profile stat block at 956-983 is BASE STR/STA/CHA/DEX/INT/AGI/WIS (race+class roll), not the displayed buffed totals.
-Modern-Live "stats window" fields (AC, attack, haste, resists, combat regens, accuracy/avoidance, secondary stats, combat skills) are computed CLIENT-SIDE on Live and never on the wire — don't hunt for them in profile or per-tick opcodes.
-`Spawn::update(spawnStruct*)` writes percentage HP (maxHP=100). For the local PC this clobbers raw OP_HPUpdate values, so `Spawn::update` is `virtual` and `Player::update` snapshots/restores HP+maxHP across the base call. Don't un-virtual-ize.
-Bump `magicStr` (e.g. `plr2`→`plr3`) whenever you change the width or layout of any field that `savePlayerState`/`restorePlayerState` serializes — older `Player.dat` files would deserialize fewer/more bytes than written and corrupt every following field.
-Target server: **Live EQ**. Authoritative refs: live captures + `../showeq/` (legacy). Quarm-specific opcodes/structs from `../EQMacEmu/` DO NOT apply here — wire format and opcode tables diverge.
-Live heading: the wire field is declared `:12` but carries only an 11-bit effective range (0-2047 = full turn), so degrees = `360 - ((heading * 360) >> 11)` — identical to legacy, which is correct here. (This line previously claimed `>> 12`; disproved 2026-07-28 against a Live capture — 5278 decoded headings all landed in 1..360 with zero negatives, whereas a real 0-4095 field shifted by 11 would reach -359.) The one `>> 13` in the tree is `Player::applySelfPosition`, which is EQL-only: Legends packs an actual 13-bit facing (8192/circle). Position-struct bitfield order (`playerSelfPosStruct`, `playerSpawnPosStruct`, `spawnStruct` position union) shifts each patch; re-derive from upstream / capture data on every patch, don't memorize — and note a reorder keeps the same struct SIZE, so `sizechecktype=match` will NOT catch it (the 07/15 rotation silently decoded x's value into z until 2026-07-28).
-XML "modern: NN bytes, ... at offset M" comments on `OP_*` entries are working notes from prior opcode-hunting sessions, not authoritative — verify against capture data before relying on them. Several have already been corrected during test-client work (e.g. OP_GroupLeader was hinted 80b but is actually 168b, same family as groupDisbandStruct).
-**`conf/<target>/opcodes.toml` IS the opcode table — read directly at runtime, no generated XML.** (Live is flat at `conf/opcodes.toml`; test/eql nest under `conf/<target>/`.) `EQPacketOPCodeDB::load()` parses it with vendored toml++ (`third_party/tomlplusplus/toml.hpp`, single header, MIT), selecting the `[[zone]]` or `[[world]]` array by the section the DB was constructed with — one file, two DBs, two id namespaces. **Retired 2026-08-08**: the old TOML→`tools/toml_to_xml.py`→`{zone,world}opcodes.xml`→QXmlStreamReader pipeline gave the same data two on-disk representations and two silent desync modes — the `seq-opcode-xml` CMake target could serve a STALE xml (a mapped world table once read as all-`ffff`, 2026-07-25), and a TOML syntax error left the OLD xml in place so `check.sh` passed against data nobody had edited. Both are now unrepresentable. **Preferences moved to TOML the same way (2026-08-14)**: `conf/seqdef.toml` (defaults, committed) + `~/.scry/<ns>/daemon/scryd.toml` (user, written by the daemon), read by `src/tomlpreferences.{h,cpp}`. A user file still in XML is migrated once on load; `seqdef.xml` is gone. Regenerate defaults with `tools/prefs_xml_to_toml.py` — note only string/int/bool use `value=`, colors use `name=` or red/green/blue, fonts `family=`, keys `sequence=`. The store exposes FIVE value types (string/int/uint64/bool/color) because that is all the daemon calls; the widget-era QPoint/QRect/QSize/QStringList/QVariant accessors had no callers and were dropped. So the daemon now reads NO XML of its own — `tools/xml_to_toml.py` and `tools/upstream_matrix.py` still read XML, but that is UPSTREAM's (legacy showeq / ShowEQ-Legends), not ours.
-`tools/bindcheck.py` statically validates every table (run bare for all three targets; wired into CI and the pre-push hook): it checks that each `wire()` call resolves against the table — the drift that killed three test-target opcodes in a089d21 — and flags `uint8_t` + `sizechecktype="match"`, a 1-byte gate that drops every real packet (shipped on eql `OP_Logout`).
-**Backend target selection: `-DSEQ_TARGET=live|test|eql`** (default `live`; needs a clean configure — `build.sh --clean` or fresh `-B` dir — to switch). `live`+`test` share `src/backend/live/` (same `everquest.h`, same `wire_live.cpp`); `eql` (EverQuest Legends) is the one distinct backend in `src/backend/eql/`. **Opcodes per target**: Live stays FLAT at `conf/{opcodes.toml,*.xml}` (backwards-compatible with legacy showeq's shared conf tree); Test/EQL nest under `conf/<target>/`. `--config-dir` stays `conf` for every target — the runtime picks the opcode dir via the compiled `SEQ_OPCODE_SUBDIR` (`.` for live). **Data dirs per target**: Live FLAT at `~/.scry`; Test/EQL nest at `~/.scry/<target>` (compiled `SEQ_DATA_NAMESPACE`). Renamed from `~/.showeq` with the Scry rename — `SEQ_LEGACY_DATA_NAMESPACE` holds the old root and `DataLocationMgr::findExistingFile` falls back to it on READ ONLY (never write), warning once per file. The Elixir `scry` uses the SAME namespace scheme, so both daemons share this root; only `loot.db` is a shared writer, so don't run both at once. **No `#ifdef` in core.** Per-target structs come from the compiled `SEQ_STRUCT_DIR` include path: `test` → `src/backend/test/everquest.h`; **both `live` AND `eql` → `src/backend/live/everquest.h`** (eql currently reuses the shared/live wire structs — the planned `everquest_legends.h`/`backend_prelude.h`/`s_backend_structs.h` never landed and do not exist). The size registry is the shared `src/s_everquest.h` (`AddStruct` rows), included by `packetinfo.cpp`. eql-specific opcodes with no shared struct are declared `uint8_t`/`sizechecktype=none` and decoded by hand-written `seq-backend-eql` Rust parsers, so they add no C++ struct and no generated Rust binding. **Opcode dispatch is typed, not Qt-SLOT-based.** Handlers are registered with `EQPacketStream::on(op, payload, szt, PacketHandler)` (`PacketHandler = std::function<void(const uint8_t*, size_t, uint8_t)>`), built from a manager method via `seqBind(obj, &Class::method)` in the per-backend `wire_{live,eql}.cpp`. `EQPacketDispatch` is a plain per-payload `std::vector<PacketHandler>` fan-out (no moc); install order = fire order (golden-sensitive). There is no `connect2`/string-`SLOT` path anymore. **EQL handlers live in a backend-only plain (non-QObject) `EqlDispatch`** (`src/backend/eql/eqldispatch.{h,cpp}`), owned by a `shared_ptr` the wired closures capture. It casts the Legends structs and drives core managers via target-NEUTRAL public primitives (`Player::setIdentity`/`applySelfPosition`, `ZoneMgr::setZoneByName`, `SpawnShell::upsertSpawn`/`moveSpawn`) — those compile on every target and go unused on live/test. When adding an EQL handler, add its neutral primitive to the core manager + a method to `EqlDispatch`, and wire it in `wire_eql.cpp` via `seqBind(eql, &EqlDispatch::method)`; never a Legends type in core. (The old moc/ODR constraint that forced `EqlDispatch` to be a QObject is gone with typed dispatch, but keeping Legends handlers in the backend TU still keeps core Legends-free.) See `../BACKEND_UNIFICATION_PLAN.md`.
-**Wiring bind gotcha:** the `wire(op, payload, szt, ...)` payload TYPENAME string must exactly match the opcode's declared payload typename in the target's opcode TOML, or the handler SILENTLY doesn't bind — stderr logs `dispatchFor: opcode 'OP_X' has NO payload matching dir N typename 'Y' szt Z — handler NOT bound`. Smoke-test any new/changed wiring: `./build/scryd --replay <any>.vpk --config-dir conf --no-listen 2>&1 | grep 'NOT bound'` (empty = all bound). Bit the eql guild-in-zone + Live guild-MOTD wirings this way.
-Post-patch verification MUST include `--strict-gate-sizes` (CI's build-eql smoke step is exactly this flag): grepping the log for `NOT bound` / `doesn't match` CANNOT see a gate-dropped opcode, because a dropped packet is the ABSENCE of a symptom, not a warning.
-A payload declared `uint8_t`/`SZC_None` has NO size gate, so a wrong opcode id fails SILENTLY — "zero warnings" proves nothing for those; validate by content + fire count. (OP_ZoneChange sat mis-mapped across two patches this way.)
-**New-opcode decode, fixed vs variable:** a FIXED-layout struct → add it to `../scry-decoder-rs/tools/gen_eqstructs.py` ALLOWLIST, run `gen_eqstructs.py all` (regenerates BOTH live + test bindings — `seq-decode` compiles for both, so regenerating one alone breaks the other's build), decode via the `crate::eqstructs::<Struct>` binding in seq-decode (see `illusion.rs`; for a `char x[0]` flexible member `size_of` is the fixed header, read the tail from `bytes[HEADER_LEN..]`), and keep the real struct name in the TOML payload + `wire()`, NOT `uint8_t`. A VARIABLE-layout opcode (LPText / flexible array) → `uint8_t`/`none` payload + a hand-rolled `Cursor` walk (see `seq-decode/src/guild_roster.rs`).
-**Rust is the only decoder.** The daemon links `scry-decoder-rs`'s `seq-bridge` (cxx staticlib) via Corrosion as a **hard build dependency** — there is no `SEQ_USE_RUST` toggle and no C++ fallback path. Every wire handler decodes through `seq::rust::decode_*`; the old C++ parsers (`fillSpawnStruct` etc.) are gone. Backend is picked by `-DSEQ_TARGET=live|test|eql` → the decoder-rs `backend-*` Cargo feature (1:1). eql's `EqlDispatch` calls the same `decode_*`. To add/change an opcode: edit the parser in `scry-decoder-rs` (see its CLAUDE.md), expose it via `seq-bridge`, then call `seq::rust::decode_X` in the handler. A handful stay partly C++ by design — the *app logic* only, not the parse: `SpellShell::buff` (spell-DB duration), `GroupMgr::groupMemberList` (roster diff), `SpawnShell::shroudSpawn` (header framing + self-profile). The old `feat/rust-decoder` branch is dead.
-`spawnStruct.equipment[0-6].itemId` = armor material visual codes (0-23, see `src/util.cpp::print_material()`); `equipment[7-8].itemId` = weapon model visual codes (0-255, see `src/weapons.h`). Neither are EQ item database IDs — they're 3D model selectors. `fillSpawnStruct` equipment branch: humanoid races (NPC==0 || race<=12 || race∈{128,130,330,522}) skip 36 color bytes then read all 9 slots; other NPCs skip 20 bytes and read only slots 7+8.
-`OP_InspectAnswer` = 0x57f1, 1956 bytes, `inspectDataStruct` (`everquest.h:2513`): 4-byte pad, `spawnId`, `itemNames[23][64]`, `icons[23]`, `mytext[200]`; now forwarded as proto `InspectAnswer`. `OP_InspectRequest` = 0x14b6, 8 bytes C>S (`{u32 target_spawn_id, u32 self_spawn_id}`). Inspect is passive (no permission needed since a patch removed it).
-Proto `message Spawn` changes invalidate ALL tier-2 goldens (every fixture has Snapshot/SpawnAdded events). After regenerating with `cp *.check.pbstream *.pbstream`, the wearchange-clean golden may be one run behind — run `check.sh` once more and re-copy only wearchange-clean if it still fails.
-`OP_ClientUpdate` dual-fire gotcha: both `Player::playerUpdateSelf` (`playerSelfPosStruct`, DIR_Server|DIR_Client) and `SpawnShell::playerUpdate` (`playerSpawnPosStruct`, DIR_Server) fire on the same DIR_Server packet for the player's own spawn, each emitting `changeItem(tSpawnChangedPosition)` — two `spawnUpdated` proto messages 0ms apart with slightly different coordinates (float-cast vs bit-shift). Fix: early-return in `SpawnShell::playerUpdate` when `pupdate->spawnId == m_player->id()`. If wiring changes reintroduce a dual-fire on any opcode, watch for 0ms dt bursts in the web client's position log.
-Maps are resolved + rendered **server-side**: `daemonapp.cpp::loadZoneMap` locates the `.map`/`.txt` (+ numbered `_1`/`_2` layers) and streams geometry via `seq::encode::fillMapGeometry` in `ZoneChanged`/`Snapshot`. scry-web renders that geometry — it never loads a map file by zone name — so fix map / zone-name issues in `loadZoneMap`, not the web client. EQL raid instances arrive named `<base>_solo`/`_multi`/`_eqlraidgroup` with no per-instance map, so `loadZoneMap` falls back to the base zone (strip at first `_`) after trying the exact name.
-The daemon's **packet + state-manager layers were extracted from `showeq-c`** (commit `afc268b`), NOT legacy `../showeq` directly — they silently diverge. When protocol-layer code (`packetformat`/`packetstream`) misbehaves, diff it against `../showeq/src/` — legacy is the correctness reference. (e.g. the compressed-packet flag test was a bitmask `& 0x5a`; legacy's exact `== 0x5a` is right — 0x5a is a marker value, not a bitfield.)
-**Remote capture source `--agent host:port`** (default port 9099): `RemoteCaptureThread` (`src/remotecapture.{h,cpp}`, a `PacketCaptureProviderThread` sibling of `PacketCaptureThread`) sources frames from a `../scry-agent` (or scry's `Scry.Agent` — same wire format) over TCP instead of local libpcap — dials the agent, sends a SEQA `ClientHello` naming the BPF filter (the open-UDP auto-detect string + `--ip` host scope; port-narrowing `setFilter` calls are IGNORED — the agent stays a dumb forwarder, the daemon narrows sessions downstream), reads the agent's `Hello`, then pushes raw Ethernet frames into the same `packetCache` the decode loop drains (decode path identical to local pcap; expects DLT_EN10MB, warns otherwise). Runs as `PLAYBACK_OFF` (live) with backoff auto-reconnect; needs NO `cap_net_raw` locally (the agent captures); mutually exclusive with `--device`/`--replay`. The frame push is a shared protected `PacketCaptureProviderThread::enqueue()` (the pcap callback still open-codes its own copy — untouched). Cross-repo GOTCHA: the agent MUST close its socket gracefully — a plain close with the daemon's unread ClientHello still buffered sends RST, silently discarding frames still queued for the (slow, decoding) daemon (fixed in scry-agent `graceful_close`; a fast consumer masks it). **The SEQA wire format has THREE implementations** — `../scry-agent/src/proto.rs` (normative), scry's `Scry.Agent.Protocol`, and `remotecapture.cpp` — so a protocol change is a three-repo change. **SEQA v2** (2026-08-04) wraps every message in `magic "SQ" | version u8 | type u8 | len u32 | payload` (types `1=Frame` ts_micros+origlen+data, `2=ClientHello` filter, `3=Hello` link_type+snaplen+filter, all LE); `readMsg` reads one envelope and `readHello`/`pumpFrames` skip types they don't know rather than desyncing, since v1's frames carried no magic at all. Frame caplen is derived (`payload.size() - 12`), never a field that could contradict the bytes present.
-Verifying the path with no live traffic: rebuild a `.pcap` from any `.vpk` (strip the 40-byte VPacket header — `size u32, pad, time i64, version i64 (==40101), ms i64, seq i64`, then a raw Ethernet frame) and compare `--agent` vs `--replay-pcap` goldens. **They are NOT byte-identical on a large fixture, and that is expected**: `--replay-pcap` is time-paced (16.6s for eql-zone-transition's 20663 frames) while `--agent` is a live source that ingests the same frames in ~40ms, so the wallclock-driven 6s buff-duration timer fires a different number of times. Compare with `scripts/decode_pbstream.py` tallies instead — every packet-derived kind matches exactly and only `buffs`/`spawn_effects` differ (both already on check.sh's skip list for this reason). Each mode is internally deterministic, so run-to-run within a mode IS reproducible; the transport itself is proven exact by scry-agent's byte-identical `.pcap` round-trip (`cmp`).
+# scry-cpp
+
+Headless packet-capture and state-tracking daemon extracted from the legacy
+`showeq` Qt monolith. Reference implementation for the daemon side of Scry.
+See [`README.md`](README.md) for what it does and how to run it,
+[`docs/architecture.md`](docs/architecture.md) for backend/build design,
+wire-format quirks, and opcode-hunting technique notes.
+
+## Stack
+
+- C++20, Qt6 (Core, Network, Xml, WebSockets — headless, no Gui/Widgets),
+  CMake 3.20+, libpcap, protobuf, zlib.
+- Rust decoder: the sibling `../scry-decoder-rs` repo, linked via Corrosion
+  as a **hard build dependency** — no `SEQ_USE_RUST` toggle, no C++
+  fallback.
+- Target server: **Live EQ**. `../legacy/ShowEQ-Legends/` is the
+  correctness reference for protocol-layer code. `../EQMacEmu/` and Quarm
+  opcodes/structs do **not** apply here — that's `scry-cpp-quarm`.
+
+## Structure
+
+- `src/` — daemon sources; packet layer + managers; per-target backends in
+  `src/backend/{live,eql}/`
+- `proto/` — git submodule → `scry-proto`
+- `conf/` — opcode + preference TOML (flat for live, `conf/<target>/` for
+  test/eql), read directly at runtime — no generated XML
+- `docs/` — `architecture.md`, `patch-day.md`, plan docs
+- `tests/` — tier-1 ctest suite + tier-2 replay (`tests/replay/{live,eql,test}/`,
+  gitignored fixtures)
+- `packaging/` — systemd unit + env example
+- `tools/` — `bindcheck.py`, TOML/XML migration scripts (upstream-facing
+  ones only — see `docs/architecture.md`)
+- `scripts/` — `capture.py` (record a fixture), `decode_pbstream.py`
+  (inspect a golden)
+
+## Commands
+
+- Build: see [`README.md`](README.md#build) for the full dependency list.
+  `cmake -B build -DSEQ_TARGET=live -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build -j`
+- Switch backend: `-DSEQ_TARGET=live|test|eql` needs a clean reconfigure.
+- Restore capture caps after a rebuild: `cmake --build build --target setcap`
+- Record a tier-2 fixture: `scripts/capture.py <name>` (add `--ip <client-ip>`
+  when multiple EQ clients share the LAN)
+- Tier-2 replay check: `tests/replay/check.sh` (auto-detects backend from
+  `build/CMakeCache.txt`; override with `SEQ_CHECK_TARGET=<t>` /
+  `SEQ_BUILD_DIR=<dir>`)
+- Validate opcode tables: `tools/bindcheck.py` (wired into CI + the hook)
+- Inspect a golden: `scripts/decode_pbstream.py <golden.pbstream>` (`--kind`,
+  `--grep`, `--buffs`, `--spawns`, `--limit` — see the script's `--help`)
+- Regenerate Rust struct bindings after an `everquest.h` change:
+  `(cd ../scry-decoder-rs && python3 tools/gen_eqstructs.py all)`
+
+## Conventions
+
+- Target server is Live EQ — never cite `EQMacEmu/` paths or symbol names in
+  committed comments here (that's `scry-cpp-quarm`'s domain).
+- Re-derive an opcode/struct against the packet, not against the entry's
+  newest comment — a self-contradicting comment history means the mapping
+  already drifted. "modern: NN bytes ... at offset M" XML/TOML comments are
+  working notes from prior hunts, not authoritative.
+- Don't add a Legends (`EQL`) type or suffix to anything core owns; cite
+  upstream's `<name>EQLStruct` in comments only, and pick a neutral name
+  from upstream's packet *description* if a collision would occur.
+- Split opcode-table changes, struct changes, and handler/behavior changes
+  into separate commits — keeps each cherry-pickable into legacy showeq.
+
+## Gotchas
+
+- **New struct from `everquest.h`?** Also `AddStruct(<name>);` in
+  `s_everquest.h` (without it, `connect2 SZC_Match` silently drops every
+  packet with `OP_X (...) doesn't match: sizeof():0` in stderr) **and** a
+  `StructHint` row in `opcodestats.cpp` for `--opcode-stats` candidate
+  matching.
+- **Wiring bind gotcha**: the `wire(op, payload, szt, ...)` payload
+  TYPENAME string must exactly match the opcode's declared payload typename
+  in the target's opcode TOML, or the handler silently doesn't bind
+  (stderr: `dispatchFor: opcode 'OP_X' has NO payload matching dir N
+  typename 'Y' szt Z — handler NOT bound`). Smoke-test any new/changed
+  wiring: `./build/scryd --replay <any>.vpk --config-dir conf --no-listen 2>&1 | grep 'NOT bound'`
+  (empty = all bound).
+- **A payload declared `uint8_t`/`SZC_None` has no size gate** — a wrong
+  opcode id fails silently, so "zero warnings" proves nothing for those;
+  validate by content + fire count. Post-patch verification MUST include
+  `--strict-gate-sizes` — grepping for `NOT bound`/`doesn't match` cannot
+  see a gate-dropped opcode, because a dropped packet is the *absence* of a
+  symptom.
+- **`BoxRegistry` routing keys on the zone 5-tuple, not box identity** —
+  never skip `is_merged()` boxes in the routing lookups
+  (`lookupBoundZone`/`lookupByExpectedZone`/`lookupByWorld`). `merged_into`
+  is UI/identity grouping only, set at `OP_PlayerProfile` *after* the new
+  zone session binds — a merged-skip makes the just-bound live session
+  unroutable (symptom: name+zone decode once, then no spawns / frozen
+  position). Any client that zones ≥1× has 2+ boxes (fresh world socket per
+  zone), so this hits single-client multi-zone decode too.
+- **`Spawn::update` is `virtual`** so `Player::update` can snapshot/restore
+  HP+maxHP across the base call — `Spawn::update(spawnStruct*)` writes
+  percentage HP (maxHP=100), which would clobber the local PC's raw
+  `OP_HPUpdate` values otherwise. Don't un-virtual-ize it.
+- **`OP_ClientUpdate` dual-fire**: both `Player::playerUpdateSelf`
+  (`playerSelfPosStruct`, DIR_Server|DIR_Client) and
+  `SpawnShell::playerUpdate` (`playerSpawnPosStruct`, DIR_Server) fire on
+  the same DIR_Server packet for the player's own spawn, each emitting a
+  `spawnUpdated` proto message 0ms apart with slightly different
+  coordinates (float-cast vs. bit-shift). Fixed via an early-return in
+  `SpawnShell::playerUpdate` when `pupdate->spawnId == m_player->id()` — if
+  wiring changes ever reintroduce a dual-fire on any opcode, watch for 0ms
+  dt bursts in a client's position log.
+- **Bump `magicStr`** (e.g. `plr2`→`plr3`) whenever you change the width or
+  layout of any field `savePlayerState`/`restorePlayerState` serializes —
+  an older `Player.dat` would deserialize the wrong byte count and corrupt
+  every following field.
+- **`SessionAdapter::sendSnapshot` sorts spawns by `(id, name)`** — EQ
+  reuses ids across spawn types (a Door and a NPC can both have id 199), so
+  an id-only sort leaves duplicate-id pairs in hash-randomized order and
+  tier-2 goldens flap.
+- **No proto3 `map<>` in committed schemas** — protobuf 3.21's
+  `SetSerializationDeterministic` doesn't reliably sort nested map entries,
+  so the on-disk pbstream flips hash ordering per run. Use parallel
+  `repeated` key/value arrays sorted by key instead (see `WornSet`).
+- **Proto field name `slots` collides with Qt's `slots:` access-label
+  keyword** in generated `events.pb.h` — use `slot_indices` (or any
+  non-keyword) and rename local C++ vars to match.
+- **Proto `Spawn` changes invalidate every tier-2 golden** (every fixture
+  has Snapshot/SpawnAdded events) — after `cp *.check.pbstream *.pbstream`,
+  run `check.sh` once more before trusting green; a fixture can capture a
+  transient divergence (wallclock-sensitive paths, e.g. `SpellShell`'s 6s
+  buff-duration timer — why `buffs` is on the skip list).
+- If `AutoMoc warning: includes the moc file "X.moc"...` reappears, it's a
+  qmake-era `#ifndef QMAKEBUILD / #include "X.moc" / #endif` block sneaking
+  back in — CMake AutoMoc generates `moc_X.cpp` from the header's
+  `Q_OBJECT`, and the daemon doesn't use inline-in-cpp `Q_OBJECT`. Delete
+  the block.
+
+## Before Committing
+
+- `tests/replay/check.sh` (tier-2 replay). The pre-push hook runs this,
+  verifies `proto/` is in sync with `origin/proto`, and checks Rust
+  bindings are fresh — bypass with `--no-verify` for docs-only commits from
+  a non-live `build/`.
+- Fixture sets are gitignored and per-machine — check what this checkout
+  actually holds before calling a pass real; read the per-fixture lines
+  (`SKIP <name>` vs. "no fixtures at all"), never just the summary.
+- Touched a wire handler? Run the `grep 'NOT bound'` smoke test above, and
+  for opcode-table changes run with `--strict-gate-sizes`.
+- Touched shared core (spawnshell/packet/daemonapp, player/sessionadapter/
+  protoencoder) during backend-specific work? Do a genuine Live pass too
+  (`SEQ_CHECK_TARGET=live` + `SEQ_BUILD_DIR` at a live build) — that's real
+  coverage, not hook appeasement.
+
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md) — backend/build-target
+  design, the TOML opcode/preference pipeline, Rust decoder integration,
+  wire-format quirks, opcode-hunting technique notes, the SEQA remote
+  capture agent link, proto sync.
+- [`docs/patch-day.md`](docs/patch-day.md) — the patch-day struct/opcode
+  update workflow.
+- [`OPCODES_LIVE_TODO.md`](OPCODES_LIVE_TODO.md) — unresolved zone-opcode
+  backlog (226 as of writing); append a dated entry per find.
+- [`TEST_OPCODE.md`](TEST_OPCODE.md) — test-target opcode notes.
+- `/opcode-hunt` skill (`.claude/skills/opcode-hunt/`) — the general
+  opcode-hunting procedure (recon flags, disambiguation bar, TODO template).
+- [`../scry-decoder-rs/CLAUDE.md`](../scry-decoder-rs/CLAUDE.md) — decoder
+  workspace specifics.

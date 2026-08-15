@@ -1,36 +1,43 @@
 # scry-cpp
 
-Headless packet-capture and state-tracking daemon for
-[ShowEQ](https://sourceforge.net/projects/seq/). Extracted from the legacy
-monolithic `showeq` Qt application so multiple clients (web, native
-Rust/Iced, future tools) can connect to a single capture process over
-WebSocket + protobuf.
+Headless packet-capture and state-tracking daemon for **Scry**, extracted
+from the legacy monolithic [ShowEQ](https://sourceforge.net/projects/seq/)
+Qt application so multiple clients (web, Qt, native Rust/Iced) can connect
+to a single capture process over WebSocket + protobuf. See
+[`docs/architecture.md`](docs/architecture.md) for how the pieces fit
+together.
 
 ## What it does
 
 - Captures EverQuest network traffic via libpcap.
-- Reassembles the UDP session layer, decodes opcodes, tracks game state
-  (spawns, zones, player, group, guild).
+- Reassembles the UDP session layer, decodes opcodes (via the
+  [`scry-decoder-rs`](https://github.com/scry-eq/scry-decoder-rs) sibling —
+  a hard build dependency, not optional), tracks game state (spawns, zones,
+  player, group, guild).
 - Serves the state to clients on a WebSocket, encoded as `seq.v1` protobuf
   messages.
 
 ## What it is not
 
-- Not a GUI. For a UI, run one of the clients (see `scry-web`, or run the
-  legacy `showeq` standalone).
-- Not a replacement for `showeq` yet. Until feature parity is reached,
-  `showeq` remains the reference implementation and regression oracle.
+- Not a GUI. For a UI, run one of the clients ([`scry-web`](https://github.com/scry-eq/scry-web)
+  or [`scry-qt`](https://github.com/scry-eq/scry-qt)).
+- The original `showeq` Qt monolith is retired. `legacy/ShowEQ-Legends` (a
+  sibling clone of the current upstream project) is kept as a reference for
+  opcode tables and wire structs during development — not a running
+  regression oracle anymore.
 
 ## Build
 
-Requires: CMake 3.20+, Qt 5.15+ (Core, Network, Xml, WebSockets), libpcap,
-Protobuf, zlib, pthreads.
+Requires: CMake 3.20+, Qt 6 (Core, Network, Xml, WebSockets — headless, no
+Gui/Widgets), libpcap, Protobuf, zlib, pthreads, a Rust toolchain, and a
+sibling `../scry-decoder-rs` checkout (Corrosion links its `seq-bridge`
+crate as a hard build dependency — there is no C++ fallback decoder).
 
 Debian/Ubuntu:
 
 ```sh
 sudo apt install build-essential cmake \
-    qtbase5-dev libqt5websockets5-dev \
+    qt6-base-dev qt6-websockets-dev \
     libpcap-dev libprotobuf-dev protobuf-compiler zlib1g-dev
 ```
 
@@ -38,23 +45,25 @@ Fedora/RHEL:
 
 ```sh
 sudo dnf install gcc-c++ make cmake \
-    qt5-qtbase-devel qt5-qtwebsockets-devel \
+    qt6-qtbase-devel qt6-qtwebsockets-devel \
     libpcap-devel protobuf-devel protobuf-compiler zlib-devel
 ```
 
 ```sh
 git submodule update --init --recursive
 git config core.hooksPath scripts/hooks   # activate the committed pre-push hook (once per clone)
-cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake -B build -DSEQ_TARGET=live -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build -j
 ```
 
-The pre-push hook (`scripts/hooks/pre-push`) rebuilds, runs the tier-2 replay
-check, verifies the `proto/` submodule is in sync with canonical `origin/proto`,
-and checks the Rust bindings are fresh when `everquest.h` changed. Bypass with
-`--no-verify`.
+`-DSEQ_TARGET=live|test|eql` picks the backend (default `live`); switching
+target needs a clean reconfigure. The pre-push hook (`scripts/hooks/pre-push`)
+rebuilds, runs the tier-2 replay check, verifies the `proto/` submodule is in
+sync with canonical `origin/proto`, and checks the Rust bindings are fresh
+when `everquest.h` changed. Bypass with `--no-verify`.
 
-For the optional Rust decoder integration, see [RUST.md](RUST.md).
+See [`docs/architecture.md`](docs/architecture.md) for how the Rust decoder
+is wired in and how backend targets differ.
 
 ## Run
 
@@ -109,8 +118,8 @@ src/              # Daemon sources (extracted from showeq + new glue)
   protoencoder.*  # Pure translation functions
   ...             # Packet layer + managers, see extraction inventory
 proto/            # git submodule -> scry-proto
-conf/             # Opcode XML + preference schema
-docs/             # patch-day.md and friends
+conf/             # Opcode + preference TOML, read directly at runtime (no generated XML)
+docs/             # architecture.md, patch-day.md, and friends
 tests/            # tier-1 ctest suite + tier-2 replay scripts
 packaging/        # systemd unit + env example
 cmake/            # CMake helper modules
