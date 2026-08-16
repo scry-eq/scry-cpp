@@ -44,13 +44,22 @@
 //     type 1 Frame       (agent->daemon) ts_micros(u64) origlen(u32) data[len-12]
 //     type 2 ClientHello (daemon->agent) filter[len]
 //     type 3 Hello       (agent->daemon) link_type(i32) snaplen(u32) filter[len-8]
+//     type 4 AgentHello  (agent->service) token|name|backend|version, each len(u16)+bytes
+//     type 5 SessionInfo (service->agent) ui_url|ws_url|message, each len(u16)+bytes
 // The captured length is len-12 rather than a field of its own, so it cannot
 // contradict the bytes that follow.
+//
+// Types 4/5 are the hosted-service handshake (an agent dialing a service with a
+// token). This daemon is a plain LAN consumer: an agent never sends either one
+// here, and both read loops already skip unknown types by envelope length —
+// the constants exist for grep parity with the other two implementations.
 namespace {
 constexpr uint8_t SEQ_VERSION = 2;
 constexpr uint8_t SEQ_TYPE_FRAME = 1;
 constexpr uint8_t SEQ_TYPE_CLIENT_HELLO = 2;
 constexpr uint8_t SEQ_TYPE_HELLO = 3;
+[[maybe_unused]] constexpr uint8_t SEQ_TYPE_AGENT_HELLO = 4;   // never expected here; skipped
+[[maybe_unused]] constexpr uint8_t SEQ_TYPE_SESSION_INFO = 5;  // never expected here; skipped
 constexpr size_t SEQ_ENVELOPE_LEN = 8;
 constexpr size_t SEQ_FRAME_PREFIX = 12;   // ts_micros + origlen
 constexpr size_t SEQ_HELLO_PREFIX = 8;    // link_type + snaplen

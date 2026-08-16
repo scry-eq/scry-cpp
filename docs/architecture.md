@@ -267,7 +267,11 @@ link_type+snaplen+filter, all LE); `readMsg` reads one envelope and
 `readHello`/`pumpFrames` skip types they don't know rather than desyncing,
 since v1's frames carried no magic at all. Frame caplen is derived
 (`payload.size() - 12`), never a field that could contradict the bytes
-present.
+present. Types `4=AgentHello` and `5=SessionInfo` (2026-08-16) are the
+hosted-service handshake (agent dials a service with a token; string
+fields are each len-u16-LE + bytes) — this daemon is a plain LAN consumer
+and only ever skips them; the constants in `remotecapture.cpp` exist for
+grep parity with the other two implementations.
 
 Cross-repo GOTCHA: the agent MUST close its socket gracefully — a plain
 close with the daemon's unread `ClientHello` still buffered sends RST,
