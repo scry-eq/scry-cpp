@@ -3094,3 +3094,69 @@ work learned, applied one layer down.
 `0x078d` is left UNMAPPED deliberately: the bulk `OP_ItemPacket` already carries the same field
 for every item, so worn slots need no new opcode. Map it only if per-item live updates are
 wanted.
+
+### 2026-08-16 — OP_GuildInZoneRequest = `0x64e5`; `0x0353` characterised, not named
+
+Method: scry's new offline recon (`scry decode <vpk> --backend eql --sizes` /
+`--dump-payload`), swept across all 9 eql fixtures rather than one.
+
+- **OP_GuildInZoneRequest = `0x64e5`** (C>S, 8 bytes, n=1074 across 7 captures).
+  Decode: `{u32 guild_id, u32 = 10}` — byte-for-byte the header
+  `OP_NewGuildInZone` puts in front of its trailing name string. This is the
+  client asking "what is guild N called"; `OP_NewGuildInZone` is the answer.
+
+  ```
+  request  0x64e5   bb 00 00 00  0a 00 00 00
+  reply    OP_NewGuildInZone
+                    bb 00 00 00  0a 00 00 00  46 6f 6f 00           |........Foo.|
+
+  (guild name replaced with a placeholder; the real capture carries the guild's
+  actual name as a NUL-terminated string in that tail)
+  ```
+
+  Confirmed by pairing rather than by size: request and reply counts are EQUAL
+  and their guild-id SETS IDENTICAL in every fixture containing either —
+  50/50, 47/47, 222/222, 207/207, 38/38, 321/321, 173/173, and one fixture with
+  neither. Size+direction alone would NOT have been enough: five other unnamed
+  8-byte client opcodes share that shape (`0x7816`, `0x2696`, `0x2301`,
+  `0x76a9`, `0x7891`), so the count rule had competitors and the id-set match is
+  what settles it.
+
+  One fixture reads req=16 reply=45 and looks like a miss. Its `--sizes` line is
+  `S:29 C:16` — 29 of its requests classify as server-direction, and 16+29 is
+  its 45 replies. A direction-classification artifact in that capture, not a
+  counter-example.
+
+  No handler wired: the daemon has no use for a question it is not being asked.
+  Naming it stops it reading as an unknown in every future recon pass.
+
+**Ruled-out / still open — `0x0353`** (S>C, 12 bytes, present in ALL 9 fixtures;
+counts 200/400/600/600/800/802/1700/1718). Structure is settled, meaning is not:
+
+```
+{u32 timestamp-or-zero, u32 index, u32 group-timestamp}
+
+cd b8 80 6a  00 00 00 00  83 07 82 6a     index 0, group ts 2026-08-16T18:54:59
+00 00 00 00  01 00 00 00  83 07 82 6a     index 1
+00 00 00 00  02 00 00 00  83 07 82 6a     index 2
+```
+
+- Arrives in BURSTS OF EXACTLY 200, index running 0..199 within a burst.
+- Offset 8 is a unix timestamp, constant across a burst, distinct per burst —
+  three values in the 600-packet fixture, matching its three `OP_ZoneChange`es.
+- Offset 0 is zero for most rows; the few non-zero ones are unix timestamps
+  DAYS OLD (2026-08-09, 2026-08-14) relative to a capture taken 08-16.
+- Every burst is preceded by the identical five-opcode preamble, ending in
+  `OP_AAExpUpdate` then `OP_ExpUpdate`.
+
+Reads like a fixed 200-entry indexed table pushed as a unit, where most entries
+are empty and a few carry an old timestamp. NOT named, because "200 rows with
+sparse past timestamps" fits several things (recast/cooldown tables, a task or
+achievement list) and nothing here distinguishes them. The 0x6c39 lesson
+applies: a count that lines up is not a meaning.
+
+**Round-2 ideas**: capture with a deliberate long-cooldown ability used and
+re-used, and see whether a row's offset-0 timestamp changes to match. If it
+does, the table is recast timers and the index is the ability slot. A capture
+that zones WITHOUT gaining exp would also separate "burst follows exp" from
+"burst follows zone".

@@ -1973,6 +1973,18 @@ comment = "Listing of all guilds. Can be triggered by /lfg search?"
   sizechecktype = "none"
 
 [[zone]]
+id      = "64e5"
+name    = "OP_GuildInZoneRequest"
+priority = 2
+updated = "2026-08-16"
+comment = "C>S request for a guild's name by id - the client asking about a guild tag it has seen but cannot name; OP_NewGuildInZone is the reply. 8 bytes, {u32 guild_id, u32 = 10}, which is byte-for-byte the reply's own header before its trailing name string. Hunted 2026-08-16 from scry's recon over 9 eql fixtures: request and reply counts are EQUAL and their guild-id sets IDENTICAL in every capture that contains either (50/50, 47/47, 222/222, 207/207, 38/38, 321/321, 173/173; one capture has neither). The lone apparent exception is a fixture where 29 of 45 requests classify as server-direction, and 16+29 still equals its 45 replies. Upstream legends has no name for this id; the name follows upstream's own OP_<Thing>Request convention and pairs with the reply. No handler: the daemon has no use for a client-side question it is not being asked, and naming it stops it reading as an unknown during recon."
+
+  [[zone.payloads]]
+  dir           = "client"
+  typename      = "uint8_t"
+  sizechecktype = "none"
+
+[[zone]]
 id      = "4445"
 name    = "OP_GuildsInZoneList"
 priority = 8
