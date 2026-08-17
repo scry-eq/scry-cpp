@@ -570,11 +570,11 @@ comment = "Player joins your group (168 bytes; member name at offset 64, leading
   sizechecktype = "none"
 
 [[zone]]
-id      = "d701"
+id      = "086c"
 name    = "OP_GroupUpdate"
 priority = 6
-updated = "2026-08-05"
-comment = "Re-mapped for the 08/05 mini-patch rotation from upstream legends 9854199 (was ffff) - PENDING content validation. PRIOR: UNMAPPED by the 08/04 rotation (was 09ec); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 68d3) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Per-recipient status push (168B fixed, name at offset 64, no member roster); handler noops. Member identity rides OP_GroupFollow, departures OP_GroupDisband/2."
+updated = "2026-08-16"
+comment = "Re-derived FROM CAPTURE by upstream legends ca5f21f (was d701, which came from 9854199 and was never content-validated): \"OP_GroupUpdate and OP_GroupDisband were stale, so the roster never loaded and leaving the group never cleared\". The stale id is also why upstream had concluded Legends does not resend the roster on zone-in - it does, after the player profile (upstream e0dc7fb). PRIOR: UNMAPPED by the 08/04 rotation (was 09ec); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 68d3) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Per-recipient status push (168B fixed, name at offset 64, no member roster); handler noops. Member identity rides OP_GroupFollow, departures OP_GroupDisband/2."
 
   [[zone.payloads]]
   dir           = "both"
@@ -582,11 +582,11 @@ comment = "Re-mapped for the 08/05 mini-patch rotation from upstream legends 985
   sizechecktype = "none"
 
 [[zone]]
-id      = "689d"
+id      = "2df4"
 name    = "OP_GroupDisband"
 priority = 4
-updated = "2026-08-05"
-comment = "Re-mapped for the 08/05 mini-patch rotation from upstream legends 9854199 (was ffff) - PENDING content validation. PRIOR: UNMAPPED by the 08/04 rotation (was 587b); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 216d) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Your group dissolved (modern: 168 bytes; membername=self at offset 64)"
+updated = "2026-08-16"
+comment = "Re-derived FROM CAPTURE by upstream legends ca5f21f (was 689d, never content-validated); leaving the group never cleared with the stale id. PRIOR: Re-mapped for the 08/05 mini-patch rotation from upstream legends 9854199 (was ffff) - PENDING content validation. PRIOR: UNMAPPED by the 08/04 rotation (was 587b); upstream has not re-derived it. PRIOR: Re-mapped for the 07/29 rotation from upstream legends b769446 (was 216d) - NOT present in our 07/29 capture (the event never occurred in it) - taken from upstream, unvalidated locally. PRIOR: Your group dissolved (modern: 168 bytes; membername=self at offset 64)"
 
   [[zone.payloads]]
   dir           = "server"
