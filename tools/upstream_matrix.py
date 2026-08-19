@@ -34,6 +34,9 @@ ALIAS = {
     "OP_SelfPosEQL": "OP_SelfPos",
     "OP_DeathEQL": "OP_CombatRecord",
     "OP_LootMessageEQL": "OP_LootMessage",
+    # Upstream renamed LootMessageEQL -> LiteralMessageEQL (their 9c4270d);
+    # our row keeps the older neutral name, so both spellings alias onto it.
+    "OP_LiteralMessageEQL": "OP_LootMessage",
     "OP_MoneyUpdateEQL": "OP_MoneyUpdate",
     "OP_LoadoutSwapEQL": "OP_LoadoutSwap",
     "OP_DzSwitchInfoEQL": "OP_DzSwitchInfo",
@@ -67,6 +70,13 @@ def load_upstream(path: Path, stream: str) -> dict:
     out = {}
     for op in ET.fromstring(text).findall("opcode"):
         name = ALIAS.get(op.get("name", ""), op.get("name", ""))
+        # De-suffixing collides an EQL row with the stock row of the same
+        # neutral name (OP_MoneyUpdateEQL 48f9 vs OP_MoneyUpdate ffff, which
+        # sits LATER in the file). Last-write-wins silently reported the live
+        # mapping as unmapped, so a real id keeps its slot against a dead one.
+        prev = out.get(name)
+        if prev and prev["id"] != "ffff" and op.get("id", "ffff") == "ffff":
+            continue
         out[name] = {
             "stream": stream,
             "id": op.get("id", "ffff"),
