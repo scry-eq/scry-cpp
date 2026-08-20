@@ -3,10 +3,10 @@
 # from this file by tools/toml_to_xml.py (run via CMake on build).
 
 [[zone]]
-id      = "d4b8"
+id      = "3635"
 name    = "OP_PlayerProfile"
 priority = 10
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "CharProfileCode"
 
   [[zone.payloads]]
@@ -15,10 +15,10 @@ comment = "CharProfileCode"
   sizechecktype = "none"
 
 [[zone]]
-id      = "abdb"
+id      = "3f08"
 name    = "OP_ZoneEntry"
 priority = 10
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "ZoneEntryCode"
 
   [[zone.payloads]]
@@ -32,10 +32,10 @@ comment = "ZoneEntryCode"
   sizechecktype = "none"
 
 [[zone]]
-id      = "4968"
+id      = "e7bb"
 name    = "OP_TimeOfDay"
 priority = 3
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "TimeOfDayCode"
 
   [[zone.payloads]]
@@ -44,10 +44,10 @@ comment = "TimeOfDayCode"
   sizechecktype = "match"
 
 [[zone]]
-id      = "1a58"
+id      = "725b"
 name    = "OP_NewZone"
 priority = 10
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "NewZoneCode"
 
   [[zone.payloads]]
@@ -56,10 +56,10 @@ comment = "NewZoneCode"
   sizechecktype = "none"
 
 [[zone]]
-id      = "cb57"
+id      = "b640"
 name    = "OP_SpawnDoor"
 priority = 9
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "DoorSpawnsCode"
 
   [[zone.payloads]]
@@ -68,10 +68,10 @@ comment = "DoorSpawnsCode"
   sizechecktype = "modulus"
 
 [[zone]]
-id      = "66a8"
+id      = "cad9"
 name    = "OP_GroundSpawn"
 priority = 9
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "MakeDropCode"
 
   [[zone.payloads]]
@@ -85,10 +85,10 @@ comment = "MakeDropCode"
   sizechecktype = "none"
 
 [[zone]]
-id      = "57f6"
+id      = "0b2a"
 name    = "OP_SendZonePoints"
 priority = 5
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Coords in a zone that will port you to another zone"
 
   [[zone.payloads]]
@@ -97,10 +97,10 @@ comment = "Coords in a zone that will port you to another zone"
   sizechecktype = "none"
 
 [[zone]]
-id      = "b10f"
+id      = "25de"
 name    = "OP_AAExpUpdate"
 priority = 4
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Receiving AA experience. Also when percent to AA changes."
 
   [[zone.payloads]]
@@ -121,10 +121,10 @@ comment = "ExpUpdateCode"
   sizechecktype = "match"
 
 [[zone]]
-id      = "3425"
+id      = "91b1"
 name    = "OP_GuildMOTD"
 priority = 2
-updated = "2026-07-25"
+updated = "2026-08-19"
 comment = "Guild message of the day (guildMOTDStruct: sender@72, message@140; variable). Decoded in seq-decode via GuildShell::guildMOTD."
 
   [[zone.payloads]]
@@ -133,10 +133,10 @@ comment = "Guild message of the day (guildMOTDStruct: sender@72, message@140; va
   sizechecktype = "none"
 
 [[zone]]
-id      = "76e4"
+id      = "5760"
 name    = "OP_ClientUpdate"
 priority = 10
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Position updates"
 
   [[zone.payloads]]
@@ -150,10 +150,10 @@ comment = "Position updates"
   sizechecktype = "match"
 
 [[zone]]
-id      = "612e"
+id      = "084e"
 name    = "OP_NpcMoveUpdate"
 priority = 10
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Position updates"
 
   [[zone.payloads]]
@@ -162,10 +162,10 @@ comment = "Position updates"
   sizechecktype = "none"
 
 [[zone]]
-id      = "6a5a"
+id      = "1d04"
 name    = "OP_MobUpdate"
 priority = 10
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "MobUpdateCode"
 
   [[zone.payloads]]
@@ -174,10 +174,10 @@ comment = "MobUpdateCode"
   sizechecktype = "match"
 
 [[zone]]
-id      = "18c6"
+id      = "5d39"
 name    = "OP_DeleteSpawn"
 priority = 10
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "DeleteSpawnCode"
 
   [[zone.payloads]]
@@ -186,10 +186,10 @@ comment = "DeleteSpawnCode"
   sizechecktype = "match"
 
 [[zone]]
-id      = "d631"
+id      = "1bb1"
 name    = "OP_RemoveSpawn"
 priority = 10
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Remove spawn from zone"
 
   [[zone.payloads]]
@@ -198,10 +198,10 @@ comment = "Remove spawn from zone"
   sizechecktype = "none"
 
 [[zone]]
-id      = "75b4"
+id      = "a1d2"
 name    = "OP_Death"
 priority = 7
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "old NewCorpseCode"
 
   [[zone.payloads]]
@@ -222,10 +222,10 @@ comment = "Spawn-state / appearance broadcast (multi-slot). Header=wearChangeStr
   sizechecktype = "none"
 
 [[zone]]
-id      = "9f7c"
+id      = "6e56"
 name    = "OP_SpawnAppearance"
 priority = 10
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "SpawnAppearanceCode"
 
   [[zone.payloads]]
@@ -258,10 +258,10 @@ comment = "NpcHpUpdateCode Update HP % of a PC or NPC"
   sizechecktype = "match"
 
 [[zone]]
-id      = "0ad8"
+id      = "41eb"
 name    = "OP_GuildMemberUpdate"
 priority = 3
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Info regarding guild members"
 
   [[zone.payloads]]
@@ -270,10 +270,10 @@ comment = "Info regarding guild members"
   sizechecktype = "match"
 
 [[zone]]
-id      = "d84f"
+id      = "d0f7"
 name    = "OP_ClickObject"
 priority = 9
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Items dropped on the ground"
 
   [[zone.payloads]]
@@ -282,10 +282,10 @@ comment = "Items dropped on the ground"
   sizechecktype = "match"
 
 [[zone]]
-id      = "dda7"
+id      = "a831"
 name    = "OP_Action"
 priority = 7
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Spells cast etc"
 
   [[zone.payloads]]
@@ -311,10 +311,10 @@ comment = "Combat actions i.e. bash, kick etc"
   sizechecktype = "match"
 
 [[zone]]
-id      = "7a5b"
+id      = "576a"
 name    = "OP_Consider"
 priority = 9
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "ConsiderCode"
 
   [[zone.payloads]]
@@ -323,10 +323,10 @@ comment = "ConsiderCode"
   sizechecktype = "match"
 
 [[zone]]
-id      = "12e2"
+id      = "13d0"
 name    = "OP_TargetMouse"
 priority = 9
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Targeting a person - old ClientTargetCode"
 
   [[zone.payloads]]
@@ -371,10 +371,10 @@ comment = "Server putting players into shroud form"
   sizechecktype = "none"
 
 [[zone]]
-id      = "4068"
+id      = "0616"
 name    = "OP_ZoneChange"
 priority = 10
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "old ZoneChangeCode"
 
   [[zone.payloads]]
@@ -608,10 +608,10 @@ comment = "EmoteTextCode"
   sizechecktype = "none"
 
 [[zone]]
-id      = "2892"
+id      = "d2e0"
 name    = "OP_SimpleMessage"
 priority = 4
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "SimpleMessageCode"
 
   [[zone.payloads]]
@@ -620,10 +620,10 @@ comment = "SimpleMessageCode"
   sizechecktype = "match"
 
 [[zone]]
-id      = "1d0d"
+id      = "6d3a"
 name    = "OP_FormattedMessage"
 priority = 4
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "FormattedMessageCode i.e. pet dismissed etc"
 
   [[zone.payloads]]
@@ -632,10 +632,10 @@ comment = "FormattedMessageCode i.e. pet dismissed etc"
   sizechecktype = "none"
 
 [[zone]]
-id      = "547a"
+id      = "eba8"
 name    = "OP_CommonMessage"
 priority = 9
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "ChannelMessageCode i.e. /tell /ooc /shout etc"
 
   [[zone.payloads]]
@@ -644,10 +644,10 @@ comment = "ChannelMessageCode i.e. /tell /ooc /shout etc"
   sizechecktype = "none"
 
 [[zone]]
-id      = "b8f3"
+id      = "7730"
 name    = "OP_SpecialMesg"
 priority = 4
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Communicate textual info to client including hail responses etc"
 
   [[zone.payloads]]
@@ -964,10 +964,10 @@ comment = "Modern group roster broadcast. Variable length (54-301b observed: 1-2
   sizechecktype = "none"
 
 [[zone]]
-id      = "5af5"
+id      = "2e90"
 name    = "OP_GuildMemberList"
 priority = 3
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "List of guild members - Variable length"
 
   [[zone.payloads]]
@@ -1144,10 +1144,10 @@ comment = "Fellowship information - 2576 bytes"
   sizechecktype = "none"
 
 [[zone]]
-id      = "3ef7"
+id      = "1f46"
 name    = "OP_ExpandedGuildInfo"
 priority = 0
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Guild ranks and other misc guild data - Variable length"
 
   [[zone.payloads]]
@@ -1648,10 +1648,10 @@ comment = "Listing of all guilds. Can be triggered by /lfg search?"
   sizechecktype = "none"
 
 [[zone]]
-id      = "68f4"
+id      = "fe06"
 name    = "OP_GuildsInZoneList"
 priority = 8
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Listing of guild names present in the current zone.  Generally seen on zoning"
 
   [[zone.payloads]]
@@ -1838,10 +1838,10 @@ comment = "Free to play nags and other data - Variable length"
   sizechecktype = "none"
 
 [[zone]]
-id      = "2e60"
+id      = "4654"
 name    = "OP_Find"
 priority = 0
-updated = "2026-07-15"
+updated = "2026-08-19"
 comment = "Find window data - variable length, 24 min"
 
   [[zone.payloads]]
