@@ -82,8 +82,10 @@ string/int/bool use `value=`, colors use `name=` or red/green/blue, fonts
 widget-era QPoint/QRect/QSize/QStringList/QVariant accessors had no callers
 and were dropped.
 
-`tools/xml_to_toml.py` and `tools/upstream_matrix.py` still read XML, but
-that's *upstream's* (legacy showeq / ShowEQ-Legends), not ours.
+`tools/xml_to_toml.py` still reads XML, but that's *upstream's* (legacy
+showeq / ShowEQ-Legends), not ours. The upstream opcode-matrix generator
+moved out to the meta repo's `tools/upstream_matrix.py` — it takes either
+backend's vendored `conf/eql/opcodes.toml` as input, not just this repo's.
 
 ## The decoder is Rust-only
 
