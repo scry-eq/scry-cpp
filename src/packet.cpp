@@ -23,6 +23,7 @@
 
 /* Implementation of Packet class */
 #include <cstdio>
+#include <algorithm>
 #include <unistd.h>
 #include <netdb.h>
 
@@ -99,6 +100,16 @@ seq::rust::SessionBackend shadowBackend()
 #else
 #error "unknown SEQ_TARGET"
 #endif
+}
+
+EQPacketFlowKey packetFlowKey(const EQUDPIPPacketFormat& packet)
+{
+  const uint64_t source = (uint64_t(packet.getIPv4SourceN()) << 16) |
+                          uint64_t(packet.getSourcePort());
+  const uint64_t destination = (uint64_t(packet.getIPv4DestN()) << 16) |
+                               uint64_t(packet.getDestPort());
+  return source < destination ? EQPacketFlowKey{source, destination}
+                              : EQPacketFlowKey{destination, source};
 }
 
 } // namespace
@@ -224,48 +235,13 @@ EQPacket::EQPacket(const QString& opcodesToml,
   m_streams[client2zone] = m_client2ZoneStream;
   m_streams[zone2client] = m_zone2ClientStream;
 
-  // A capture can begin mid-zone, before world traffic creates a Box. Keep an
-  // unattributed logical session on the four global streams until the first
-  // Box claims them. This closes the only path where an extracted application
-  // packet could otherwise miss shadow decode entirely.
+  // A capture can begin mid-zone, before world traffic creates a Box. Hooks
+  // use the normalized UDP flow carried by each protocol packet so unrelated
+  // unattributed sessions never share Rust correlation state.
   if (m_shadowRegistry) {
-    try {
-      m_unattributedShadowSession =
-          std::make_unique<seq::shadow::Session>(*m_shadowRegistry,
-                                                  shadowBackend());
-      seq::shadow::Session* rawSession = m_unattributedShadowSession.get();
-      auto shadowHook = [this, rawSession](
-                            EQStreamID stream, uint8_t direction,
-                            uint16_t opcode, const uint8_t* payload,
-                            size_t payloadSize, int64_t timestamp) {
-        m_currentShadowBox = nullptr;
-        m_currentShadowIsUnattributed = true;
-        if (m_unattributedShadowDisabled) return;
-        const bool world = stream == client2world || stream == world2client;
-        try {
-          rawSession->decode(
-              world ? seq::shadow::Stream::World : seq::shadow::Stream::Zone,
-              opcode,
-              direction == DIR_Server
-                  ? seq::shadow::Direction::ServerToClient
-                  : seq::shadow::Direction::ClientToServer,
-              payload, payloadSize, timestamp);
-        } catch (const std::exception& error) {
-          m_unattributedShadowDisabled = true;
-          seqWarn("Unattributed Rust shadow disabled after decode error: %s",
-                  error.what());
-        }
-      };
-      auto timestamp = [this] { return int64_t(nowMs()); };
-      for (EQPacketStream* stream : {m_client2WorldStream, m_world2ClientStream,
-                                     m_client2ZoneStream, m_zone2ClientStream}) {
-        stream->setApplicationPacketHook(shadowHook, timestamp);
-      }
-    } catch (const std::exception& error) {
-      m_unattributedShadowDisabled = true;
-      seqWarn("Unattributed Rust shadow session creation failed: %s",
-              error.what());
-    }
+    for (EQPacketStream* stream : {m_client2WorldStream, m_world2ClientStream,
+                                   m_client2ZoneStream, m_zone2ClientStream})
+      installShadowHook(stream);
   }
 
   // Stage 2 of multibox-sessions (docs/MULTIBOX_PLAN.md): every new
@@ -342,53 +318,13 @@ EQPacket::EQPacket(const QString& opcodesToml,
     new NamePromoter(&box, &m_boxes, c2s, observerParent);
 
     if (m_shadowRegistry) {
-      // The first attributed session replaces the temporary global-stream
-      // session. Finalize any mid-zone observations it collected before the
-      // Box became identifiable, but retain its journal for diagnostics.
-      if (box.is_primary && m_unattributedShadowSession &&
-          m_unattributedShadowSession->recordCount() != 0 &&
-          !m_unattributedShadowDisabled) {
-        try {
-          m_unattributedShadowSession->flush(
-              seq::shadow::FlushReason::Reset);
-        } catch (const std::exception& error) {
-          m_unattributedShadowDisabled = true;
-          seqWarn("Unattributed Rust shadow reset failed: %s", error.what());
-        }
-      }
       try {
         auto session = std::make_unique<seq::shadow::Session>(
             *m_shadowRegistry, shadowBackend());
-        seq::shadow::Session* rawSession = session.get();
         m_shadowSessions.emplace(&box, std::move(session));
-
-        auto shadowHook = [this, &box, rawSession](
-                              EQStreamID stream, uint8_t direction,
-                              uint16_t opcode, const uint8_t* payload,
-                              size_t payloadSize, int64_t timestamp) {
-          m_currentShadowBox = &box;
-          m_currentShadowIsUnattributed = false;
-          if (m_shadowDisabled.count(&box) != 0) return;
-          const bool world = stream == client2world || stream == world2client;
-          try {
-            rawSession->decode(
-                world ? seq::shadow::Stream::World : seq::shadow::Stream::Zone,
-                opcode,
-                direction == DIR_Server
-                    ? seq::shadow::Direction::ServerToClient
-                    : seq::shadow::Direction::ClientToServer,
-                payload, payloadSize, timestamp);
-          } catch (const std::exception& error) {
-            m_shadowDisabled.insert(&box);
-            seqWarn("Rust shadow disabled for box %s after decode error: %s",
-                    qUtf8Printable(box.box_id), error.what());
-          }
-        };
-        auto timestamp = [this] { return int64_t(nowMs()); };
         for (EQPacketStream* stream : {box.world_c2s, box.world_s2c,
-                                       box.zone_c2s, box.zone_s2c}) {
-          stream->setApplicationPacketHook(shadowHook, timestamp);
-        }
+                                       box.zone_c2s, box.zone_s2c})
+          installShadowHook(stream);
       } catch (const std::exception& error) {
         m_shadowDisabled.insert(&box);
         seqWarn("Rust shadow session creation failed for box %s: %s",
@@ -789,6 +725,140 @@ qint64 EQPacket::nowMs(void) const
                                : QDateTime::currentMSecsSinceEpoch();
 }
 
+void EQPacket::installShadowHook(EQPacketStream* stream)
+{
+  if (!stream) return;
+  stream->setApplicationPacketHook(
+      [this](EQStreamID streamId, uint8_t direction, uint16_t opcode,
+             const uint8_t* payload, size_t payloadSize, int64_t timestamp,
+             EQPacketFlowKey flowKey, uintptr_t attributionToken) {
+        decodeShadowApplication(streamId, direction, opcode, payload,
+                                payloadSize, timestamp, flowKey,
+                                attributionToken);
+      },
+      [this] { return int64_t(nowMs()); });
+}
+
+seq::shadow::Session* EQPacket::temporaryShadowSession(EQPacketFlowKey flowKey)
+{
+  if (!m_shadowRegistry || !flowKey.isValid()) return nullptr;
+  auto found = m_temporaryShadowSessions.find(flowKey);
+  if (found != m_temporaryShadowSessions.end()) {
+    found->second.lastUsed = ++m_temporaryShadowClock;
+    return found->second.disabled ? nullptr : found->second.session.get();
+  }
+
+  if (m_temporaryShadowSessions.size() >= kMaxTemporaryShadowSessions)
+    evictOldestTemporaryShadowSession();
+
+  try {
+    TemporaryShadowSession temporary;
+    temporary.session = std::make_unique<seq::shadow::Session>(
+        *m_shadowRegistry, shadowBackend());
+    temporary.lastUsed = ++m_temporaryShadowClock;
+    auto [it, inserted] =
+        m_temporaryShadowSessions.emplace(flowKey, std::move(temporary));
+    return inserted ? it->second.session.get() : nullptr;
+  } catch (const std::exception& error) {
+    seqWarn("Temporary Rust shadow session creation failed: %s", error.what());
+    return nullptr;
+  }
+}
+
+void EQPacket::evictOldestTemporaryShadowSession()
+{
+  if (m_temporaryShadowSessions.empty()) return;
+  auto oldest = std::min_element(
+      m_temporaryShadowSessions.begin(), m_temporaryShadowSessions.end(),
+      [](const auto& lhs, const auto& rhs) {
+        return lhs.second.lastUsed < rhs.second.lastUsed;
+      });
+  if (!oldest->second.disabled && oldest->second.session) {
+    try {
+      oldest->second.session->flush(seq::shadow::FlushReason::Shutdown);
+    } catch (const std::exception& error) {
+      seqWarn("Temporary Rust shadow eviction flush failed: %s", error.what());
+    }
+  }
+  if (m_currentTemporaryShadowFlow == oldest->first)
+    m_currentTemporaryShadowFlow.reset();
+  m_temporaryShadowSessions.erase(oldest);
+}
+
+void EQPacket::decodeShadowApplication(
+    EQStreamID stream, uint8_t direction, uint16_t opcode,
+    const uint8_t* payload, size_t payloadSize, int64_t timestamp,
+    EQPacketFlowKey flowKey, uintptr_t attributionToken)
+{
+  const bool world = stream == client2world || stream == world2client;
+  Box* box = reinterpret_cast<Box*>(attributionToken);
+  seq::shadow::Session* session = nullptr;
+
+  m_currentShadowBox = nullptr;
+  m_currentTemporaryShadowFlow.reset();
+
+  if (box) {
+    auto attributed = m_shadowSessions.find(box);
+    if (attributed == m_shadowSessions.end() ||
+        m_shadowDisabled.count(box) != 0)
+      return;
+
+    // A mid-zone flow can precede the world handshake that creates its Box.
+    // Adopt that state only while the Box session is still cold. Once it has
+    // decoded an application packet, merging two state machines would require
+    // replaying one side, so finalize the temporary state instead.
+    auto temporary = m_temporaryShadowSessions.find(flowKey);
+    if (temporary != m_temporaryShadowSessions.end()) {
+      if (!temporary->second.disabled && temporary->second.session &&
+          attributed->second->recordCount() == 0) {
+        attributed->second = std::move(temporary->second.session);
+        seqInfo("Rust shadow adopted pre-attribution flow for box %s",
+                qUtf8Printable(box->box_id));
+      } else if (!temporary->second.disabled && temporary->second.session) {
+        try {
+          temporary->second.session->flush(seq::shadow::FlushReason::Reset);
+        } catch (const std::exception& error) {
+          seqWarn("Temporary Rust shadow reset failed during attribution: %s",
+                  error.what());
+        }
+        seqWarn("Rust shadow could not merge pre-attribution flow into warm box %s; "
+                "temporary correlation was finalized",
+                qUtf8Printable(box->box_id));
+      }
+      m_temporaryShadowSessions.erase(temporary);
+      attributed = m_shadowSessions.find(box);
+    }
+    m_currentShadowBox = box;
+    session = attributed->second.get();
+  } else {
+    m_currentTemporaryShadowFlow = flowKey;
+    session = temporaryShadowSession(flowKey);
+  }
+
+  if (!session) return;
+  try {
+    session->decode(
+        world ? seq::shadow::Stream::World : seq::shadow::Stream::Zone,
+        opcode,
+        direction == DIR_Server
+            ? seq::shadow::Direction::ServerToClient
+            : seq::shadow::Direction::ClientToServer,
+        payload, payloadSize, timestamp);
+  } catch (const std::exception& error) {
+    if (box) {
+      m_shadowDisabled.insert(box);
+      seqWarn("Rust shadow disabled for box %s after decode error: %s",
+              qUtf8Printable(box->box_id), error.what());
+    } else {
+      auto temporary = m_temporaryShadowSessions.find(flowKey);
+      if (temporary != m_temporaryShadowSessions.end())
+        temporary->second.disabled = true;
+      seqWarn("Temporary Rust shadow disabled after decode error: %s",
+              error.what());
+    }
+  }
+}
+
 const seq::shadow::Session* EQPacket::shadowSession(const Box* box) const
 {
   const auto it = m_shadowSessions.find(box);
@@ -812,13 +882,16 @@ void EQPacket::flushShadowSession(const Box* box,
 
 void EQPacket::flushCurrentShadowSession(seq::shadow::FlushReason reason)
 {
-  if (m_currentShadowIsUnattributed && m_unattributedShadowSession &&
-      !m_unattributedShadowDisabled) {
+  if (m_currentTemporaryShadowFlow) {
+    auto temporary = m_temporaryShadowSessions.find(*m_currentTemporaryShadowFlow);
+    if (temporary == m_temporaryShadowSessions.end() ||
+        temporary->second.disabled || !temporary->second.session)
+      return;
     try {
-      m_unattributedShadowSession->flush(reason);
+      temporary->second.session->flush(reason);
     } catch (const std::exception& error) {
-      m_unattributedShadowDisabled = true;
-      seqWarn("Unattributed Rust shadow disabled after flush error: %s",
+      temporary->second.disabled = true;
+      seqWarn("Temporary Rust shadow disabled after flush error: %s",
               error.what());
     }
     return;
@@ -828,17 +901,60 @@ void EQPacket::flushCurrentShadowSession(seq::shadow::FlushReason reason)
 
 void EQPacket::flushAllShadowSessions(seq::shadow::FlushReason reason)
 {
-  if (m_unattributedShadowSession && !m_unattributedShadowDisabled) {
+  for (auto& entry : m_temporaryShadowSessions) {
+    if (entry.second.disabled || !entry.second.session) continue;
     try {
-      m_unattributedShadowSession->flush(reason);
+      entry.second.session->flush(reason);
     } catch (const std::exception& error) {
-      m_unattributedShadowDisabled = true;
-      seqWarn("Unattributed Rust shadow disabled after flush error: %s",
+      entry.second.disabled = true;
+      seqWarn("Temporary Rust shadow disabled after flush error: %s",
               error.what());
     }
   }
   for (const auto& entry : m_shadowSessions)
     flushShadowSession(entry.first, reason);
+}
+
+void EQPacket::beginCurrentShadowZoneTransition()
+{
+  if (m_currentTemporaryShadowFlow) {
+    auto it = m_temporaryShadowSessions.find(*m_currentTemporaryShadowFlow);
+    if (it != m_temporaryShadowSessions.end() && !it->second.disabled &&
+        it->second.session) {
+      try {
+        it->second.session->beginZoneTransition();
+      } catch (const std::exception& error) {
+        it->second.disabled = true;
+        seqWarn("Temporary Rust shadow disabled after zone flush error: %s",
+                error.what());
+      }
+    }
+    return;
+  }
+  if (!m_currentShadowBox || m_shadowDisabled.count(m_currentShadowBox) != 0)
+    return;
+  auto it = m_shadowSessions.find(m_currentShadowBox);
+  if (it == m_shadowSessions.end()) return;
+  try {
+    it->second->beginZoneTransition();
+  } catch (const std::exception& error) {
+    m_shadowDisabled.insert(m_currentShadowBox);
+    seqWarn("Rust shadow disabled for box %s after zone flush error: %s",
+            qUtf8Printable(m_currentShadowBox->box_id), error.what());
+  }
+}
+
+void EQPacket::completeCurrentShadowZoneTransition()
+{
+  if (m_currentTemporaryShadowFlow) {
+    auto it = m_temporaryShadowSessions.find(*m_currentTemporaryShadowFlow);
+    if (it != m_temporaryShadowSessions.end() && it->second.session)
+      it->second.session->completeZoneTransition();
+    return;
+  }
+  auto it = m_shadowSessions.find(m_currentShadowBox);
+  if (it != m_shadowSessions.end())
+    it->second->completeZoneTransition();
 }
 
 /////////////////////////////////////////////////////////
@@ -983,6 +1099,10 @@ void EQPacket::dispatchPacket(int size, unsigned char *buffer)
 
 void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
 {
+  packet.setCaptureTimeMs(nowMs());
+  packet.setFlowKey(packetFlowKey(packet));
+  packet.setAttributionToken(0);
+
   // Detect client by world server port traffic...
   const in_port_t srcPortHost = packet.getSourcePort();
   const in_port_t dstPortHost = packet.getDestPort();
@@ -1097,6 +1217,7 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
     Box* box = m_boxes.lookupByWorld(client_ip, client_port, server_port);
     if (box)
     {
+      packet.setAttributionToken(reinterpret_cast<uintptr_t>(box));
       EQPacketStream* s = srcIsServer ? box->world_s2c : box->world_c2s;
       if (s) s->handlePacket(packet);
     }
@@ -1198,6 +1319,7 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
       // the global pipeline — but now keyed on the box's session, not on
       // m_client_addr (which is identical for every same-host box).
       EQPacketStream* s = srcIsClient ? box->zone_c2s : box->zone_s2c;
+      packet.setAttributionToken(reinterpret_cast<uintptr_t>(box));
       s->handlePacket(packet);
       return;
     }
@@ -1293,7 +1415,6 @@ void EQPacket::onBoxAboutToBeRemoved(Box* box)
   m_shadowDisabled.erase(box);
   if (m_currentShadowBox == box) {
     m_currentShadowBox = nullptr;
-    m_currentShadowIsUnattributed = false;
   }
 
   // Drop the stream pointers first. The registry frees the Box right after

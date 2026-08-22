@@ -43,6 +43,13 @@ class TestStream : public EQPacketStream
 public:
     using EQPacketStream::EQPacketStream;
     using EQPacketStream::dispatchPacket;
+
+    void cacheThenDrain(EQProtocolPacket& packet)
+    {
+        setCache(packet.arqSeq(), packet);
+        m_arqSeqExp = packet.arqSeq();
+        processCache();
+    }
 };
 
 } // namespace
@@ -61,6 +68,7 @@ private slots:
     void unknownOpcodeDoesNotBind();
     void applicationHookRunsBeforeLegacyHandler();
     void applicationHookRunsWhileMuted();
+    void cachedApplicationKeepsOriginalMetadata();
 
 private:
     QTemporaryDir m_tmp;
@@ -164,7 +172,8 @@ void PacketStreamDispatchTest::applicationHookRunsBeforeLegacyHandler()
 
     stream.setApplicationPacketHook(
         [&order](EQStreamID streamId, uint8_t direction, uint16_t opcode,
-                 const uint8_t*, size_t length, int64_t timestamp) {
+                 const uint8_t*, size_t length, int64_t timestamp,
+                 EQPacketFlowKey, uintptr_t) {
             QCOMPARE(order, 0);
             QCOMPARE(streamId, zone2client);
             QCOMPARE(direction, uint8_t(DIR_Server));
@@ -191,13 +200,49 @@ void PacketStreamDispatchTest::applicationHookRunsWhileMuted()
                       }));
     stream.setApplicationPacketHook(
         [&hookCalls](EQStreamID, uint8_t, uint16_t, const uint8_t*, size_t,
-                     int64_t) { ++hookCalls; },
+                     int64_t, EQPacketFlowKey, uintptr_t) { ++hookCalls; },
         [] { return int64_t(0); });
     stream.setMuted(true);
 
     stream.dispatchPacket(nullptr, 0, 1, m_opcodeDB.find(uint16_t(1)));
     QCOMPARE(hookCalls, 1);
     QCOMPARE(handlerCalls, 0);
+}
+
+void PacketStreamDispatchTest::cachedApplicationKeepsOriginalMetadata()
+{
+    TestStream stream(zone2client, DIR_Server, 32, m_opcodeDB);
+    QByteArray bytes(9, '\0');
+    bytes[0] = 0x00; bytes[1] = 0x09; // OP_Packet
+    bytes[2] = 0x00;                  // flags
+    bytes[3] = 0x00; bytes[4] = 0x07; // ARQ sequence 7
+    bytes[5] = 0x01; bytes[6] = 0x00; // application opcode 1
+
+    EQProtocolPacket packet(reinterpret_cast<uint8_t*>(bytes.data()),
+                            uint32_t(bytes.size()));
+    packet.setCaptureTimeMs(12345);
+    const EQPacketFlowKey flow{11, 22};
+    packet.setFlowKey(flow);
+    packet.setAttributionToken(77);
+    const uint16_t crc = stream.calculateCRC(packet);
+    bytes[7] = char(crc >> 8);
+    bytes[8] = char(crc & 0xff);
+
+    int calls = 0;
+    stream.setApplicationPacketHook(
+        [&calls, flow](EQStreamID, uint8_t, uint16_t opcode,
+                       const uint8_t*, size_t, int64_t timestamp,
+                       EQPacketFlowKey actualFlow, uintptr_t token) {
+            ++calls;
+            QCOMPARE(opcode, uint16_t(1));
+            QCOMPARE(timestamp, int64_t(12345));
+            QVERIFY(actualFlow == flow);
+            QCOMPARE(token, uintptr_t(77));
+        },
+        [] { return int64_t(99999); });
+
+    stream.cacheThenDrain(packet);
+    QCOMPARE(calls, 1);
 }
 
 QTEST_APPLESS_MAIN(PacketStreamDispatchTest)

@@ -34,6 +34,7 @@
 
 #include "packetcommon.h"
 #include "packetfragment.h"
+#include "packetformat.h"
 #include "packetinfo.h"
 
 #if (defined(__FreeBSD__) || defined(__linux__)) && defined(__GLIBC__) && (__GLIBC__ == 2) && (__GLIBC_MINOR__ < 2)
@@ -118,7 +119,8 @@ class EQPacketStream : public QObject
   // boxes receive the same ordered packet stream as active boxes.
   using ApplicationPacketHook =
       std::function<void(EQStreamID, uint8_t, uint16_t,
-                         const uint8_t*, size_t, int64_t)>;
+                         const uint8_t*, size_t, int64_t,
+                         EQPacketFlowKey, uintptr_t)>;
   using TimestampProvider = std::function<int64_t()>;
   void setApplicationPacketHook(ApplicationPacketHook hook,
                                 TimestampProvider timestampProvider)
@@ -179,7 +181,11 @@ class EQPacketStream : public QObject
   void processCache();
   void processPacket(EQProtocolPacket& packet, bool subpacket);
   void dispatchPacket(const uint8_t* data, size_t len,
-		      uint16_t opCode, const EQPacketOPCode* opcodeEntry);
+			      uint16_t opCode, const EQPacketOPCode* opcodeEntry);
+  void dispatchPacketAt(const uint8_t* data, size_t len,
+			        uint16_t opCode, const EQPacketOPCode* opcodeEntry,
+                        int64_t captureTimeMs, EQPacketFlowKey flowKey,
+                        uintptr_t attributionToken);
   // Lookup for on(): resolve opcode+payload+szt to its
   // (lazily created) dispatcher, or nullptr with a diagnostic on miss.
   EQPacketDispatch* dispatchFor(const QString& opcodeName,
@@ -314,4 +320,3 @@ inline PacketHandler seqBind(std::shared_ptr<T> obj,
 }
 
 #endif //  _PACKETSTREAM_H_
-

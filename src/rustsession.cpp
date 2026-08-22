@@ -262,9 +262,11 @@ std::string ProtocolRegistry::contentHash(rust::SessionBackend backend) const
 }
 
 Session::Session(const ProtocolRegistry& registry,
-                 rust::SessionBackend backend, size_t journalLimit)
+                 rust::SessionBackend backend, size_t journalLimit,
+                 size_t journalByteLimit)
     : m_session(rust::session_new(registry.rustRegistry(), backend))
     , m_journalLimit(std::max<size_t>(journalLimit, 1))
+    , m_journalByteLimit(std::max<size_t>(journalByteLimit, sizeof(Record)))
 {
 }
 
@@ -286,17 +288,50 @@ const Record& Session::flush(FlushReason reason)
     Record record;
     record.flushReason = reason;
     record.batch = translate(m_session->flush(toRust(reason)));
-    return append(std::move(record));
+    const Record& appended = append(std::move(record));
+    if (reason != FlushReason::ZoneTransition)
+        m_zoneTransitionOpen = false;
+    return appended;
+}
+
+bool Session::beginZoneTransition()
+{
+    if (m_zoneTransitionOpen)
+        return false;
+    flush(FlushReason::ZoneTransition);
+    m_zoneTransitionOpen = true;
+    return true;
 }
 
 const Record& Session::append(Record record)
 {
     record.sequence = ++m_recordCount;
-    if (m_journal.size() == m_journalLimit) {
+
+    // Charge retained diagnostics by their source packet bytes plus fixed
+    // record storage. Decoded fields are derived from that source and may use
+    // more container overhead, so large single records become summaries before
+    // they can dominate a per-Box journal.
+    const size_t payloadBytes = record.packet ? record.packet->payloadSize : 0;
+    record.retainedBytes = sizeof(Record) + payloadBytes;
+    if (record.retainedBytes > m_journalByteLimit) {
+        // Swap with fresh containers so an oversized decoded batch releases
+        // its backing allocations; clear() alone would retain their capacity.
+        decltype(record.batch.events){}.swap(record.batch.events);
+        decltype(record.batch.selfStats){}.swap(record.batch.selfStats);
+        decltype(record.batch.lootRows){}.swap(record.batch.lootRows);
+        record.detailsOmitted = true;
+        record.retainedBytes = sizeof(Record);
+    }
+
+    while (!m_journal.empty() &&
+           (m_journal.size() >= m_journalLimit ||
+            m_journalBytes + record.retainedBytes > m_journalByteLimit)) {
+        m_journalBytes -= m_journal.front().retainedBytes;
         m_journal.pop_front();
         ++m_droppedRecordCount;
     }
     m_journal.push_back(std::move(record));
+    m_journalBytes += m_journal.back().retainedBytes;
     return m_journal.back();
 }
 

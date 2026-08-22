@@ -30,11 +30,14 @@
 #include <QPointer>
 #include <QTimer>
 #include <memory>
+#include <map>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include "boxregistry.h"
 #include "packetcommon.h"
+#include "packetformat.h"
 #include "packetinfo.h"
 
 #if defined (__GLIBC__) && (__GLIBC__ < 2)
@@ -146,6 +149,8 @@ class EQPacket : public QObject
    void flushShadowSession(const Box* box, seq::shadow::FlushReason reason);
    void flushCurrentShadowSession(seq::shadow::FlushReason reason);
    void flushAllShadowSessions(seq::shadow::FlushReason reason);
+   void beginCurrentShadowZoneTransition();
+   void completeCurrentShadowZoneTransition();
 
    void exportHandoffState(const QString& configDir) const;
    bool importHandoffState(const QString& configDir);
@@ -276,12 +281,18 @@ class EQPacket : public QObject
    // session per Box. The adapter only journals shadow output. Legacy handlers
    // remain the sole state mutation path.
    std::unique_ptr<seq::shadow::ProtocolRegistry> m_shadowRegistry;
-   std::unique_ptr<seq::shadow::Session> m_unattributedShadowSession;
    std::unordered_map<const Box*, std::unique_ptr<seq::shadow::Session>>
        m_shadowSessions;
    std::unordered_set<const Box*> m_shadowDisabled;
-   bool m_unattributedShadowDisabled = false;
-   bool m_currentShadowIsUnattributed = false;
+   struct TemporaryShadowSession {
+       std::unique_ptr<seq::shadow::Session> session;
+       quint64 lastUsed = 0;
+       bool disabled = false;
+   };
+   std::map<EQPacketFlowKey, TemporaryShadowSession> m_temporaryShadowSessions;
+   quint64 m_temporaryShadowClock = 0;
+   static constexpr size_t kMaxTemporaryShadowSessions = 16;
+   std::optional<EQPacketFlowKey> m_currentTemporaryShadowFlow;
    Box* m_currentShadowBox = nullptr;
 
    // Stage 1 of multibox-sessions: observe every world-port-talking
@@ -322,6 +333,14 @@ class EQPacket : public QObject
    void dispatchPacket(EQUDPIPPacketFormat& packet);
    // EQ Legends UCS: forward a raw port-9877 chat payload to MessageShell.
    void decodeUCSPacket(EQUDPIPPacketFormat& packet);
+   void installShadowHook(EQPacketStream* stream);
+   void decodeShadowApplication(EQStreamID stream, uint8_t direction,
+                                uint16_t opcode, const uint8_t* payload,
+                                size_t payloadSize, int64_t timestamp,
+                                EQPacketFlowKey flowKey,
+                                uintptr_t attributionToken);
+   seq::shadow::Session* temporaryShadowSession(EQPacketFlowKey flowKey);
+   void evictOldestTemporaryShadowSession();
  protected slots:
    void resetEQPacket();
    void dispatchWorldChatData (size_t len, uint8_t* data, uint8_t direction = 0);

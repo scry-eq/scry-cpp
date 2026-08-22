@@ -17,8 +17,12 @@ jobs:
     name: opcode-bindings
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - name: bindcheck (all targets)
         run: python3 tools/bindcheck.py
+      - name: protocol catalog parity
+        run: python3 scry-decoder-rs/seq-protocol-data/tools/import_host_catalogs.py --check conf
 
   build:
     runs-on: ubuntu-latest
@@ -139,6 +143,10 @@ jobs:
 
       - name: build
         run: cmake --build build -j
+
+      - name: test
+        working-directory: build
+        run: ctest --output-on-failure
 
       - name: smoke
         run: |

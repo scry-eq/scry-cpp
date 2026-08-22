@@ -104,22 +104,29 @@ do not use that override.
 
 Phase-2 shadow decoding lives in `rustsession.*`. `EQPacket` owns one protocol
 registry built from the decoder's embedded catalogs. It creates one stateful
-Rust session for each `Box`. A temporary unattributed session covers captures
-that begin mid-zone before world traffic creates the first box.
+Rust session for each `Box`. Captures that begin mid-zone use temporary
+sessions keyed by normalized UDP flow, capped at 16, so two unattributed flows
+cannot share correlation. A still-cold Box adopts its matching temporary
+session when attribution becomes available. A warm Box cannot safely merge two
+state machines without replay, so the temporary side is finalized instead.
 
 `EQPacketStream` calls the shadow hook after SOE reassembly and before its
 decoded-packet observers or legacy handlers. The hook sends the stream, numeric
 opcode, direction, payload, and capture timestamp to Rust. The adapter switches
 only on `SessionEventKind` and moves the indexed typed payload into an exhaustive
 49-alternative `std::variant`. It does no opcode lookup, backend selection, or
-correlation. Each session keeps the latest 256 ordered packet and flush records,
-with monotonic record and dropped-record counts for diagnostics.
+correlation. Capture timestamps and attribution follow cached, nested, and
+fragmented protocol packets instead of being sampled when a cache drains. Each
+session keeps at most 256 ordered packet and flush records under a 4 MiB source
+byte budget, with monotonic record and dropped-record counts for diagnostics.
+Oversized individual records retain only their disposition and metadata.
 
 Legacy opcode handlers remain the only path that changes host state. Rust
 events, self-stat correlation, and loot rows stay in the shadow journal. The
-host flushes sessions on shutdown, box eviction, replay completion, and the
-existing `ZoneMgr` transition signals, including EQL's destination-unknown
-transition marker.
+host flushes sessions on shutdown, box eviction, replay completion, and once at
+the start of each `ZoneMgr` transition. Live's later profile/zone-begin signal
+and EQL's zone-resolved signal close the transition window without a second
+flush.
 
 To add or change an opcode: edit the parser in `scry-decoder-rs` (see its
 own `CLAUDE.md`/`docs/architecture.md`), expose it via `seq-bridge`, then

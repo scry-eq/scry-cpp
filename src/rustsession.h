@@ -103,6 +103,8 @@ struct Record {
     std::optional<PacketRecord> packet;
     std::optional<FlushReason> flushReason;
     Batch batch;
+    size_t retainedBytes = 0;
+    bool detailsOmitted = false;
 };
 
 // Convert one cxx-compatible tagged batch into the public C++ variant. This
@@ -127,22 +129,31 @@ public:
     // journalLimit bounds diagnostic memory. Every record has a monotonic
     // sequence so consumers can detect records dropped from the front.
     Session(const ProtocolRegistry& registry, rust::SessionBackend backend,
-                     size_t journalLimit = 256);
+            size_t journalLimit = 256,
+            size_t journalByteLimit = 4 * 1024 * 1024);
 
     const Record& decode(Stream stream, uint16_t opcode, Direction direction,
                          const uint8_t* payload, size_t payloadSize,
                          int64_t timestamp);
     const Record& flush(FlushReason reason);
+    // Returns true only when this call opened and flushed a new boundary.
+    // Repeated start signals within one transition are ignored until complete.
+    bool beginZoneTransition();
+    void completeZoneTransition() { m_zoneTransitionOpen = false; }
 
     const std::deque<Record>& journal() const { return m_journal; }
     uint64_t recordCount() const { return m_recordCount; }
     uint64_t droppedRecordCount() const { return m_droppedRecordCount; }
+    size_t journalBytes() const { return m_journalBytes; }
 
 private:
     const Record& append(Record record);
 
     ::rust::Box<rust::SessionResource> m_session;
     size_t m_journalLimit;
+    size_t m_journalByteLimit;
+    size_t m_journalBytes = 0;
+    bool m_zoneTransitionOpen = false;
     uint64_t m_recordCount = 0;
     uint64_t m_droppedRecordCount = 0;
     std::deque<Record> m_journal;

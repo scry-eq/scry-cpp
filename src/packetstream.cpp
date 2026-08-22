@@ -428,9 +428,20 @@ void EQPacketStream::dispatchPacket(const uint8_t* data, size_t len,
 				    uint16_t opCode,
 				    const EQPacketOPCode* opcodeEntry)
 {
+  const int64_t timestamp = m_timestampProvider ? m_timestampProvider() : 0;
+  dispatchPacketAt(data, len, opCode, opcodeEntry, timestamp, {}, 0);
+}
+
+void EQPacketStream::dispatchPacketAt(const uint8_t* data, size_t len,
+				      uint16_t opCode,
+				      const EQPacketOPCode* opcodeEntry,
+                                      int64_t captureTimeMs,
+                                      EQPacketFlowKey flowKey,
+                                      uintptr_t attributionToken)
+{
   if (m_applicationPacketHook) {
-    const int64_t timestamp = m_timestampProvider ? m_timestampProvider() : 0;
-    m_applicationPacketHook(m_streamid, m_dir, opCode, data, len, timestamp);
+    m_applicationPacketHook(m_streamid, m_dir, opCode, data, len,
+                            captureTimeMs, flowKey, attributionToken);
   }
 
   // Always fire the 5-arg signal so per-box observers
@@ -644,6 +655,12 @@ void EQPacketStream::handlePacket(EQUDPIPPacketFormat& packet)
 // we use net opcodes here.
 void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 {
+  auto dispatchApplication = [this, &packet](const uint8_t* data, size_t len,
+                                             uint16_t opcode,
+                                             const EQPacketOPCode* entry) {
+    dispatchPacketAt(data, len, opcode, entry, packet.captureTimeMs(),
+                     packet.flowKey(), packet.attributionToken());
+  };
 #if defined(PACKET_PROCESS_DIAG) && (PACKET_PROCESS_DIAG > 2)
   seqDebug("-->EQPacketStream::processPacket, subpacket=%s on stream %s (%d)",
     (isSubpacket ? "true" : "false"), EQStreamStr[m_streamid], m_streamid);
@@ -653,7 +670,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
   {
     // This is an app-opcode directly on the wire with no wrapping protocol
     // information. Weird, but whatever gets the stream read, right?
-	dispatchPacket(packet.payload(), packet.payloadLength(), 
+        dispatchApplication(packet.payload(), packet.payloadLength(),
       packet.getNetOpCode(), m_opcodeDB.find(packet.getNetOpCode()));
     return;
   }
@@ -704,7 +721,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 #endif
 
           // App opcode. Dispatch it, skipping opcode.
-          dispatchPacket(&subpacket[2], subpacketLength-2, 
+          dispatchApplication(&subpacket[2], subpacketLength-2,
             subOpCode, m_opcodeDB.find(subOpCode));
 
         }
@@ -717,6 +734,9 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 
           // Net opcode. false = copy. true = subpacket
           EQProtocolPacket spacket(subpacket, subpacketLength, false, true);
+          spacket.setCaptureTimeMs(packet.captureTimeMs());
+          spacket.setFlowKey(packet.flowKey());
+          spacket.setAttributionToken(packet.attributionToken());
 
           processPacket(spacket, true);
         }
@@ -728,7 +748,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 #endif
 
           // App opcode. Dispatch it, skipping opcode.
-          dispatchPacket(&subpacket[2], subpacketLength-2, 
+          dispatchApplication(&subpacket[2], subpacketLength-2,
             subOpCode, m_opcodeDB.find(subOpCode));
         }
         subpacket += subpacketLength;
@@ -777,7 +797,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 #endif
 
           // Dispatch, skipping op code.
-          dispatchPacket(&subpacket[2], subpacketLength-2, 
+          dispatchApplication(&subpacket[2], subpacketLength-2,
             subOpCode, m_opcodeDB.find(subOpCode));
 
           // Move ahead
@@ -812,7 +832,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 #endif
 
           // Dispatch, skipping op code.
-          dispatchPacket(&subpacket[2], longOne-2, 
+          dispatchApplication(&subpacket[2], longOne-2,
             subOpCode, m_opcodeDB.find(subOpCode));
 
           // Move ahead
@@ -856,7 +876,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 #endif
 
           // App opcode. Dispatch it, skipping opcode.
-          dispatchPacket(&packet.payload()[3], packet.payloadLength()-3, 
+          dispatchApplication(&packet.payload()[3], packet.payloadLength()-3,
             subOpCode, m_opcodeDB.find(subOpCode));
 
         }
@@ -865,13 +885,16 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
           // Net opcode. false = no copy. true = subpacket.
           EQProtocolPacket spacket(packet.payload(), 
             packet.payloadLength(), false, true);
+          spacket.setCaptureTimeMs(packet.captureTimeMs());
+          spacket.setFlowKey(packet.flowKey());
+          spacket.setAttributionToken(packet.attributionToken());
 
           processPacket(spacket, true);
         }
         else
         {
           // App opcode. Dispatch, skipping opcode.
-          dispatchPacket(&packet.payload()[2], packet.payloadLength()-2,
+          dispatchApplication(&packet.payload()[2], packet.payloadLength()-2,
             subOpCode, m_opcodeDB.find(subOpCode));
         }
       }
@@ -942,7 +965,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
             EQStreamStr[m_streamid], m_streamid, fragOpCode);
 #endif
 
-            dispatchPacket(&m_fragment.data()[3], m_fragment.size()-3,
+            dispatchApplication(&m_fragment.data()[3], m_fragment.size()-3,
               fragOpCode, m_opcodeDB.find(fragOpCode)); 
           }
           else if (IS_NET_OPCODE(fragOpCode))
@@ -951,11 +974,15 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
              seqDebug("EQPacket: IS_NET_OPCODE(%04x), size = %d",fragOpCode,m_fragment.size());
 #endif
              EQProtocolPacket spacket(m_fragment.data(), m_fragment.size(), false, true);
+             spacket.setCaptureTimeMs(packet.captureTimeMs());
+             spacket.setFlowKey(packet.flowKey());
+             spacket.setAttributionToken(packet.attributionToken());
              processPacket(spacket, true);
           }
           else
           {
-            dispatchPacket(&m_fragment.data()[2], m_fragment.size()-2, fragOpCode, m_opcodeDB.find(fragOpCode));
+            dispatchApplication(&m_fragment.data()[2], m_fragment.size()-2,
+                                fragOpCode, m_opcodeDB.find(fragOpCode));
           }
           m_fragment.reset();
         }

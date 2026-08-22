@@ -122,6 +122,8 @@ private slots:
     void payloadFieldsSurviveTranslation();
     void diagnosticsAndJournalAreOrdered();
     void sessionsAreIsolated();
+    void zoneTransitionFlushesOncePerBoundary();
+    void journalHonorsByteBudget();
 };
 
 void RustSessionTest::everyVariantTranslatesInOrder()
@@ -377,6 +379,54 @@ void RustSessionTest::sessionsAreIsolated()
     second.flush(FlushReason::Reset);
     QCOMPARE(first.recordCount(), uint64_t(1));
     QCOMPARE(second.recordCount(), uint64_t(1));
+}
+
+void RustSessionTest::zoneTransitionFlushesOncePerBoundary()
+{
+    ProtocolRegistry registry;
+    Session session(registry, backend());
+
+    QVERIFY(session.beginZoneTransition());
+    QCOMPARE(session.recordCount(), uint64_t(1));
+    QCOMPARE(session.journal().back().flushReason,
+             std::optional(FlushReason::ZoneTransition));
+
+    QVERIFY(!session.beginZoneTransition());
+    QCOMPARE(session.recordCount(), uint64_t(1));
+
+    session.completeZoneTransition();
+    QVERIFY(session.beginZoneTransition());
+    QCOMPARE(session.recordCount(), uint64_t(2));
+
+    session.flush(FlushReason::Reset);
+    QVERIFY(session.beginZoneTransition());
+    QCOMPARE(session.recordCount(), uint64_t(4));
+}
+
+void RustSessionTest::journalHonorsByteBudget()
+{
+    ProtocolRegistry registry;
+    const size_t byteLimit = sizeof(Record) + 8;
+    Session session(registry, backend(), 10, byteLimit);
+    const uint8_t payload[8] = {};
+
+    session.decode(Stream::Zone, 0, Direction::ServerToClient,
+                   payload, sizeof(payload), 1);
+    session.decode(Stream::Zone, 0, Direction::ServerToClient,
+                   payload, sizeof(payload), 2);
+    QCOMPARE(session.journal().size(), size_t(1));
+    QCOMPARE(session.droppedRecordCount(), uint64_t(1));
+    QVERIFY(session.journalBytes() <= byteLimit);
+
+    Session summary(registry, backend(), 10, sizeof(Record));
+    const uint8_t removed[4] = {1, 0, 0, 0};
+    const Record& record = summary.decode(
+        Stream::Zone, deleteSpawnOpcode(), Direction::ServerToClient,
+        removed, sizeof(removed), 3);
+    QVERIFY(record.detailsOmitted);
+    QVERIFY(record.batch.events.empty());
+    QCOMPARE(record.batch.disposition, Disposition::Decoded);
+    QVERIFY(summary.journalBytes() <= sizeof(Record));
 }
 
 QTEST_APPLESS_MAIN(RustSessionTest)
