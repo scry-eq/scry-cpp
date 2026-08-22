@@ -7,6 +7,9 @@
 
 #include <vector>
 
+#include <QDateTime>
+#include <QString>
+
 #include "seq/v1/events.pb.h"
 #include "mappackagehost.h"
 
@@ -113,5 +116,15 @@ void fillWornSet(seq::v1::WornSet* out, const ItemCache& cache);
 void fillExperienceTick(seq::v1::ExperienceTick* out,
                         const QString& mobName, int mobLevel,
                         uint32_t xpGained, const QString& zoneName);
+
+// Phase-4 lifecycle projection. These are the production constructors used by
+// SessionAdapter and by the shadow comparator. Keeping one implementation is
+// what makes the comparison exercise the public seq.v1 contract instead of a
+// second set of test-only expected messages.
+seq::v1::Envelope zoneChanged(const QString& shortName,
+                              const QString& longName,
+                              const MapData* map);
+seq::v1::Envelope eqTimeSync(const QDateTime& dateTime);
+seq::v1::Envelope zoneServer(const QString& host, quint16 port);
 
 } // namespace seq::encode

@@ -480,6 +480,21 @@ void ZoneMgr::zonePlayer(const uint8_t* data, size_t len)
     }
   }
 
+  if (m_rustLifecycleProbe && m_rustLifecycleProbe()) {
+    if (!m_rustProfileAcceptedProbe || m_rustProfileAcceptedProbe()) {
+      // The shared Phase-4 profile event intentionally omits Live's zone id.
+      // Once Rust has accepted the profile, retain this host-only projection
+      // input so map/filter/public zone behavior is not lost in Rust mode.
+      m_shortZoneName = zoneNameFromID(player->zoneId);
+      m_longZoneName = zoneLongNameFromID(player->zoneId);
+      m_zone_exp_multiplier = defaultZoneExperienceMultiplier;
+      m_zoning = false;
+      emit zoneBegin(m_shortZoneName);
+      emit playerProfileSupplement(player);
+    }
+    return;
+  }
+
   m_shortZoneName = zoneNameFromID(player->zoneId);
   m_longZoneName = zoneLongNameFromID(player->zoneId);
   m_zone_exp_multiplier = defaultZoneExperienceMultiplier;
@@ -526,6 +541,79 @@ void ZoneMgr::beginZoning()
     saveZoneState();
 }
 
+void ZoneMgr::applyLifecycleTransition(const QString&, bool hasZoneId,
+                                       uint32_t zoneId, bool,
+                                       uint32_t, bool confirmed)
+{
+  if (!confirmed || !hasZoneId) {
+    beginZoning();
+    return;
+  }
+  m_shortZoneName = zoneNameFromID(uint16_t(zoneId));
+  m_longZoneName = zoneLongNameFromID(uint16_t(zoneId));
+  m_zone_exp_multiplier = defaultZoneExperienceMultiplier;
+  m_zoning = true;
+  emit zoneChanged(m_shortZoneName);
+  if (showeq_params->saveZoneState)
+    saveZoneState();
+}
+
+void ZoneMgr::applyLifecycleZone(const QString& shortName,
+                                 const QString& longName)
+{
+  // NewZone arrives as ZoneChanged + ZoneEnvironmentChanged in one Rust
+  // batch. Stage the names here; the environment event publishes the visible
+  // signal only after safe point/zone-file/experience state is installed.
+#if defined(SEQ_TARGET_EQL)
+  m_shortZoneName = shortName;
+  m_longZoneName = longName;
+#else
+  adoptLiveZoneNames(shortName, longName);
+#endif
+  m_zoning = false;
+}
+
+void ZoneMgr::adoptLiveZoneNames(const QString& shortName,
+                                 const QString& longName)
+{
+  // Prefer the canonical zone-id name already learned from Profile/ZoneChange.
+  // Wire NewZone text can be localized and may carry instance/progression
+  // suffixes that have no map package.
+  if (m_shortZoneName.isEmpty() || m_shortZoneName.startsWith("unk")) {
+    m_shortZoneName = shortName;
+    m_shortZoneName.remove(QRegularExpression("_\\d+$"));
+    m_shortZoneName.remove(QRegularExpression("_progress$"));
+    m_shortZoneName.remove(QRegularExpression("_int$"));
+    m_shortZoneName.remove(QRegularExpression("_errand$"));
+  }
+  m_longZoneName = longName;
+}
+
+void ZoneMgr::applyLifecycleEnvironment(const QString& zoneFile,
+                                        float experienceMultiplier,
+                                        float safeXValue, float safeYValue,
+                                        float safeZValue)
+{
+  m_zoneFile = zoneFile;
+  m_zone_exp_multiplier = experienceMultiplier;
+  m_safeX = safeXValue;
+  m_safeY = safeYValue;
+  m_safeZ = safeZValue;
+  m_safePoint.setPoint(lrintf(safeXValue), lrintf(safeYValue),
+                       lrintf(safeZValue));
+#if defined(SEQ_TARGET_EQL)
+  // EQL resolves NewZone after its spawn bulk, so preserve that bulk and use
+  // the non-clearing map/filter/web path.
+  setZoneByName(m_shortZoneName, m_longZoneName);
+#else
+  // Live/Test historically publish zoneEnd only, after all environment state
+  // is installed. SessionAdapter/map consumers depend on this ordering.
+  emit zoneEnd(m_shortZoneName, m_longZoneName);
+  if (showeq_params->saveZoneState)
+    saveZoneState();
+#endif
+}
+
 void ZoneMgr::zoneNew(const uint8_t* data, size_t len, uint8_t dir)
 {
   auto out = seq::rust::decode_new_zone(
@@ -534,6 +622,10 @@ void ZoneMgr::zoneNew(const uint8_t* data, size_t len, uint8_t dir)
 
   m_safePoint.setPoint(lrintf(out.safe_x), lrintf(out.safe_y),
                        lrintf(out.safe_z));
+  m_safeX = out.safe_x;
+  m_safeY = out.safe_y;
+  m_safeZ = out.safe_z;
+  m_zoneFile = QString::fromLatin1(out.zonefile.data(), out.zonefile.size());
   m_zone_exp_multiplier = out.zone_exp_multiplier;
 
   // ZBNOTE: Apparently these come in with the localized names, which means we
@@ -542,33 +634,9 @@ void ZoneMgr::zoneNew(const uint8_t* data, size_t len, uint8_t dir)
   //         in as 'OGemeinl'.  OK, now that we have figured out the zone id
   //         issue, we'll only use this short zone name if there isn't one or
   //         it is an unknown zone.
-  if (m_shortZoneName.isEmpty() || m_shortZoneName.startsWith("unk"))
-  {
-    m_shortZoneName =
-        QString::fromLatin1(out.short_name.data(), out.short_name.size());
-
-    // LDoN likes to append a _262 to the zonename. Get rid of it.
-    QRegularExpression rx("_\\d+$");
-    m_shortZoneName.replace( rx, "");
-
-    // 2020-01-20 patch seems to have added _progress suffix to certain
-    // zone names, presumably for the progression servers. This happens in
-    // ToV DZs for sure, but there may be others.
-    QRegularExpression rz("_progress$");
-    m_shortZoneName.replace(rz, "");
-
-    // some zones are getting a suffix of _int (particularly guild halls)
-    // which causes failure to load maps.
-    QRegularExpression ry("_int$");
-    m_shortZoneName.replace(ry, "");
-
-    //anniversary missions
-    QRegularExpression rw("_errand$");
-    m_shortZoneName.replace(rw, "");
-  }
-
-  m_longZoneName =
-      QString::fromLatin1(out.long_name.data(), out.long_name.size());
+  adoptLiveZoneNames(
+      QString::fromLatin1(out.short_name.data(), out.short_name.size()),
+      QString::fromLatin1(out.long_name.data(), out.long_name.size()));
   m_zoning = false;
 
 #if 1 // ZBTEMP

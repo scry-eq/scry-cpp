@@ -38,6 +38,7 @@
 #include "packetcommon.h"
 #include "packetformat.h"
 #include "packetinfo.h"
+#include "rustsession.h"
 
 #if defined (__GLIBC__) && (__GLIBC__ < 2)
 #error "Need glibc 2.1.3 or better"
@@ -67,11 +68,6 @@ class EQUDPIPPacketFormat;
 class EQPacketTypeDB;
 class EQPacketOPCodeDB;
 class EQPacketOPCode;
-namespace seq::shadow {
-class ProtocolRegistry;
-class Session;
-enum class FlushReason;
-}
 
 //----------------------------------------------------------------------
 // EQPacket
@@ -95,6 +91,7 @@ class EQPacket : public QObject
 	    bool m_recordPackets,
 	    int m_playbackPackets,
 	    int8_t m_playbackSpeed, 
+	    seq::shadow::LifecycleSelector lifecycleSelector,
 	    QObject *parent,
             const char *name);
    ~EQPacket();           
@@ -141,12 +138,33 @@ class EQPacket : public QObject
    // an inherited Live sizeof; --strict-gate-sizes turns that into a fatal.
    int undeclaredGateSizeCount(void) const { return m_undeclaredGateSizes; }
 
-   // Phase-2 Rust shadow sessions. They consume every application packet but
-   // never apply their events to daemon state. Accessors exist for diagnostics
-   // and focused integration tests.
+   // Stateful Rust sessions consume every application packet. Their immutable
+   // lifecycle selector decides whether legacy handlers mutate, shadow output
+   // is compared, or typed Rust lifecycle events mutate host state.
    const seq::shadow::Session* shadowSession(const Box* box) const;
    void flushShadowSession(const Box* box, seq::shadow::FlushReason reason);
    void flushAllShadowSessions(seq::shadow::FlushReason reason);
+   using LifecycleEventHandler =
+       std::function<void(const Box*, const seq::shadow::Event&)>;
+   using LifecycleProjectionEnricher =
+       std::function<void(const Box*, bool,
+                          std::vector<seq::shadow::LifecycleObservation>&,
+                          std::vector<seq::v1::Envelope>&)>;
+   using LifecycleGlobalOwnershipPredicate =
+       std::function<bool(const Box*)>;
+   void setLifecycleEventHandler(LifecycleEventHandler handler)
+   { m_lifecycleEventHandler = std::move(handler); }
+   void setLifecycleProjectionEnricher(LifecycleProjectionEnricher enricher)
+   { m_lifecycleProjectionEnricher = std::move(enricher); }
+   void setLifecycleGlobalOwnershipPredicate(
+       LifecycleGlobalOwnershipPredicate predicate)
+   { m_lifecycleGlobalOwnershipPredicate = std::move(predicate); }
+   bool legacyLifecycleEnabledForCurrentPacket() const;
+   bool rustLifecycleAcceptedForCurrentPacket(
+       seq::shadow::LifecycleKind kind) const;
+   void observeLegacyLifecycle(seq::shadow::LifecycleObservation observation);
+   void observeLegacyLifecycleProjection(seq::v1::Envelope envelope);
+   void applyValidatedZoneServerInfo(Box* box, uint16_t port);
 
    void exportHandoffState(const QString& configDir) const;
    bool importHandoffState(const QString& configDir);
@@ -262,6 +280,7 @@ class EQPacket : public QObject
    bool m_recordPackets;
    int m_playbackPackets;
    int8_t m_playbackSpeed; // Should be signed since -1 is pause
+   const seq::shadow::LifecycleSelector m_lifecycleSelector;
 
    EQPacketStream* m_client2WorldStream;
    EQPacketStream* m_world2ClientStream;
@@ -274,8 +293,8 @@ class EQPacket : public QObject
    EQPacketOPCodeDB* m_zoneOPCodeDB;
 
    // One immutable protocol registry for the process, then one stateful Rust
-   // session per Box. The adapter only journals shadow output. Legacy handlers
-   // remain the sole state mutation path.
+   // session per Box. Each Session owns its lifecycle selector for its entire
+   // lifetime. Changing ownership requires a new session.
    std::unique_ptr<seq::shadow::ProtocolRegistry> m_shadowRegistry;
    std::unordered_map<const Box*, std::unique_ptr<seq::shadow::Session>>
        m_shadowSessions;
@@ -288,6 +307,22 @@ class EQPacket : public QObject
    std::map<EQPacketFlowKey, TemporaryShadowSession> m_temporaryShadowSessions;
    quint64 m_temporaryShadowClock = 0;
    static constexpr size_t kMaxTemporaryShadowSessions = 16;
+   struct PendingLifecycleComparison {
+       seq::shadow::Session* session = nullptr;
+       const Box* box = nullptr;
+       std::vector<seq::shadow::LifecycleObservation> rustEvents;
+       std::vector<seq::v1::Envelope> rustProjections;
+       std::vector<seq::shadow::LifecycleObservation> legacyEvents;
+       std::vector<seq::v1::Envelope> legacyProjections;
+       bool expectsHostZoneProjection = false;
+   };
+   std::optional<PendingLifecycleComparison> m_pendingLifecycle;
+   seq::shadow::Session* m_currentLifecycleSession = nullptr;
+   std::vector<seq::shadow::LifecycleKind> m_currentRustLifecycleKinds;
+   LifecycleEventHandler m_lifecycleEventHandler;
+   LifecycleProjectionEnricher m_lifecycleProjectionEnricher;
+   LifecycleGlobalOwnershipPredicate m_lifecycleGlobalOwnershipPredicate;
+   bool m_lifecycleFatal = false;
 
    // Stage 1 of multibox-sessions: observe every world-port-talking
    // client_ip on the wire. Read-only sibling of the legacy
@@ -328,11 +363,12 @@ class EQPacket : public QObject
    // EQ Legends UCS: forward a raw port-9877 chat payload to MessageShell.
    void decodeUCSPacket(EQUDPIPPacketFormat& packet);
    void installShadowHook(EQPacketStream* stream);
-   void decodeShadowApplication(EQStreamID stream, uint8_t direction,
+   bool decodeShadowApplication(EQStreamID stream, uint8_t direction,
                                 uint16_t opcode, const uint8_t* payload,
                                 size_t payloadSize, int64_t timestamp,
                                 EQPacketFlowKey flowKey,
                                 uintptr_t attributionToken);
+   void completeShadowApplication(bool legacyDispatched);
    seq::shadow::Session* temporaryShadowSession(EQPacketFlowKey flowKey);
    void evictOldestTemporaryShadowSession();
  protected slots:

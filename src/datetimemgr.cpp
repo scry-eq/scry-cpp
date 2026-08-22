@@ -57,9 +57,20 @@ void DateTimeMgr::timeOfDay(const uint8_t* data)
 {
   const timeOfDayStruct* tday = (const timeOfDayStruct*)data;
 
+  applyTimeOfDay(tday->year, tday->month, tday->day, tday->hour,
+                 tday->minute);
+}
+
+void DateTimeMgr::applyTimeOfDay(uint32_t year, uint32_t month, uint32_t day,
+                                 uint32_t wireHour, uint32_t minute)
+{
+  if (wireHour < 1 || wireHour > 24 || minute > 59) return;
+
   m_refDateTime = QDateTime::currentDateTime().toTimeSpec(Qt::UTC);
-  m_eqDateTime.setDate(QDate(tday->year, tday->month, tday->day));
-  m_eqDateTime.setTime(QTime(tday->hour - 1, tday->minute, 0));
+  m_eqDateTime.setDate(QDate(int(year), int(month), int(day)));
+  // seq-events preserves the EQ wire's 1..24 hour. seq.v1 has always been
+  // 0..23, so both legacy and Rust-owned paths normalize exactly once here.
+  m_eqDateTime.setTime(QTime(int(wireHour - 1), int(minute), 0));
   if (!m_timer)
   {
     m_timer = new QTimer(this);
@@ -67,6 +78,7 @@ void DateTimeMgr::timeOfDay(const uint8_t* data)
     m_timer->start(m_updateFrequency);
   }
 
+  emit decodedTimeOfDay(year, month, day, wireHour, minute);
   emit syncDateTime(m_eqDateTime);
 }
 

@@ -440,8 +440,12 @@ void EQPacketStream::dispatchPacketAt(const uint8_t* data, size_t len,
                                       uintptr_t attributionToken)
 {
   if (m_applicationPacketHook) {
-    m_applicationPacketHook(m_streamid, m_dir, opCode, data, len,
-                            captureTimeMs, flowKey, attributionToken);
+    if (!m_applicationPacketHook(m_streamid, m_dir, opCode, data, len,
+                                 captureTimeMs, flowKey, attributionToken)) {
+      if (m_applicationPacketCompleteHook)
+        m_applicationPacketCompleteHook(false);
+      return;
+    }
   }
 
   // Always fire the 5-arg signal so per-box observers
@@ -453,7 +457,11 @@ void EQPacketStream::dispatchPacketAt(const uint8_t* data, size_t len,
   // on()-wired EQPacketDispatch activations and the 6-arg
   // signal so the singleton state managers receive at most one
   // box's stream of decoded events at a time.
-  if (m_muted) return;
+  if (m_muted) {
+    if (m_applicationPacketCompleteHook)
+      m_applicationPacketCompleteHook(false);
+    return;
+  }
 
   bool unknown = true;
 
@@ -547,6 +555,8 @@ void EQPacketStream::dispatchPacketAt(const uint8_t* data, size_t len,
 #endif
 
   emit decodedPacket(data, len, m_dir, opCode, opcodeEntry, unknown);
+  if (m_applicationPacketCompleteHook)
+    m_applicationPacketCompleteHook(true);
 }
 
 ////////////////////////////////////////////////////

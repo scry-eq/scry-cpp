@@ -77,13 +77,22 @@ QString invocationName(uint32_t id)
 }
 
 EqlDispatch::EqlDispatch(ZoneMgr* zoneMgr, SpawnShell* spawnShell, Player* player,
-                         DbStrings* dbStrings, GuildShell* guildShell, GuildMgr* guildMgr)
+                         DbStrings* dbStrings, GuildShell* guildShell,
+                         GuildMgr* guildMgr,
+                         std::function<bool()> rustLifecycleOwned,
+                         std::function<bool(seq::shadow::LifecycleKind)>
+                             rustLifecycleAccepted,
+                         std::function<void(const seq::shadow::LifecycleProfile&)>
+                             profileObserved)
     : m_zoneMgr(zoneMgr)
     , m_spawnShell(spawnShell)
     , m_player(player)
     , m_dbStrings(dbStrings)
     , m_guildShell(guildShell)
     , m_guildMgr(guildMgr)
+    , m_rustLifecycleOwned(std::move(rustLifecycleOwned))
+    , m_rustLifecycleAccepted(std::move(rustLifecycleAccepted))
+    , m_profileObserved(std::move(profileObserved))
     , m_selfTracker(seq::rust::eql_self_tracker_new())
 {
 }
@@ -208,6 +217,34 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
         rust::Slice<const uint8_t>{data, len});
     if (!out.ok)
         return;
+
+    if (m_profileObserved) {
+        seq::shadow::LifecycleProfile observed;
+        observed.name = std::string(out.name);
+        observed.lastName = std::string(out.last_name);
+        observed.classId = out.class_;
+        observed.level = out.level;
+        observed.race = out.race;
+        observed.deity = out.deity;
+        observed.classMask = out.class_mask;
+        m_profileObserved(observed);
+    }
+
+    if (m_rustLifecycleOwned && m_rustLifecycleOwned()) {
+        if (!m_rustLifecycleAccepted ||
+            !m_rustLifecycleAccepted(
+                seq::shadow::LifecycleKind::PlayerProfile))
+            return;
+        // Correlation and stance/invocation are outside the shared Phase-4
+        // Profile state. Rust already applied reset + represented profile
+        // fields before this compatibility tail runs.
+        m_selfTracker->reset();
+        if (QString sn = stanceName(out.stance); !sn.isEmpty())
+            m_player->setStance(sn);
+        if (QString invName = invocationName(out.invocation); !invName.isEmpty())
+            m_player->setInvocation(invName);
+        return;
+    }
 
     // The per-zone spawn reset. eql sends this once per zone-in and BEFORE the
     // OP_ZoneEntry burst, which is what makes it the usable trigger: OP_NewZone
@@ -374,6 +411,9 @@ void EqlDispatch::playerUpdateSelf(const uint8_t* data, size_t len, uint8_t dir)
         rust::Slice<const uint8_t>{data, len});
     if (!out.ok)
         return;
+    if (m_awaitingRespawnFromId != 0 &&
+        out.spawn_id == m_awaitingRespawnFromId)
+        return;
     // Mid-session attach (sniffer started, or restarted, while already in a
     // zone) never witnesses OP_PlayerProfile or the OP_ZoneEntry burst, so the
     // name match above can never fire and the player stays invisible until they
@@ -388,6 +428,7 @@ void EqlDispatch::playerUpdateSelf(const uint8_t* data, size_t len, uint8_t dir)
 
     if (m_player->id() == 0)
         return;   // still unresolved (no id on the wire this patch)
+    m_lastKnownSelfId = uint32_t(m_player->id());
 
     // Position and heading are authoritative on every packet. The velocities are
     // NOT located for this patch and the parser surfaces 0 for them rather than
@@ -460,6 +501,17 @@ void EqlDispatch::enterWorld(const uint8_t*, size_t, uint8_t dir)
     // (whose OP_EnterWorld precedes any zone) does not reset.
     if (dir != DIR_Client)
         return;
+    if (m_rustLifecycleOwned && m_rustLifecycleOwned()) {
+        if (!m_rustLifecycleAccepted ||
+            !m_rustLifecycleAccepted(seq::shadow::LifecycleKind::EnterWorld))
+            return;
+        // Visible host reset is owned by SessionReset(EnterWorld); retain only
+        // the backend correlation reset needed by later EQL packet families.
+        m_selfTracker->reset();
+        m_awaitingRespawnFromId = m_lastKnownSelfId;
+        m_lastKnownSelfId = 0;
+        return;
+    }
     if (!m_sessionEstablished || !m_player)
         return;
     seqInfo("EQL: session re-entry (OP_EnterWorld) — resetting box, self-id %d -> 0",
@@ -540,6 +592,8 @@ bool EqlDispatch::consumeSelfSpawn(const QString& name, uint16_t id)
         // provisionally from the C>S self-report while we had nothing better.
         m_selfTracker->take_retired_provisional();
         m_player->setPlayerID(id);
+        m_lastKnownSelfId = id;
+        m_awaitingRespawnFromId = 0;
     }
 
     // eql keys the self's stats to the twin id, and the stat packet carrying the

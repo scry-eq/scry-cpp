@@ -70,20 +70,34 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
                 zoneS2C->on(op, payload, szt, handler);
         }
     };
+    auto lifecycle = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet || m_packet->legacyLifecycleEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
 
     // --- ZoneMgr: zone transitions + player profile.
     wire("OP_ZoneEntry", SP_Zone, DIR_Client,
          "ClientZoneEntryStruct", SZC_Match,
          seqBind(ms.zoneMgr, &ZoneMgr::zoneEntryClient));
+    ms.zoneMgr->setRustLifecycleProbe([this] {
+        return m_packet && !m_packet->legacyLifecycleEnabledForCurrentPacket();
+    });
+    ms.zoneMgr->setRustProfileAcceptedProbe([this] {
+        return m_packet && m_packet->rustLifecycleAcceptedForCurrentPacket(
+            seq::shadow::LifecycleKind::PlayerProfile);
+    });
     wire("OP_PlayerProfile", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
          seqBind(ms.zoneMgr, &ZoneMgr::zonePlayer));
     wire("OP_ZoneChange", SP_Zone, DIR_Client | DIR_Server,
          "zoneChangeStruct", SZC_Match,
-         seqBind(ms.zoneMgr, &ZoneMgr::zoneChange));
+         lifecycle(seqBind(ms.zoneMgr, &ZoneMgr::zoneChange)));
     wire("OP_NewZone", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.zoneMgr, &ZoneMgr::zoneNew));
+         lifecycle(seqBind(ms.zoneMgr, &ZoneMgr::zoneNew)));
     wire("OP_SendZonePoints", SP_Zone, DIR_Server,
          "zonePointsStruct", SZC_None,
          seqBind(ms.zoneMgr, &ZoneMgr::zonePoints));
@@ -137,6 +151,8 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // dispatch.
     connect(ms.zoneMgr, SIGNAL(playerProfile(const charProfileStruct*)),
             ms.player,  SLOT(player(const charProfileStruct*)));
+    connect(ms.zoneMgr, SIGNAL(playerProfileSupplement(const charProfileStruct*)),
+            ms.player,  SLOT(applyProfileSupplement(const charProfileStruct*)));
 
     // OP_ClientUpdate DIR_Client = this player's movement (playerSelfPos);
     // the DIR_Server playerSpawnPos variant goes to SpawnShell below.
@@ -154,10 +170,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
              seqBind(m_itemCache, &ItemCache::onItemPacket));
         wire("OP_TimeOfDay", SP_Zone, DIR_Server,
              "timeOfDayStruct", SZC_Match,
-             seqBind(m_dateTimeMgr, &DateTimeMgr::timeOfDay));
+             lifecycle(seqBind(m_dateTimeMgr, &DateTimeMgr::timeOfDay)));
         wire("OP_ZoneServerInfo", SP_World, DIR_Server,
              "zoneServerInfoStruct", SZC_Match,
-             seqBind(m_zoneServerMgr, &ZoneServerMgr::zoneServerInfo));
+             lifecycle(seqBind(m_zoneServerMgr, &ZoneServerMgr::zoneServerInfo)));
     }
 
     // --- SpawnShell: spawn lifecycle + positions.

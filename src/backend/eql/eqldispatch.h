@@ -24,10 +24,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 
 // For rust::Box<EqlSelfTracker> — the one piece of decoder state the dispatch
 // owns rather than re-deriving per packet.
 #include "seq-bridge-cxx/lib.h"
+#include "rustsession.h"
 
 class QString;
 class ZoneMgr;
@@ -41,7 +43,12 @@ class EqlDispatch
 {
 public:
     EqlDispatch(ZoneMgr* zoneMgr, SpawnShell* spawnShell, Player* player,
-                DbStrings* dbStrings, GuildShell* guildShell, GuildMgr* guildMgr);
+                DbStrings* dbStrings, GuildShell* guildShell, GuildMgr* guildMgr,
+                std::function<bool()> rustLifecycleOwned,
+                std::function<bool(seq::shadow::LifecycleKind)>
+                    rustLifecycleAccepted,
+                std::function<void(const seq::shadow::LifecycleProfile&)>
+                    profileObserved);
 
     // OP_GuildsInZoneList / OP_NewGuildInZone S>C: the guilds present in the zone
     // — the sole source of guild names. Decoded in seq-backend-eql (eql owns its
@@ -130,10 +137,17 @@ private:
     DbStrings*  m_dbStrings;   // AA titleSID -> name (dbstr type-1); may be empty
     GuildShell* m_guildShell;
     GuildMgr*   m_guildMgr;    // daemon-global guild id->name map
+    std::function<bool()> m_rustLifecycleOwned;
+    std::function<bool(seq::shadow::LifecycleKind)> m_rustLifecycleAccepted;
+    std::function<void(const seq::shadow::LifecycleProfile&)>
+        m_profileObserved;
     // While awaiting the in-zone respawn after the local player's own death,
     // holds the dead self-spawn id (0 = not awaiting). Guards playerUpdateSelf
     // from re-adopting the dead id onto a trailing corpse-side update.
     uint32_t    m_awaitingRespawnFromId = 0;
+    // Retained across a Rust-owned reset, whose typed reducer runs before this
+    // adapter's reconnect compatibility tail.
+    uint32_t    m_lastKnownSelfId = 0;
     // True once the first OP_NewZone has resolved, i.e. a session is established.
     // Gates enterWorld(): the initial login's OP_EnterWorld precedes any zone, so
     // it must not reset; every LATER OP_EnterWorld is a genuine re-entry.

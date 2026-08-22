@@ -121,15 +121,43 @@ session keeps at most 256 ordered packet and flush records under a 4 MiB source
 byte budget, with monotonic record and dropped-record counts for diagnostics.
 Oversized individual records retain only their disposition and metadata.
 
-Legacy opcode handlers remain the only path that changes host state. Rust
-events, self-stat correlation, and loot rows stay in the shadow journal. The
-host flushes sessions on shutdown, box eviction, and replay completion. Rust
-owns lifecycle resets, so host `ZoneMgr` signals never flush the Rust session.
-The C++ adapter exposes an immutable legacy, shadow, or Rust lifecycle selector
-for each session. The daemon still constructs shadow sessions while the host
-event applier is incomplete. Shadow comparison preserves lifecycle order and
-checks the directly representable `seq.v1` zone, time, and zone-server
-envelopes. Composite profile snapshots still require the host reducer.
+`--lifecycle-decoder legacy|shadow|rust` supplies the immutable selector copied
+into each new session. The default is `shadow`. Legacy mode runs the existing
+lifecycle handlers. Shadow mode runs them and records their real manager
+signals after dispatch, then compares their ordered lifecycle events and the
+same `seq.v1` envelope constructors used by `SessionAdapter`. Rust mode applies
+the typed lifecycle variant to `ZoneMgr`, `Player`, `DateTimeMgr`, and
+`ZoneServerMgr`; wrappers suppress only the matching legacy lifecycle writes.
+Compatibility fields not yet present in the shared profile event (Live
+position, guild, languages, spellbook and buffs; EQL stance/invocation and
+self-correlation) run only after Rust accepted that profile. The accepted-event
+gate prevents malformed Rust-owned packets from reaching those tails or the raw
+`NamePromoter`/`ZoneServerObserver`. A Rust-owned decode, registry,
+session-creation, flush, or host-apply failure stops the daemon and aborts the
+current packet before observers and handlers run. It does not switch a live
+session back to legacy ownership.
+
+Zone projection runs after `loadZoneMap`, so shadow comparison includes
+production map geometry. Rust installs Live/Test NewZone environment before the
+legacy-compatible `zoneEnd` signal and uses EQL's non-clearing `zoneResolved`
+path, preserving each backend's public signal and follow-up Snapshot behavior.
+`seq-events` preserves
+the EQ wire hour as 1 through 24. The public `seq.v1.EqTimeSync` contract is 0
+through 23, so `DateTimeMgr::applyTimeOfDay` performs that conversion once for
+both paths before projection.
+
+The host flushes sessions on shutdown, box eviction, and replay completion.
+Rust owns correlation resets, so host `ZoneMgr` signals never flush the Rust
+session. Self-stat and loot outputs remain shadow-only until their family
+phases. The legacy lifecycle implementation stays available for rollback until
+capture-derived Live, Test, and EQL zone-transition, reconnect, malformed, and
+profile traces complete the soak period. Rust-owned mode currently requires an
+attributed Box before its first lifecycle event; a mid-zone unattributed start
+fails closed instead of applying state to the wrong session. Composite profile
+fields absent from the current shared event remain isolated in a legacy
+compatibility tail; removing that tail is capture-gated work for their later
+event-family phases. No repository capture fixtures were available for the
+Live/Test/EQL soak in this implementation worktree.
 
 To add or change an opcode: edit the parser in `scry-decoder-rs` (see its
 own `CLAUDE.md`/`docs/architecture.md`), expose it via `seq-bridge`, then

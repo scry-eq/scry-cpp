@@ -20,6 +20,7 @@ public:
     bool       hasInfo() const { return m_hasInfo; }
     QString    host()    const { return m_host; }
     quint16    port()    const { return m_port; }
+    void applyZoneServerInfo(const QString& host, quint16 port);
 
 public slots:
     void zoneServerInfo(const uint8_t* data);

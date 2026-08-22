@@ -68,6 +68,8 @@ private slots:
     void unknownOpcodeDoesNotBind();
     void applicationHookRunsBeforeLegacyHandler();
     void applicationHookRunsWhileMuted();
+    void completionHookRunsAfterLegacyOrMutedDispatch();
+    void rejectedApplicationStopsObserversAndLegacy();
     void cachedApplicationKeepsOriginalMetadata();
 
 private:
@@ -173,14 +175,15 @@ void PacketStreamDispatchTest::applicationHookRunsBeforeLegacyHandler()
     stream.setApplicationPacketHook(
         [&order](EQStreamID streamId, uint8_t direction, uint16_t opcode,
                  const uint8_t*, size_t length, int64_t timestamp,
-                 EQPacketFlowKey, uintptr_t) {
-            QCOMPARE(order, 0);
-            QCOMPARE(streamId, zone2client);
-            QCOMPARE(direction, uint8_t(DIR_Server));
-            QCOMPARE(opcode, uint16_t(1));
-            QCOMPARE(length, size_t(0));
-            QCOMPARE(timestamp, int64_t(1234));
+                 EQPacketFlowKey, uintptr_t) -> bool {
+            Q_ASSERT(order == 0);
+            Q_ASSERT(streamId == zone2client);
+            Q_ASSERT(direction == uint8_t(DIR_Server));
+            Q_ASSERT(opcode == uint16_t(1));
+            Q_ASSERT(length == size_t(0));
+            Q_ASSERT(timestamp == int64_t(1234));
             order = 1;
+            return true;
         },
         [] { return int64_t(1234); });
 
@@ -200,13 +203,78 @@ void PacketStreamDispatchTest::applicationHookRunsWhileMuted()
                       }));
     stream.setApplicationPacketHook(
         [&hookCalls](EQStreamID, uint8_t, uint16_t, const uint8_t*, size_t,
-                     int64_t, EQPacketFlowKey, uintptr_t) { ++hookCalls; },
+                     int64_t, EQPacketFlowKey, uintptr_t) -> bool {
+            ++hookCalls;
+            return true;
+        },
         [] { return int64_t(0); });
     stream.setMuted(true);
 
     stream.dispatchPacket(nullptr, 0, 1, m_opcodeDB.find(uint16_t(1)));
     QCOMPARE(hookCalls, 1);
     QCOMPARE(handlerCalls, 0);
+}
+
+void PacketStreamDispatchTest::completionHookRunsAfterLegacyOrMutedDispatch()
+{
+    TestStream stream(zone2client, DIR_Server, 32, m_opcodeDB);
+    QStringList order;
+    QVERIFY(stream.on(QStringLiteral("OP_Multi"), "uint8_t", SZC_None,
+                      [&order](const uint8_t*, size_t, uint8_t) {
+                          order.push_back(QStringLiteral("legacy"));
+                      }));
+    stream.setApplicationPacketHook(
+        [&order](EQStreamID, uint8_t, uint16_t, const uint8_t*, size_t,
+                 int64_t, EQPacketFlowKey, uintptr_t) -> bool {
+            order.push_back(QStringLiteral("rust"));
+            return true;
+        },
+        [] { return int64_t(0); },
+        [&order](bool dispatched) {
+            order.push_back(dispatched ? QStringLiteral("complete")
+                                       : QStringLiteral("muted-complete"));
+        });
+    stream.dispatchPacket(nullptr, 0, 1, m_opcodeDB.find(uint16_t(1)));
+    QCOMPARE(order, QStringList({QStringLiteral("rust"),
+                                 QStringLiteral("legacy"),
+                                 QStringLiteral("complete")}));
+
+    order.clear();
+    stream.setMuted(true);
+    stream.dispatchPacket(nullptr, 0, 1, m_opcodeDB.find(uint16_t(1)));
+    QCOMPARE(order, QStringList({QStringLiteral("rust"),
+                                 QStringLiteral("muted-complete")}));
+}
+
+void PacketStreamDispatchTest::rejectedApplicationStopsObserversAndLegacy()
+{
+    TestStream stream(zone2client, DIR_Server, 32, m_opcodeDB);
+    int handlerCalls = 0;
+    int observerCalls = 0;
+    bool completedAsDispatched = true;
+    QVERIFY(stream.on(QStringLiteral("OP_Multi"), "uint8_t", SZC_None,
+                      [&handlerCalls](const uint8_t*, size_t, uint8_t) {
+                          ++handlerCalls;
+                      }));
+    connect(&stream,
+            qOverload<const uint8_t*, size_t, uint8_t, uint16_t,
+                      const EQPacketOPCode*>(&EQPacketStream::decodedPacket),
+            this, [&observerCalls](const uint8_t*, size_t, uint8_t, uint16_t,
+                                   const EQPacketOPCode*) {
+                ++observerCalls;
+            });
+    stream.setApplicationPacketHook(
+        [](EQStreamID, uint8_t, uint16_t, const uint8_t*, size_t, int64_t,
+           EQPacketFlowKey, uintptr_t) { return false; },
+        [] { return int64_t(0); },
+        [&completedAsDispatched](bool dispatched) {
+            completedAsDispatched = dispatched;
+        });
+
+    stream.dispatchPacket(nullptr, 0, 1, m_opcodeDB.find(uint16_t(1)));
+    QCOMPARE(observerCalls, 0);
+    QCOMPARE(handlerCalls, 0);
+    QVERIFY(!completedAsDispatched);
 }
 
 void PacketStreamDispatchTest::cachedApplicationKeepsOriginalMetadata()
@@ -232,12 +300,13 @@ void PacketStreamDispatchTest::cachedApplicationKeepsOriginalMetadata()
     stream.setApplicationPacketHook(
         [&calls, flow](EQStreamID, uint8_t, uint16_t opcode,
                        const uint8_t*, size_t, int64_t timestamp,
-                       EQPacketFlowKey actualFlow, uintptr_t token) {
+                       EQPacketFlowKey actualFlow, uintptr_t token) -> bool {
             ++calls;
-            QCOMPARE(opcode, uint16_t(1));
-            QCOMPARE(timestamp, int64_t(12345));
-            QVERIFY(actualFlow == flow);
-            QCOMPARE(token, uintptr_t(77));
+            Q_ASSERT(opcode == uint16_t(1));
+            Q_ASSERT(timestamp == int64_t(12345));
+            Q_ASSERT(actualFlow == flow);
+            Q_ASSERT(token == uintptr_t(77));
+            return true;
         },
         [] { return int64_t(99999); });
 

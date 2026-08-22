@@ -413,6 +413,63 @@ void Player::player(const charProfileStruct* player)
   emit changeItem(this, tSpawnChangedALL);
 }
 
+void Player::applyProfileSupplement(const charProfileStruct* player)
+{
+  if (!player) return;
+
+  // These fields are not represented by the Phase-4 Profile event. Keep them
+  // available to later legacy families while Rust exclusively owns the reset,
+  // identity, stats, skills, AA and money fields represented by that event.
+  setGender(player->profile.gender);
+  // Live's shared profile event does not yet carry skills, AA-unspent, or the
+  // derived maximum mana. Preserve those accepted host-only values until their
+  // later families migrate.
+  for (int i = 0; i < MAX_KNOWN_SKILLS; ++i)
+    m_playerSkills[i] = player->profile.skills[i];
+  m_currentAAUnspent = player->profile.aa_unspent;
+  m_maxMana = calcMaxMana(m_maxINT, m_maxWIS, m_class, m_level) + m_plusMana;
+  memcpy(&m_spellBookSlots[0], &player->profile.sSpellBook[0],
+         sizeof(m_spellBookSlots));
+  for (int i = 0; i < MAX_BUFFS; ++i) {
+    const spellBuff& buff = player->profile.buffs[i];
+    if (buff.spellid > 0 && buff.spellid != int32_t(0xffffffff) &&
+        buff.duration > 0)
+      emit buffLoad(&buff);
+  }
+
+  setGuildID(player->guildID);
+  setGuildServerID(player->guildServerID);
+  setGuildTag(m_guildMgr->guildIdToName(guildID(), guildServerID()));
+  emit guildChanged();
+
+  setPos((int16_t)lrintf(player->x), (int16_t)lrintf(player->y),
+         (int16_t)lrintf(player->z), showeq_params->walkpathrecord,
+         showeq_params->walkpathlength);
+  setDeltas(0, 0, 0);
+  setHeading((int8_t)lrintf(player->heading), 0);
+  m_headingDegrees = 360 - ((((int8_t)lrintf(player->heading)) * 360) >> 11);
+  m_validPos = true;
+  emit headingChanged(m_headingDegrees);
+  emit posChanged(x(), y(), z(), deltaX(), deltaY(), deltaZ(),
+                  m_headingDegrees);
+
+  for (int i = 0; i < MAX_KNOWN_LANGS; ++i) {
+    m_playerLanguages[i] = player->languages[i];
+    emit addLanguage(i, m_playerLanguages[i]);
+  }
+  m_currentExp = player->exp;
+  m_currentAltExp = player->expAA;
+  m_validExp = true;
+  emit expChangedInt(m_currentExp, m_minExp, m_maxExp);
+  emit expAltChangedInt(m_currentAltExp, 0, 100000);
+  emit setAltExp(m_currentAltExp, 100000, 1000, m_currentAApts);
+  emit changeSkill(MAX_KNOWN_SKILLS - 1,
+                   m_playerSkills[MAX_KNOWN_SKILLS - 1]);
+
+  if (showeq_params->savePlayerState) savePlayerState();
+  emit changeItem(this, tSpawnChangedALL);
+}
+
 #if 0 // ZBTEMP
 void Player::wearItem(const playerItemStruct* itemp)
 {
@@ -1096,6 +1153,19 @@ void Player::setIdentity(uint16_t race, uint8_t classVal, uint8_t level)
   emit levelChanged(m_level);
   updateLastChanged();
   emit changeItem(this, tSpawnChangedALL);
+}
+
+void Player::applyLifecycleIdentity(const QString& name,
+                                    const QString& lastName,
+                                    uint16_t race, uint8_t classVal,
+                                    uint8_t level, uint16_t deity,
+                                    uint32_t classMask)
+{
+  if (!name.isEmpty()) setPlayerName(name);
+  setLastName(lastName);
+  setDeity(deity);
+  setIdentity(race, classVal, level);
+  setClassMask(classMask);
 }
 
 void Player::setPlayerName(const QString& name)

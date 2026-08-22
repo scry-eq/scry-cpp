@@ -18,6 +18,41 @@
 
 namespace seq::encode {
 
+seq::v1::Envelope zoneChanged(const QString& shortName,
+                              const QString& longName,
+                              const MapData* map)
+{
+    seq::v1::Envelope envelope;
+    auto* zone = envelope.mutable_zone_changed();
+    zone->set_zone_short(shortName.toStdString());
+    zone->set_zone_long(longName.toStdString());
+    if (map && map->numLayers() > 0)
+        fillMapGeometry(zone->mutable_geometry(), *map);
+    return envelope;
+}
+
+seq::v1::Envelope eqTimeSync(const QDateTime& dateTime)
+{
+    seq::v1::Envelope envelope;
+    if (!dateTime.isValid()) return envelope;
+    auto* time = envelope.mutable_eq_time_sync();
+    time->set_year(dateTime.date().year());
+    time->set_month(dateTime.date().month());
+    time->set_day(dateTime.date().day());
+    time->set_hour(dateTime.time().hour());
+    time->set_minute(dateTime.time().minute());
+    return envelope;
+}
+
+seq::v1::Envelope zoneServer(const QString& host, quint16 port)
+{
+    seq::v1::Envelope envelope;
+    auto* server = envelope.mutable_zone_server();
+    server->set_host(host.toStdString());
+    server->set_port(port);
+    return envelope;
+}
+
 static seq::v1::SpawnType typeFromItem(const Item& it)
 {
     switch (it.type()) {

@@ -1,4 +1,5 @@
 #include "rustsession.h"
+#include "protoencoder.h"
 
 #include <algorithm>
 #include <cstring>
@@ -98,16 +99,19 @@ void appendProfile(std::vector<uint8_t>& out, const rust::EventProfileInfo& p)
     appendString(out, p.name); appendString(out, p.last_name);
     appendScalar(out, p.class_); appendScalar(out, p.level);
     appendScalar(out, p.race); appendScalar(out, p.deity);
-    appendScalar(out, p.cur_hp); appendScalar(out, p.mana);
-    appendVector(out, p.aa_ids); appendVector(out, p.aa_values);
-    appendScalar(out, p.aa_spent); appendVector(out, p.skills);
     appendScalar(out, p.class_mask);
-    appendScalar(out, p.str_); appendScalar(out, p.sta);
-    appendScalar(out, p.cha); appendScalar(out, p.dex);
-    appendScalar(out, p.int_); appendScalar(out, p.agi);
-    appendScalar(out, p.wis); appendScalar(out, p.platinum);
-    appendScalar(out, p.gold); appendScalar(out, p.silver);
-    appendScalar(out, p.copper);
+}
+
+void appendProfile(std::vector<uint8_t>& out, const LifecycleProfile& p)
+{
+    auto appendStdString = [&](const std::string& value) {
+        appendScalar(out, uint64_t(value.size()));
+        out.insert(out.end(), value.begin(), value.end());
+    };
+    appendStdString(p.name); appendStdString(p.lastName);
+    appendScalar(out, p.classId); appendScalar(out, p.level);
+    appendScalar(out, p.race); appendScalar(out, p.deity);
+    appendScalar(out, p.classMask);
 }
 
 bool sameEnvelope(const seq::v1::Envelope& lhs,
@@ -117,6 +121,87 @@ bool sameEnvelope(const seq::v1::Envelope& lhs,
 }
 
 } // namespace
+
+LifecycleObservation observeSessionReset(rust::EventSessionResetReason reason)
+{
+    LifecycleObservation out{LifecycleKind::SessionReset, {}};
+    appendScalar(out.payload, reason);
+    return out;
+}
+
+LifecycleObservation observeEnterWorld(const std::string& characterName)
+{
+    LifecycleObservation out{LifecycleKind::EnterWorld, {}};
+    appendScalar(out.payload, uint64_t(characterName.size()));
+    out.payload.insert(out.payload.end(), characterName.begin(), characterName.end());
+    return out;
+}
+
+LifecycleObservation observeZoneServer(const std::string& host, uint16_t port)
+{
+    LifecycleObservation out{LifecycleKind::ZoneServerInfo, {}};
+    appendScalar(out.payload, uint64_t(host.size()));
+    out.payload.insert(out.payload.end(), host.begin(), host.end());
+    appendScalar(out.payload, port);
+    return out;
+}
+
+LifecycleObservation observeProfile(const LifecycleProfile& profile)
+{
+    LifecycleObservation out{LifecycleKind::PlayerProfile, {}};
+    appendProfile(out.payload, profile);
+    return out;
+}
+
+LifecycleObservation observeZoneTransition(
+    const std::string& characterName, std::optional<uint32_t> zoneId,
+    std::optional<uint32_t> instanceId, bool confirmed)
+{
+    LifecycleObservation out{LifecycleKind::ZoneTransition, {}};
+    appendScalar(out.payload, uint64_t(characterName.size()));
+    out.payload.insert(out.payload.end(), characterName.begin(), characterName.end());
+    appendScalar(out.payload, zoneId.has_value());
+    appendScalar(out.payload, zoneId.value_or(0));
+    appendScalar(out.payload, instanceId.has_value());
+    appendScalar(out.payload, instanceId.value_or(0));
+    appendScalar(out.payload, confirmed);
+    return out;
+}
+
+LifecycleObservation observeZoneChanged(const std::string& shortName,
+                                        const std::string& longName)
+{
+    LifecycleObservation out{LifecycleKind::ZoneChanged, {}};
+    for (const std::string* value : {&shortName, &longName}) {
+        appendScalar(out.payload, uint64_t(value->size()));
+        out.payload.insert(out.payload.end(), value->begin(), value->end());
+    }
+    return out;
+}
+
+LifecycleObservation observeZoneEnvironment(
+    const std::string& zoneFile, float experienceMultiplier,
+    float safeX, float safeY, float safeZ)
+{
+    LifecycleObservation out{LifecycleKind::ZoneEnvironmentChanged, {}};
+    appendScalar(out.payload, uint64_t(zoneFile.size()));
+    out.payload.insert(out.payload.end(), zoneFile.begin(), zoneFile.end());
+    appendScalar(out.payload, experienceMultiplier);
+    appendScalar(out.payload, safeX); appendScalar(out.payload, safeY);
+    appendScalar(out.payload, safeZ);
+    return out;
+}
+
+LifecycleObservation observeTimeOfDay(uint32_t year, uint32_t month,
+                                      uint32_t day, uint32_t wireHour,
+                                      uint32_t minute)
+{
+    LifecycleObservation out{LifecycleKind::TimeOfDay, {}};
+    appendScalar(out.payload, year); appendScalar(out.payload, month);
+    appendScalar(out.payload, day); appendScalar(out.payload, wireHour);
+    appendScalar(out.payload, minute);
+    return out;
+}
 
 Batch translate(rust::SessionDecodeBatch batch)
 {
@@ -367,31 +452,50 @@ std::vector<LifecycleObservation> lifecycleObservations(const Batch& batch)
     return observations;
 }
 
+bool isLifecycleEvent(const Event& event)
+{
+    return std::visit([](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        return std::is_same_v<T, SessionReset> ||
+               std::is_same_v<T, EnterWorld> ||
+               std::is_same_v<T, ZoneServerInfo> ||
+               std::is_same_v<T, PlayerProfile> ||
+               std::is_same_v<T, ZoneTransition> ||
+               std::is_same_v<T, ZoneChanged> ||
+               std::is_same_v<T, ZoneEnvironmentChanged> ||
+               std::is_same_v<T, TimeOfDay>;
+    }, event);
+}
+
 std::vector<seq::v1::Envelope> projectLifecycle(const Batch& batch)
 {
     std::vector<seq::v1::Envelope> projections;
     for (const Event& event : batch.events) {
         if (const auto* value = std::get_if<ZoneChanged>(&event)) {
-            seq::v1::Envelope envelope;
-            auto* zone = envelope.mutable_zone_changed();
-            zone->set_zone_short(std::string(value->payload.short_name));
-            zone->set_zone_long(std::string(value->payload.long_name));
-            projections.push_back(std::move(envelope));
+#if defined(SEQ_TARGET_EQL)
+            projections.push_back(seq::encode::zoneChanged(
+                QString::fromUtf8(value->payload.short_name.data(),
+                                  int(value->payload.short_name.size())),
+                QString::fromUtf8(value->payload.long_name.data(),
+                                  int(value->payload.long_name.size())),
+                nullptr));
+#else
+            (void)value;
+#endif
         } else if (const auto* value = std::get_if<TimeOfDay>(&event)) {
-            seq::v1::Envelope envelope;
-            auto* time = envelope.mutable_eq_time_sync();
-            time->set_year(value->payload.year);
-            time->set_month(value->payload.month);
-            time->set_day(value->payload.day);
-            time->set_hour(value->payload.hour == 0 ? 0 : value->payload.hour - 1);
-            time->set_minute(value->payload.minute);
-            projections.push_back(std::move(envelope));
+            QDateTime dateTime;
+            dateTime.setDate(QDate(int(value->payload.year),
+                                   int(value->payload.month),
+                                   int(value->payload.day)));
+            if (value->payload.hour >= 1 && value->payload.hour <= 24)
+                dateTime.setTime(QTime(int(value->payload.hour - 1),
+                                       int(value->payload.minute), 0));
+            projections.push_back(seq::encode::eqTimeSync(dateTime));
         } else if (const auto* value = std::get_if<ZoneServerInfo>(&event)) {
-            seq::v1::Envelope envelope;
-            auto* server = envelope.mutable_zone_server();
-            server->set_host(std::string(value->payload.host));
-            server->set_port(value->payload.port);
-            projections.push_back(std::move(envelope));
+            projections.push_back(seq::encode::zoneServer(
+                QString::fromUtf8(value->payload.host.data(),
+                                  int(value->payload.host.size())),
+                value->payload.port));
         }
     }
     return projections;
@@ -402,8 +506,17 @@ LifecycleComparison compareLifecycle(
     const std::vector<LifecycleObservation>& legacyEvents,
     const std::vector<seq::v1::Envelope>& legacyProjections)
 {
-    const auto rustEvents = lifecycleObservations(rustBatch);
-    const auto rustProjections = projectLifecycle(rustBatch);
+    return compareLifecycle(lifecycleObservations(rustBatch),
+                            projectLifecycle(rustBatch), legacyEvents,
+                            legacyProjections);
+}
+
+LifecycleComparison compareLifecycle(
+    const std::vector<LifecycleObservation>& rustEvents,
+    const std::vector<seq::v1::Envelope>& rustProjections,
+    const std::vector<LifecycleObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections)
+{
     LifecycleComparison comparison;
     comparison.rustEventCount = rustEvents.size();
     comparison.legacyEventCount = legacyEvents.size();

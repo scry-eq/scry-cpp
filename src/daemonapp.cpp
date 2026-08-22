@@ -57,6 +57,57 @@
 
 namespace seq { void initGlobals(const QString& def, const QString& user); }
 
+namespace {
+seq::shadow::LifecycleSelector lifecycleSelector(const QString& value)
+{
+    if (value == QLatin1String("legacy"))
+        return seq::shadow::LifecycleSelector::Legacy;
+    if (value == QLatin1String("rust"))
+        return seq::shadow::LifecycleSelector::Rust;
+    return seq::shadow::LifecycleSelector::Shadow;
+}
+
+QString qString(const ::rust::String& value)
+{
+    return QString::fromUtf8(value.data(), int(value.size()));
+}
+
+seq::shadow::LifecycleProfile lifecycleProfile(const charProfileStruct& value)
+{
+    seq::shadow::LifecycleProfile out;
+    out.name = std::string(value.name, strnlen(value.name, sizeof(value.name)));
+    out.lastName = std::string(value.lastName,
+                               strnlen(value.lastName, sizeof(value.lastName)));
+    out.classId = value.profile.class_;
+    out.level = value.profile.level;
+    out.race = value.profile.race;
+    out.deity = value.profile.deity;
+    out.currentHp = value.profile.curHp;
+    out.mana = value.profile.MANA;
+    out.aaIds.reserve(MAX_AA);
+    out.aaValues.reserve(MAX_AA);
+    for (const auto& aa : value.profile.aa_array) {
+        out.aaIds.push_back(aa.AA);
+        out.aaValues.push_back(aa.value);
+    }
+    out.aaSpent = value.profile.aa_spent;
+    out.skills.assign(std::begin(value.profile.skills),
+                      std::end(value.profile.skills));
+    out.strength = value.profile.STR;
+    out.stamina = value.profile.STA;
+    out.charisma = value.profile.CHA;
+    out.dexterity = value.profile.DEX;
+    out.intelligence = value.profile.INT;
+    out.agility = value.profile.AGI;
+    out.wisdom = value.profile.WIS;
+    out.platinum = value.profile.platinum;
+    out.gold = value.profile.gold;
+    out.silver = value.profile.silver;
+    out.copper = value.profile.copper;
+    return out;
+}
+}
+
 DaemonApp::DaemonApp(Config cfg, QObject* parent)
     : QObject(parent)
     , m_cfg(std::move(cfg))
@@ -433,6 +484,53 @@ bool DaemonApp::start()
     }
 
     if (m_packet) {
+        m_packet->setLifecycleEventHandler(
+            [this](const Box* box, const seq::shadow::Event& event) {
+                applyRustLifecycle(box, event);
+            });
+        m_packet->setLifecycleProjectionEnricher(
+            [this](const Box* box, bool addHostZoneProjection,
+                   std::vector<seq::shadow::LifecycleObservation>& events,
+                   std::vector<seq::v1::Envelope>& envelopes) {
+                const ManagerSet* managers = nullptr;
+                const auto found = m_boxManagers.constFind(box);
+                if (found != m_boxManagers.cend()) managers = &found.value();
+                if (!managers) managers = &m_activeManagers;
+#if !defined(SEQ_TARGET_EQL)
+                if (managers->zoneMgr) {
+                    for (auto& event : events) {
+                        if (event.kind ==
+                            seq::shadow::LifecycleKind::ZoneChanged) {
+                            event = seq::shadow::observeZoneChanged(
+                                managers->zoneMgr->shortZoneName().toStdString(),
+                                managers->zoneMgr->longZoneName().toStdString());
+                        }
+                    }
+                }
+#endif
+                if (addHostZoneProjection && managers->zoneMgr) {
+                    envelopes.push_back(seq::encode::zoneChanged(
+                        managers->zoneMgr->shortZoneName(),
+                        managers->zoneMgr->longZoneName(), m_mapData.get()));
+                }
+                if (!m_mapData || m_mapData->numLayers() == 0) return;
+                for (seq::v1::Envelope& envelope : envelopes) {
+                    if (envelope.has_zone_changed())
+                        seq::encode::fillMapGeometry(
+                            envelope.mutable_zone_changed()->mutable_geometry(),
+                            *m_mapData);
+                }
+            });
+        m_packet->setLifecycleGlobalOwnershipPredicate(
+            [this](const Box* box) {
+                BoxRegistry& registry = m_packet->boxRegistry();
+                const Box* active = registry.currentBoxFor(
+                    registry.activeCharacterId());
+                if (!active) active = registry.primary();
+                return !box || box == active;
+            });
+        connectLifecycleObservers();
+
         // Tap decoded packets BEFORE the regular wiring so the logger
         // sees every dispatch (it doesn't matter for correctness — the
         // signal is broadcast — but keeping it adjacent to where the
@@ -610,6 +708,160 @@ bool DaemonApp::start()
     return true;
 }
 
+void DaemonApp::applyRustLifecycle(const Box* box,
+                                   const seq::shadow::Event& event)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+    BoxRegistry& registry = m_packet->boxRegistry();
+    const Box* activeBox = registry.currentBoxFor(registry.activeCharacterId());
+    if (!activeBox) activeBox = registry.primary();
+    const bool ownsGlobalSinks = !box || box == activeBox;
+
+    std::visit([&](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        const auto& payload = value.payload;
+        if constexpr (std::is_same_v<T, seq::shadow::SessionReset>) {
+            // The following semantic event owns the visible transition. A
+            // profile reset must happen first so the profile repopulates an
+            // empty session, matching the legacy clear -> profile order.
+            if (payload.reason == seq::rust::EventSessionResetReason::PlayerProfile ||
+                payload.reason == seq::rust::EventSessionResetReason::EnterWorld) {
+                if (managers->spawnShell) managers->spawnShell->clear();
+                if (managers->player) managers->player->setID(0);
+            }
+        } else if constexpr (std::is_same_v<T, seq::shadow::EnterWorld>) {
+            if (box && !payload.character_name.empty())
+                m_packet->boxRegistry().promoteByName(
+                    const_cast<Box*>(box), qString(payload.character_name));
+        } else if constexpr (std::is_same_v<T, seq::shadow::ZoneServerInfo>) {
+            m_packet->applyValidatedZoneServerInfo(const_cast<Box*>(box),
+                                                   payload.port);
+            if (ownsGlobalSinks)
+                m_zoneServerMgr->applyZoneServerInfo(qString(payload.host),
+                                                     payload.port);
+        } else if constexpr (std::is_same_v<T, seq::shadow::PlayerProfile>) {
+            if (!managers->player) return;
+            Player* player = managers->player;
+            player->seedSkills(std::vector<uint32_t>(payload.skills.begin(),
+                                                      payload.skills.end()));
+            player->seedPurchasedAA(
+                std::vector<uint32_t>(payload.aa_ids.begin(), payload.aa_ids.end()),
+                std::vector<uint32_t>(payload.aa_values.begin(),
+                                      payload.aa_values.end()),
+                payload.aa_spent);
+            player->seedBaseStats(uint16_t(payload.str_), uint16_t(payload.sta),
+                                  uint16_t(payload.cha), uint16_t(payload.dex),
+                                  uint16_t(payload.int_), uint16_t(payload.agi),
+                                  uint16_t(payload.wis));
+            // Identity is the profile publication boundary: setIdentity emits
+            // levelChanged/PlayerStats, so seed represented state first.
+            player->applyLifecycleIdentity(
+                qString(payload.name), qString(payload.last_name),
+                uint16_t(payload.race), uint8_t(payload.class_), payload.level,
+                uint16_t(payload.deity), payload.class_mask);
+            player->setMoneyCoins(payload.platinum, payload.gold,
+                                  payload.silver, payload.copper);
+        } else if constexpr (std::is_same_v<T, seq::shadow::ZoneTransition>) {
+            if (managers->zoneMgr)
+                managers->zoneMgr->applyLifecycleTransition(
+                    qString(payload.character_name), payload.has_zone_id,
+                    payload.zone_id, payload.has_instance_id,
+                    payload.instance_id, payload.confirmed);
+        } else if constexpr (std::is_same_v<T, seq::shadow::ZoneChanged>) {
+            if (managers->zoneMgr)
+                managers->zoneMgr->applyLifecycleZone(
+                    qString(payload.short_name), qString(payload.long_name));
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::ZoneEnvironmentChanged>) {
+            if (managers->zoneMgr)
+                managers->zoneMgr->applyLifecycleEnvironment(
+                    qString(payload.zone_file), payload.experience_multiplier,
+                    payload.safe_x, payload.safe_y, payload.safe_z);
+        } else if constexpr (std::is_same_v<T, seq::shadow::TimeOfDay>) {
+            if (ownsGlobalSinks)
+                m_dateTimeMgr->applyTimeOfDay(
+                    payload.year, payload.month, payload.day, payload.hour,
+                    payload.minute);
+        }
+    }, event);
+}
+
+void DaemonApp::connectLifecycleObservers()
+{
+    if (!m_packet) return;
+
+    connect(m_zoneMgr, &ZoneMgr::playerProfile, this,
+            [this](const charProfileStruct* profile) {
+        if (!profile) return;
+        m_packet->observeLegacyLifecycle(seq::shadow::observeSessionReset(
+            seq::rust::EventSessionResetReason::PlayerProfile));
+        m_packet->observeLegacyLifecycle(
+            seq::shadow::observeProfile(lifecycleProfile(*profile)));
+    });
+    connect(m_zoneMgr,
+            qOverload<const zoneChangeStruct*, size_t, uint8_t>(
+                &ZoneMgr::zoneChanged),
+            this, [this](const zoneChangeStruct* change, size_t, uint8_t dir) {
+        if (!change) return;
+        if (dir == DIR_Server)
+            m_packet->observeLegacyLifecycle(seq::shadow::observeSessionReset(
+                seq::rust::EventSessionResetReason::ZoneTransition));
+        const size_t nameLength = strnlen(change->name, sizeof(change->name));
+        m_packet->observeLegacyLifecycle(seq::shadow::observeZoneTransition(
+            std::string(change->name, nameLength), change->zoneId,
+            change->zoneInstance, dir == DIR_Server));
+    });
+    connect(m_zoneMgr, &ZoneMgr::zoneTransitionStarted, this, [this] {
+        m_packet->observeLegacyLifecycle(seq::shadow::observeZoneTransition(
+            {}, std::nullopt, std::nullopt, false));
+    });
+    connect(m_zoneMgr, &ZoneMgr::zoneEnd, this,
+            [this](const QString& shortName, const QString& longName) {
+        m_packet->observeLegacyLifecycle(seq::shadow::observeZoneChanged(
+            shortName.toStdString(), longName.toStdString()));
+        m_packet->observeLegacyLifecycle(seq::shadow::observeZoneEnvironment(
+            m_zoneMgr->zoneFile().toStdString(), m_zoneMgr->zoneExpMultiplier(),
+            m_zoneMgr->safeX(), m_zoneMgr->safeY(), m_zoneMgr->safeZ()));
+    });
+
+    auto observeZoneProjection = [this](const QString& shortName) {
+#if defined(SEQ_TARGET_EQL)
+        m_packet->observeLegacyLifecycle(seq::shadow::observeZoneChanged(
+            shortName.toStdString(),
+            m_zoneMgr->longZoneName().toStdString()));
+#endif
+        m_packet->observeLegacyLifecycleProjection(seq::encode::zoneChanged(
+            shortName, m_zoneMgr->longZoneName(), m_mapData.get()));
+    };
+    connect(m_zoneMgr, qOverload<const QString&>(&ZoneMgr::zoneBegin),
+            this, observeZoneProjection);
+    connect(m_zoneMgr, qOverload<const QString&>(&ZoneMgr::zoneChanged),
+            this, observeZoneProjection);
+    connect(m_zoneMgr, &ZoneMgr::zoneResolved, this, observeZoneProjection);
+
+    connect(m_dateTimeMgr, &DateTimeMgr::decodedTimeOfDay, this,
+            [this](uint32_t year, uint32_t month, uint32_t day,
+                   uint32_t wireHour, uint32_t minute) {
+        m_packet->observeLegacyLifecycle(seq::shadow::observeTimeOfDay(
+            year, month, day, wireHour, minute));
+    });
+    connect(m_dateTimeMgr, &DateTimeMgr::syncDateTime, this,
+            [this](const QDateTime& value) {
+        m_packet->observeLegacyLifecycleProjection(
+            seq::encode::eqTimeSync(value));
+    });
+    connect(m_zoneServerMgr, &ZoneServerMgr::zoneServerChanged, this,
+            [this](const QString& host, quint16 port) {
+        m_packet->observeLegacyLifecycleProjection(
+            seq::encode::zoneServer(host, port));
+    });
+}
+
 bool DaemonApp::startServer()
 {
     if (!m_ws->listen(m_cfg.listenHost, m_cfg.listenPort)) {
@@ -657,23 +909,30 @@ bool DaemonApp::startCapture()
         clientIp = pSEQPrefs->getPrefString("IP", "Network", AUTOMATIC_CLIENT_IP);
     }
     if (clientIp.isEmpty()) clientIp = AUTOMATIC_CLIENT_IP;
-    m_packet = new EQPacket(
-        opcodesToml.absoluteFilePath(),
-        /*arqSeqGiveUp*/ 512,
-        /*device*/ hasReplay ? QString() : m_cfg.device,
-        /*agent*/ hasReplay ? QString() : m_cfg.agent,
-        /*ip*/ clientIp,
-        /*mac*/ QStringLiteral("0"),
-        /*realtime*/ false,
-        /*snaplen*/ 2,
-        /*buffersize*/ 4,
-        /*sessionTracking*/ false,
-        /*recordPackets*/ wantRecord,
-        /*playbackPackets*/ hasReplay
-            ? (m_cfg.replayIsPcap ? PLAYBACK_FORMAT_TCPDUMP : PLAYBACK_FORMAT_SEQ)
-            : PLAYBACK_OFF,
-        /*playbackSpeed*/ 0,
-        this, "packet");
+    try {
+        m_packet = new EQPacket(
+            opcodesToml.absoluteFilePath(),
+            /*arqSeqGiveUp*/ 512,
+            /*device*/ hasReplay ? QString() : m_cfg.device,
+            /*agent*/ hasReplay ? QString() : m_cfg.agent,
+            /*ip*/ clientIp,
+            /*mac*/ QStringLiteral("0"),
+            /*realtime*/ false,
+            /*snaplen*/ 2,
+            /*buffersize*/ 4,
+            /*sessionTracking*/ false,
+            /*recordPackets*/ wantRecord,
+            /*playbackPackets*/ hasReplay
+                ? (m_cfg.replayIsPcap ? PLAYBACK_FORMAT_TCPDUMP
+                                      : PLAYBACK_FORMAT_SEQ)
+                : PLAYBACK_OFF,
+            /*playbackSpeed*/ 0,
+            lifecycleSelector(m_cfg.lifecycleDecoder),
+            this, "packet");
+    } catch (const std::exception& error) {
+        qCritical("Rust lifecycle setup failed: %s", error.what());
+        return false;
+    }
     if (m_cfg.strictGateSizes && m_packet->undeclaredGateSizeCount() > 0) {
         qCritical("--strict-gate-sizes: %d mapped SZC_Match opcode(s) gate on an "
                   "inherited Live sizeof — declare them in seq-backend-eql "

@@ -23,6 +23,7 @@
 
 /* Implementation of Packet class */
 #include <cstdio>
+#include <cstdlib>
 #include <algorithm>
 #include <unistd.h>
 #include <netdb.h>
@@ -33,6 +34,7 @@
 #include <netinet/if_ether.h>
 
 #include <QDir>
+#include <QCoreApplication>
 #include <QFile>
 #include <QTimer>
 #include <QFileInfo>
@@ -135,6 +137,7 @@ EQPacket::EQPacket(const QString& opcodesToml,
 		   bool recordPackets,
 		   int playbackPackets,
 		   int8_t playbackSpeed, 
+		   seq::shadow::LifecycleSelector lifecycleSelector,
 		   QObject * parent, const char *name)
   : QObject (parent),
     m_packetCapture(NULL),
@@ -152,7 +155,8 @@ EQPacket::EQPacket(const QString& opcodesToml,
     m_session_tracking(sessionTrackingFlag),
     m_recordPackets(recordPackets),
     m_playbackPackets(playbackPackets),
-    m_playbackSpeed(playbackSpeed)
+    m_playbackSpeed(playbackSpeed),
+    m_lifecycleSelector(lifecycleSelector)
 {
   setObjectName(name);
   // create the packet type db
@@ -194,7 +198,9 @@ EQPacket::EQPacket(const QString& opcodesToml,
     seqInfo("Rust shadow protocol catalog: %s",
             m_shadowRegistry->contentHash(shadowBackend()).c_str());
   } catch (const std::exception& error) {
-    // Shadow mode must never take down the legacy mutation path.
+    if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust)
+      throw;
+    // Shadow diagnostics must never take down the legacy mutation path.
     seqWarn("Rust shadow disabled: protocol registry failed: %s", error.what());
   }
 
@@ -313,20 +319,42 @@ EQPacket::EQPacket(const QString& opcodesToml,
     // Parent the observers under the box root (non-primary) so they're
     // torn down with the box on eviction; the primary's hang off EQPacket.
     QObject* observerParent = m_boxRoots.value(&box, this);
-    new ZoneServerObserver(&box, box.world_s2c,
-                           [this] { return nowMs(); }, observerParent);
-    new NamePromoter(&box, &m_boxes, c2s, observerParent);
+    auto* zoneObserver = new ZoneServerObserver(
+        &box, box.world_s2c, [this] { return nowMs(); }, observerParent);
+    zoneObserver->setMutationGuard(
+        [this] { return legacyLifecycleEnabledForCurrentPacket(); });
+    zoneObserver->setObservedCallback(
+        [this](const QString& host, uint16_t port) {
+          observeLegacyLifecycle(seq::shadow::observeZoneServer(
+              host.toStdString(), port));
+        });
+    auto* promoter = new NamePromoter(&box, &m_boxes, c2s, observerParent);
+    promoter->setMutationGuard(
+        [this] { return legacyLifecycleEnabledForCurrentPacket(); });
+    promoter->setPromotedObserver([this](const QString& name) {
+      observeLegacyLifecycle(seq::shadow::observeSessionReset(
+          seq::rust::EventSessionResetReason::EnterWorld));
+      observeLegacyLifecycle(
+          seq::shadow::observeEnterWorld(name.toStdString()));
+    });
 
     if (m_shadowRegistry) {
       try {
         auto session = std::make_unique<seq::shadow::Session>(
             *m_shadowRegistry, shadowBackend(), 256, 4 * 1024 * 1024,
-            seq::shadow::LifecycleSelector::Shadow);
+            m_lifecycleSelector);
         m_shadowSessions.emplace(&box, std::move(session));
         for (EQPacketStream* stream : {box.world_c2s, box.world_s2c,
                                        box.zone_c2s, box.zone_s2c})
           installShadowHook(stream);
       } catch (const std::exception& error) {
+        if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust) {
+          m_lifecycleFatal = true;
+          qCritical("Rust-owned lifecycle session creation failed for box %s: %s",
+                    qUtf8Printable(box.box_id), error.what());
+          QCoreApplication::exit(EXIT_FAILURE);
+          return;
+        }
         m_shadowDisabled.insert(&box);
         seqWarn("Rust shadow session creation failed for box %s: %s",
                 qUtf8Printable(box.box_id), error.what());
@@ -733,11 +761,14 @@ void EQPacket::installShadowHook(EQPacketStream* stream)
       [this](EQStreamID streamId, uint8_t direction, uint16_t opcode,
              const uint8_t* payload, size_t payloadSize, int64_t timestamp,
              EQPacketFlowKey flowKey, uintptr_t attributionToken) {
-        decodeShadowApplication(streamId, direction, opcode, payload,
-                                payloadSize, timestamp, flowKey,
-                                attributionToken);
+        return decodeShadowApplication(streamId, direction, opcode, payload,
+                                       payloadSize, timestamp, flowKey,
+                                       attributionToken);
       },
-      [this] { return int64_t(nowMs()); });
+      [this] { return int64_t(nowMs()); },
+      [this](bool legacyDispatched) {
+        completeShadowApplication(legacyDispatched);
+      });
 }
 
 seq::shadow::Session* EQPacket::temporaryShadowSession(EQPacketFlowKey flowKey)
@@ -756,12 +787,19 @@ seq::shadow::Session* EQPacket::temporaryShadowSession(EQPacketFlowKey flowKey)
     TemporaryShadowSession temporary;
     temporary.session = std::make_unique<seq::shadow::Session>(
         *m_shadowRegistry, shadowBackend(), 256, 4 * 1024 * 1024,
-        seq::shadow::LifecycleSelector::Shadow);
+        m_lifecycleSelector);
     temporary.lastUsed = ++m_temporaryShadowClock;
     auto [it, inserted] =
         m_temporaryShadowSessions.emplace(flowKey, std::move(temporary));
     return inserted ? it->second.session.get() : nullptr;
   } catch (const std::exception& error) {
+    if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust) {
+      m_lifecycleFatal = true;
+      qCritical("Temporary Rust-owned lifecycle session creation failed: %s",
+                error.what());
+      QCoreApplication::exit(EXIT_FAILURE);
+      return nullptr;
+    }
     seqWarn("Temporary Rust shadow session creation failed: %s", error.what());
     return nullptr;
   }
@@ -779,13 +817,20 @@ void EQPacket::evictOldestTemporaryShadowSession()
     try {
       oldest->second.session->flush(seq::shadow::FlushReason::Shutdown);
     } catch (const std::exception& error) {
+      if (oldest->second.session->appliesRustLifecycle()) {
+        m_lifecycleFatal = true;
+        qCritical("Temporary Rust-owned lifecycle eviction flush failed: %s",
+                  error.what());
+        QCoreApplication::exit(EXIT_FAILURE);
+        return;
+      }
       seqWarn("Temporary Rust shadow eviction flush failed: %s", error.what());
     }
   }
   m_temporaryShadowSessions.erase(oldest);
 }
 
-void EQPacket::decodeShadowApplication(
+bool EQPacket::decodeShadowApplication(
     EQStreamID stream, uint8_t direction, uint16_t opcode,
     const uint8_t* payload, size_t payloadSize, int64_t timestamp,
     EQPacketFlowKey flowKey, uintptr_t attributionToken)
@@ -798,7 +843,7 @@ void EQPacket::decodeShadowApplication(
     auto attributed = m_shadowSessions.find(box);
     if (attributed == m_shadowSessions.end() ||
         m_shadowDisabled.count(box) != 0)
-      return;
+      return !m_lifecycleFatal;
 
     // A mid-zone flow can precede the world handshake that creates its Box.
     // Adopt that state only while the Box session is still cold. Once it has
@@ -815,6 +860,14 @@ void EQPacket::decodeShadowApplication(
         try {
           temporary->second.session->flush(seq::shadow::FlushReason::Reset);
         } catch (const std::exception& error) {
+          if (temporary->second.session->appliesRustLifecycle()) {
+            m_lifecycleFatal = true;
+            qCritical("Temporary Rust-owned lifecycle attribution flush "
+                      "failed: %s", error.what());
+            QCoreApplication::exit(EXIT_FAILURE);
+            m_currentLifecycleSession = nullptr;
+            return false;
+          }
           seqWarn("Temporary Rust shadow reset failed during attribution: %s",
                   error.what());
         }
@@ -830,16 +883,97 @@ void EQPacket::decodeShadowApplication(
     session = temporaryShadowSession(flowKey);
   }
 
-  if (!session) return;
+  if (!session) return !m_lifecycleFatal;
+  m_currentLifecycleSession = session;
+  m_currentRustLifecycleKinds.clear();
   try {
-    session->decode(
+    const seq::shadow::Record& record = session->decode(
         world ? seq::shadow::Stream::World : seq::shadow::Stream::Zone,
         opcode,
         direction == DIR_Server
             ? seq::shadow::Direction::ServerToClient
             : seq::shadow::Direction::ClientToServer,
         payload, payloadSize, timestamp);
+
+    auto rustEvents = seq::shadow::lifecycleObservations(record.batch);
+    const bool ownsGlobalLifecycle =
+        !box || !m_lifecycleGlobalOwnershipPredicate ||
+        m_lifecycleGlobalOwnershipPredicate(box);
+    if (!ownsGlobalLifecycle) {
+      // Time is daemon-global and the legacy handler is wired only for the
+      // active box. ZoneServerInfo still owns per-box routing, but its public
+      // ZoneServer envelope is likewise active-box-only.
+      rustEvents.erase(
+          std::remove_if(rustEvents.begin(), rustEvents.end(), [](const auto& e) {
+            return e.kind == seq::shadow::LifecycleKind::TimeOfDay;
+          }),
+          rustEvents.end());
+    }
+#if defined(SEQ_TARGET_EQL)
+    // EQL's public host reducer has no standalone environment action: NewZone
+    // resolves names and publishes one ZoneChanged envelope. Keep applying the
+    // decoded environment state in Rust mode, but compare the ordered actions
+    // that the production EQL reducer actually exposes.
+    rustEvents.erase(
+        std::remove_if(rustEvents.begin(), rustEvents.end(), [](const auto& e) {
+          return e.kind ==
+                 seq::shadow::LifecycleKind::ZoneEnvironmentChanged;
+        }),
+        rustEvents.end());
+#endif
+    for (const auto& observation : rustEvents)
+      m_currentRustLifecycleKinds.push_back(observation.kind);
+    if (session->comparesLifecycle()) {
+        PendingLifecycleComparison pending;
+        pending.session = session;
+        pending.box = box;
+        pending.rustEvents = rustEvents;
+        pending.rustProjections = seq::shadow::projectLifecycle(record.batch);
+        if (!ownsGlobalLifecycle) {
+          pending.rustProjections.erase(
+              std::remove_if(
+                  pending.rustProjections.begin(),
+                  pending.rustProjections.end(), [](const auto& envelope) {
+                    return envelope.has_eq_time_sync() ||
+                           envelope.has_zone_server();
+                  }),
+              pending.rustProjections.end());
+        }
+        for (const seq::shadow::Event& event : record.batch.events) {
+#if !defined(SEQ_TARGET_EQL)
+          if (std::holds_alternative<seq::shadow::PlayerProfile>(event))
+            pending.expectsHostZoneProjection = true;
+#endif
+          if (const auto* transition =
+                  std::get_if<seq::shadow::ZoneTransition>(&event)) {
+            if (transition->payload.confirmed &&
+                transition->payload.has_zone_id)
+              pending.expectsHostZoneProjection = true;
+          }
+        }
+        m_pendingLifecycle = std::move(pending);
+    } else if (!rustEvents.empty() && session->appliesRustLifecycle()) {
+        if (!box || !m_lifecycleEventHandler) {
+          throw std::runtime_error(
+              "Rust lifecycle event has no attributed host applier");
+        }
+        for (const seq::shadow::Event& event : record.batch.events) {
+          if (seq::shadow::isLifecycleEvent(event))
+            m_lifecycleEventHandler(box, event);
+        }
+    }
   } catch (const std::exception& error) {
+    m_pendingLifecycle.reset();
+    if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust) {
+      m_lifecycleFatal = true;
+      qCritical("Rust lifecycle decode/apply failed for box %s: %s; "
+                "the immutable Rust-owned session cannot fall back in place",
+                box ? qUtf8Printable(box->box_id) : "<unattributed>",
+                error.what());
+      QCoreApplication::exit(EXIT_FAILURE);
+      m_currentLifecycleSession = nullptr;
+      return false;
+    }
     if (box) {
       m_shadowDisabled.insert(box);
       seqWarn("Rust shadow disabled for box %s after decode error: %s",
@@ -851,6 +985,78 @@ void EQPacket::decodeShadowApplication(
       seqWarn("Temporary Rust shadow disabled after decode error: %s",
               error.what());
     }
+  }
+  return true;
+}
+
+bool EQPacket::legacyLifecycleEnabledForCurrentPacket() const
+{
+  return !m_lifecycleFatal &&
+         (!m_currentLifecycleSession ||
+          m_currentLifecycleSession->runsLegacyLifecycle());
+}
+
+bool EQPacket::rustLifecycleAcceptedForCurrentPacket(
+    seq::shadow::LifecycleKind kind) const
+{
+  return std::find(m_currentRustLifecycleKinds.begin(),
+                   m_currentRustLifecycleKinds.end(), kind) !=
+         m_currentRustLifecycleKinds.end();
+}
+
+void EQPacket::observeLegacyLifecycle(
+    seq::shadow::LifecycleObservation observation)
+{
+  if (m_pendingLifecycle)
+    m_pendingLifecycle->legacyEvents.push_back(std::move(observation));
+}
+
+void EQPacket::observeLegacyLifecycleProjection(seq::v1::Envelope envelope)
+{
+  if (m_pendingLifecycle)
+    m_pendingLifecycle->legacyProjections.push_back(std::move(envelope));
+}
+
+void EQPacket::applyValidatedZoneServerInfo(Box* box, uint16_t port)
+{
+  if (!box) return;
+  box->expected_zone_server_port = htons(port);
+  box->zone_client_port = 0;
+  box->zone_server_port_bound = 0;
+  box->zone_await_ms = nowMs();
+}
+
+void EQPacket::completeShadowApplication(bool legacyDispatched)
+{
+  m_currentLifecycleSession = nullptr;
+  m_currentRustLifecycleKinds.clear();
+  if (!m_pendingLifecycle) return;
+  PendingLifecycleComparison pending = std::move(*m_pendingLifecycle);
+  m_pendingLifecycle.reset();
+  if (!legacyDispatched) return;
+
+  if (pending.rustEvents.empty() && pending.rustProjections.empty() &&
+      pending.legacyEvents.empty() && pending.legacyProjections.empty())
+    return;
+
+  if (m_lifecycleProjectionEnricher)
+    m_lifecycleProjectionEnricher(
+        pending.box, pending.expectsHostZoneProjection,
+        pending.rustEvents,
+        pending.rustProjections);
+
+  const seq::shadow::LifecycleComparison comparison =
+      seq::shadow::compareLifecycle(
+          pending.rustEvents, pending.rustProjections,
+          pending.legacyEvents, pending.legacyProjections);
+  if (pending.session)
+    pending.session->recordLifecycleComparison(comparison);
+  if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
+    seqWarn("Rust lifecycle shadow mismatch: events rust=%zu legacy=%zu, "
+            "seq.v1 rust=%zu legacy=%zu",
+            comparison.rustEventCount, comparison.legacyEventCount,
+            comparison.rustProjectionCount,
+            comparison.legacyProjectionCount);
   }
 }
 
@@ -869,6 +1075,14 @@ void EQPacket::flushShadowSession(const Box* box,
   try {
     it->second->flush(reason);
   } catch (const std::exception& error) {
+    if (it->second->appliesRustLifecycle()) {
+      m_lifecycleFatal = true;
+      qCritical("Rust lifecycle flush failed for box %s: %s; the immutable "
+                "Rust-owned session cannot fall back in place",
+                qUtf8Printable(box->box_id), error.what());
+      QCoreApplication::exit(EXIT_FAILURE);
+      return;
+    }
     m_shadowDisabled.insert(box);
     seqWarn("Rust shadow disabled for box %s after flush error: %s",
             qUtf8Printable(box->box_id), error.what());
@@ -882,6 +1096,13 @@ void EQPacket::flushAllShadowSessions(seq::shadow::FlushReason reason)
     try {
       entry.second.session->flush(reason);
     } catch (const std::exception& error) {
+      if (entry.second.session->appliesRustLifecycle()) {
+        m_lifecycleFatal = true;
+        qCritical("Temporary Rust-owned lifecycle flush failed: %s",
+                  error.what());
+        QCoreApplication::exit(EXIT_FAILURE);
+        continue;
+      }
       entry.second.disabled = true;
       seqWarn("Temporary Rust shadow disabled after flush error: %s",
               error.what());

@@ -13,6 +13,7 @@
 
 #include "managerset.h"
 #include "mappackagehost.h"
+#include "rustsession.h"
 
 // Forward declarations of the extracted showeq types. We keep them out of
 // this header to minimize the include footprint for files that only need the
@@ -134,6 +135,10 @@ public:
         // order, or "first" (= index 1). Overrides --dump-all-sessions.
         // Recon-only: does not affect proto output or goldens.
         QString      onlySession;
+        // Immutable template copied into every Rust Session. "legacy" keeps
+        // host lifecycle handlers, "shadow" compares them, and "rust" lets
+        // only the typed Rust lifecycle path mutate state.
+        QString      lifecycleDecoder = QStringLiteral("shadow");
         // --replay --wait-for-client: pause the .vpk playback until
         // the first WebSocket client attaches a SessionAdapter (so
         // early envelopes aren't dropped), and don't quit at EOF so
@@ -245,6 +250,8 @@ private:
     // ManagerSet record and deleteLater's its per-box manager root (the
     // reverse of onBoxCreated). No-op for the primary box.
     void onBoxAboutToBeRemoved(Box* box);
+    void applyRustLifecycle(const Box* box, const seq::shadow::Event& event);
+    void connectLifecycleObservers();
 
     // --only-session helpers -------------------------------------------------
     // Parsed index form of Config::onlySession: N for "N"/"first"(=1),

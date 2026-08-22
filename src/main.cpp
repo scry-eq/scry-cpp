@@ -213,6 +213,10 @@ int main(int argc, char** argv)
         "(default 600). Each zone change spawns a fresh per-character "
         "Box; the sweep retires the superseded/logged-off ones. 0 "
         "disables eviction.", "seconds");
+    QCommandLineOption lifecycleDecoderOpt(QStringList{"lifecycle-decoder"},
+        "Immutable lifecycle owner for each session: legacy, shadow, or rust. "
+        "The default is shadow. Changing it requires a session restart.",
+        "mode", "shadow");
     parser.addOption(deviceOpt);
     parser.addOption(ipOpt);
     parser.addOption(listenOpt);
@@ -234,6 +238,7 @@ int main(int argc, char** argv)
     parser.addOption(onlySessionOpt);
     parser.addOption(waitForClientOpt);
     parser.addOption(boxIdleTtlOpt);
+    parser.addOption(lifecycleDecoderOpt);
     parser.process(app);
 
     DaemonApp::Config cfg;
@@ -278,6 +283,13 @@ int main(int argc, char** argv)
     cfg.dumpAllSessions = parser.isSet(dumpAllSessionsOpt);
     cfg.onlySession   = parser.value(onlySessionOpt);
     cfg.waitForClient = parser.isSet(waitForClientOpt);
+    cfg.lifecycleDecoder = parser.value(lifecycleDecoderOpt).toLower();
+    if (cfg.lifecycleDecoder != QLatin1String("legacy") &&
+        cfg.lifecycleDecoder != QLatin1String("shadow") &&
+        cfg.lifecycleDecoder != QLatin1String("rust")) {
+        qCritical("--lifecycle-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
     if (parser.isSet(boxIdleTtlOpt)) {
         bool ok = false;
         const qint64 secs = parser.value(boxIdleTtlOpt).toLongLong(&ok);

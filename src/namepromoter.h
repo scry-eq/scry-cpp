@@ -13,6 +13,8 @@
 // it so the registry view shows the same labels everywhere).
 
 #include <QObject>
+#include <functional>
+#include <utility>
 
 class Box;
 class BoxRegistry;
@@ -24,6 +26,10 @@ class NamePromoter : public QObject {
 public:
     NamePromoter(Box* box, BoxRegistry* registry,
                  EQPacketStream* world_c2s, QObject* parent = nullptr);
+    void setMutationGuard(std::function<bool()> guard)
+    { m_mutationGuard = std::move(guard); }
+    void setPromotedObserver(std::function<void(const QString&)> observer)
+    { m_promotedObserver = std::move(observer); }
 
 private slots:
     void onDecodedPacket(const uint8_t* data, size_t len, uint8_t dir,
@@ -32,6 +38,8 @@ private slots:
 private:
     Box* m_box;
     BoxRegistry* m_registry;
+    std::function<bool()> m_mutationGuard;
+    std::function<void(const QString&)> m_promotedObserver;
 };
 
 #endif // NAMEPROMOTER_H

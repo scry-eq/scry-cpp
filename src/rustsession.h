@@ -120,6 +120,33 @@ struct LifecycleComparison {
     size_t legacyProjectionCount = 0;
 };
 
+struct LifecycleProfile {
+    std::string name;
+    std::string lastName;
+    uint32_t classId = 0;
+    uint8_t level = 0;
+    uint32_t race = 0;
+    uint32_t deity = 0;
+    uint32_t currentHp = 0;
+    uint32_t mana = 0;
+    std::vector<uint32_t> aaIds;
+    std::vector<uint32_t> aaValues;
+    uint32_t aaSpent = 0;
+    std::vector<uint32_t> skills;
+    uint32_t classMask = 0;
+    uint32_t strength = 0;
+    uint32_t stamina = 0;
+    uint32_t charisma = 0;
+    uint32_t dexterity = 0;
+    uint32_t intelligence = 0;
+    uint32_t agility = 0;
+    uint32_t wisdom = 0;
+    uint32_t platinum = 0;
+    uint32_t gold = 0;
+    uint32_t silver = 0;
+    uint32_t copper = 0;
+};
+
 struct Batch {
     uint64_t protocolGeneration = 0;
     Disposition disposition = Disposition::Ignored;
@@ -151,10 +178,31 @@ struct Record {
 Batch translate(rust::SessionDecodeBatch batch);
 std::vector<LifecycleObservation> lifecycleObservations(const Batch& batch);
 std::vector<seq::v1::Envelope> projectLifecycle(const Batch& batch);
+LifecycleObservation observeSessionReset(rust::EventSessionResetReason reason);
+LifecycleObservation observeEnterWorld(const std::string& characterName);
+LifecycleObservation observeZoneServer(const std::string& host, uint16_t port);
+LifecycleObservation observeProfile(const LifecycleProfile& profile);
+LifecycleObservation observeZoneTransition(
+    const std::string& characterName, std::optional<uint32_t> zoneId,
+    std::optional<uint32_t> instanceId, bool confirmed);
+LifecycleObservation observeZoneChanged(const std::string& shortName,
+                                        const std::string& longName);
+LifecycleObservation observeZoneEnvironment(
+    const std::string& zoneFile, float experienceMultiplier,
+    float safeX, float safeY, float safeZ);
+LifecycleObservation observeTimeOfDay(uint32_t year, uint32_t month,
+                                      uint32_t day, uint32_t wireHour,
+                                      uint32_t minute);
 LifecycleComparison compareLifecycle(
     const Batch& rustBatch,
     const std::vector<LifecycleObservation>& legacyEvents,
     const std::vector<seq::v1::Envelope>& legacyProjections);
+LifecycleComparison compareLifecycle(
+    const std::vector<LifecycleObservation>& rustEvents,
+    const std::vector<seq::v1::Envelope>& rustProjections,
+    const std::vector<LifecycleObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections);
+bool isLifecycleEvent(const Event& event);
 
 class ProtocolRegistry {
 public:
@@ -186,6 +234,16 @@ public:
     uint64_t droppedRecordCount() const { return m_droppedRecordCount; }
     size_t journalBytes() const { return m_journalBytes; }
     LifecycleSelector lifecycleSelector() const { return m_lifecycleSelector; }
+    bool runsLegacyLifecycle() const
+    { return m_lifecycleSelector != LifecycleSelector::Rust; }
+    bool comparesLifecycle() const
+    { return m_lifecycleSelector == LifecycleSelector::Shadow; }
+    bool appliesRustLifecycle() const
+    { return m_lifecycleSelector == LifecycleSelector::Rust; }
+    const std::optional<LifecycleComparison>& lastLifecycleComparison() const
+    { return m_lastLifecycleComparison; }
+    void recordLifecycleComparison(LifecycleComparison comparison)
+    { m_lastLifecycleComparison = std::move(comparison); }
 
 private:
     const Record& append(Record record);
@@ -198,6 +256,7 @@ private:
     uint64_t m_recordCount = 0;
     uint64_t m_droppedRecordCount = 0;
     std::deque<Record> m_journal;
+    std::optional<LifecycleComparison> m_lastLifecycleComparison;
 };
 
 } // namespace seq::shadow

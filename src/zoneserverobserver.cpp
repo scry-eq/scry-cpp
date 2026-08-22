@@ -40,8 +40,13 @@ void ZoneServerObserver::onDecodedPacket(const uint8_t* data, size_t len,
     if (!entry || entry->name() != QLatin1String("OP_ZoneServerInfo")) return;
     if (dir != DIR_Server) return;
     if (len != kZsiLen) return;
+    if (m_mutationGuard && !m_mutationGuard()) return;
 
     const auto* zsi = reinterpret_cast<const zoneServerInfoStruct*>(data);
+    const size_t hostLen = qstrnlen(zsi->host, sizeof(zsi->host));
+    if (m_observedCallback)
+        m_observedCallback(QString::fromLatin1(zsi->host, int(hostLen)),
+                           zsi->port);
     m_box->expected_zone_server_port = htons(zsi->port);
     // This box is about to open a NEW zone session, so clear any prior
     // zone binding: it's once again "awaiting" a SessionRequest. This lets

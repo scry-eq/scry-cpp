@@ -43,7 +43,7 @@ void NamePromoter::onDecodedPacket(const uint8_t* data, size_t len,
     if (!entry || entry->name() != QLatin1String("OP_EnterWorld")) return;
     if (dir != DIR_Client) return;
     if (len != kEnterWorldClientLen) return;
-    if (!m_box->display_name.isEmpty()) return;  // already promoted
+    if (m_mutationGuard && !m_mutationGuard()) return;
 
     // Char name slot is the leading 64 bytes (zero-padded). Treat as a
     // C-string but cap at 64 in case the slot is unterminated.
@@ -51,8 +51,11 @@ void NamePromoter::onDecodedPacket(const uint8_t* data, size_t len,
     const size_t nameLen = qstrnlen(raw, kCharNameSlot);
     if (nameLen == 0) return;
 
-    const QString old_box_id = m_box->box_id;
     const QString name = QString::fromLatin1(raw, int(nameLen));
+    if (m_promotedObserver) m_promotedObserver(name);
+    if (!m_box->display_name.isEmpty()) return;  // already promoted
+
+    const QString old_box_id = m_box->box_id;
     m_box->display_name = name;
 
     // Replace placeholder box_id with a stable hash of the name. Wire-

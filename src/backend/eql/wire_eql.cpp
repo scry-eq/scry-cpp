@@ -69,13 +69,36 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
                 zoneS2C->on(op, payload, szt, handler);
         }
     };
+    auto lifecycle = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet || m_packet->legacyLifecycleEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
 
     // Backend-owned adapter holding the Legends handlers (never on the core
     // managers — see eqldispatch.h). Owned by a shared_ptr the wired closures
     // capture, so it lives as long as this box's stream dispatchers reference
     // it — no QObject parent needed.
-    auto eql = std::make_shared<EqlDispatch>(ms.zoneMgr, ms.spawnShell, ms.player,
-                                             m_dbStrings, ms.guildShell, m_guildMgr);
+    auto eql = std::make_shared<EqlDispatch>(
+        ms.zoneMgr, ms.spawnShell, ms.player, m_dbStrings, ms.guildShell,
+        m_guildMgr,
+        [this] {
+            return m_packet &&
+                   !m_packet->legacyLifecycleEnabledForCurrentPacket();
+        },
+        [this](seq::shadow::LifecycleKind kind) {
+            return m_packet &&
+                   m_packet->rustLifecycleAcceptedForCurrentPacket(kind);
+        },
+        [this](const seq::shadow::LifecycleProfile& profile) {
+            if (!m_packet) return;
+            m_packet->observeLegacyLifecycle(seq::shadow::observeSessionReset(
+                seq::rust::EventSessionResetReason::PlayerProfile));
+            m_packet->observeLegacyLifecycle(
+                seq::shadow::observeProfile(profile));
+        });
 
     // --- ZoneMgr: zone transitions + player profile.
     // (EQ Legends has no separate c2s OP_ZoneEntry: the 4606 c2s 92B is a
@@ -91,7 +114,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // zoneChange, which decodes that struct. It only raises the zoning flag.
     wire("OP_ZoneChange", SP_Zone, DIR_Client | DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::zoneChange));
+         lifecycle(seqBind(eql, &EqlDispatch::zoneChange)));
     // EQ Legends OP_NewZone S>C: the authoritative current zone, carried
     // as packed short + long name text (parsed in EqlDispatch). Fires once per
     // zone-in, AFTER the profile + bulk spawn list — EqlDispatch::newZone drives
@@ -100,7 +123,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // (identical across zones) and is not OP_NewZone. See OPCODES_LEGENDS.md.
     wire("OP_NewZone", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::newZone));
+         lifecycle(seqBind(eql, &EqlDispatch::newZone)));
     // EQ Legends OP_EnterWorld C>S, 72B: the client entering the world
     // with its character — fires at login AND on every in-place session re-entry
     // (private instance, or any zone that reuses the world socket, so BoxRegistry
@@ -151,10 +174,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     if (wireGlobalSinks) {
         wire("OP_TimeOfDay", SP_Zone, DIR_Server,
              "timeOfDayStruct", SZC_Match,
-             seqBind(m_dateTimeMgr, &DateTimeMgr::timeOfDay));
+             lifecycle(seqBind(m_dateTimeMgr, &DateTimeMgr::timeOfDay)));
         wire("OP_ZoneServerInfo", SP_World, DIR_Server,
              "zoneServerInfoStruct", SZC_Match,
-             seqBind(m_zoneServerMgr, &ZoneServerMgr::zoneServerInfo));
+             lifecycle(seqBind(m_zoneServerMgr, &ZoneServerMgr::zoneServerInfo)));
     }
 
     // Guild id→name, feeding spawn guild tags via GuildMgr::guildTagUpdated.

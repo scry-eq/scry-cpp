@@ -1,9 +1,13 @@
 #include <QtTest/QtTest>
 
+#include <algorithm>
 #include <array>
+#include <stdexcept>
 #include <type_traits>
 
 #include "rustsession.h"
+#include "datetimemgr.h"
+#include "protoencoder.h"
 
 namespace {
 
@@ -132,6 +136,10 @@ private slots:
     void lifecycleOrderAndProjectionMatchLegacy();
     void malformedLifecycleDoesNotReset();
     void lifecycleSelectorIsImmutablePerSession();
+    void resetPrecedesProfileAndUsesProductionProjection();
+    void publicTimeContractNormalizesWireHourOnce();
+    void reconnectResetsBeforeEachEnterWorld();
+    void invalidAdapterPayloadFailsClosed();
     void journalHonorsByteBudget();
 };
 
@@ -470,20 +478,16 @@ void RustSessionTest::lifecycleOrderAndProjectionMatchLegacy()
     QCOMPARE(expectedOrder[5].kind, LifecycleKind::ZoneServerInfo);
 
     std::vector<seq::v1::Envelope> legacy;
-    seq::v1::Envelope zoneEnvelope;
-    zoneEnvelope.mutable_zone_changed()->set_zone_short("qeynos");
-    zoneEnvelope.mutable_zone_changed()->set_zone_long("South Qeynos");
-    legacy.push_back(std::move(zoneEnvelope));
-    seq::v1::Envelope timeEnvelope;
-    auto* legacyTime = timeEnvelope.mutable_eq_time_sync();
-    legacyTime->set_year(3789); legacyTime->set_month(11);
-    legacyTime->set_day(27); legacyTime->set_hour(12);
-    legacyTime->set_minute(42);
-    legacy.push_back(std::move(timeEnvelope));
-    seq::v1::Envelope serverEnvelope;
-    serverEnvelope.mutable_zone_server()->set_host("zone.example.test");
-    serverEnvelope.mutable_zone_server()->set_port(9000);
-    legacy.push_back(std::move(serverEnvelope));
+#if defined(SEQ_TARGET_EQL)
+    legacy.push_back(seq::encode::zoneChanged(
+        QStringLiteral("qeynos"), QStringLiteral("South Qeynos"), nullptr));
+#endif
+    QDateTime dateTime;
+    dateTime.setDate(QDate(3789, 11, 27));
+    dateTime.setTime(QTime(12, 42));
+    legacy.push_back(seq::encode::eqTimeSync(dateTime));
+    legacy.push_back(seq::encode::zoneServer(
+        QStringLiteral("zone.example.test"), 9000));
 
     const LifecycleComparison equal =
         compareLifecycle(batch, expectedOrder, legacy);
@@ -493,7 +497,11 @@ void RustSessionTest::lifecycleOrderAndProjectionMatchLegacy()
     auto wrongOrder = expectedOrder;
     std::swap(wrongOrder[0], wrongOrder[1]);
     QVERIFY(!compareLifecycle(batch, wrongOrder, legacy).orderedEventsEqual);
+#if defined(SEQ_TARGET_EQL)
     legacy[0].mutable_zone_changed()->set_zone_long("North Qeynos");
+#else
+    legacy[0].mutable_eq_time_sync()->set_minute(41);
+#endif
     QVERIFY(!compareLifecycle(batch, expectedOrder, legacy).projectionsEqual);
 }
 
@@ -522,6 +530,104 @@ void RustSessionTest::lifecycleSelectorIsImmutablePerSession()
     QCOMPARE(legacy.lifecycleSelector(), LifecycleSelector::Legacy);
     QCOMPARE(shadow.lifecycleSelector(), LifecycleSelector::Shadow);
     QCOMPARE(rust.lifecycleSelector(), LifecycleSelector::Rust);
+    QVERIFY(legacy.runsLegacyLifecycle());
+    QVERIFY(!legacy.comparesLifecycle());
+    QVERIFY(shadow.runsLegacyLifecycle());
+    QVERIFY(shadow.comparesLifecycle());
+    QVERIFY(!rust.runsLegacyLifecycle());
+    QVERIFY(rust.appliesRustLifecycle());
+}
+
+void RustSessionTest::resetPrecedesProfileAndUsesProductionProjection()
+{
+    ffi::SessionDecodeBatch raw;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+    ffi::EventSessionReset reset;
+    reset.reason = ffi::EventSessionResetReason::PlayerProfile;
+    addPayload(raw, raw.session_reset, ffi::SessionEventKind::SessionReset,
+               std::move(reset));
+    ffi::EventProfileInfo profile;
+    profile.name = ::rust::String("Firona");
+    profile.last_name = ::rust::String("Vie");
+    profile.class_ = 2;
+    profile.level = 60;
+    profile.race = 1;
+    profile.deity = 201;
+    profile.cur_hp = 1000;
+    profile.mana = 800;
+    addPayload(raw, raw.player_profile, ffi::SessionEventKind::PlayerProfile,
+               std::move(profile));
+
+    const Batch batch = translate(std::move(raw));
+    const auto rustEvents = lifecycleObservations(batch);
+    LifecycleProfile actual;
+    actual.name = "Firona";
+    actual.lastName = "Vie";
+    actual.classId = 2;
+    actual.level = 60;
+    actual.race = 1;
+    actual.deity = 201;
+    actual.currentHp = 1000;
+    actual.mana = 800;
+    const std::vector<LifecycleObservation> legacyEvents = {
+        observeSessionReset(ffi::EventSessionResetReason::PlayerProfile),
+        observeProfile(actual),
+    };
+    QCOMPARE(rustEvents, legacyEvents);
+    QCOMPARE(rustEvents[0].kind, LifecycleKind::SessionReset);
+    QCOMPARE(rustEvents[1].kind, LifecycleKind::PlayerProfile);
+}
+
+void RustSessionTest::publicTimeContractNormalizesWireHourOnce()
+{
+    DateTimeMgr manager;
+    QSignalSpy decoded(&manager, &DateTimeMgr::decodedTimeOfDay);
+    QSignalSpy projected(&manager, &DateTimeMgr::syncDateTime);
+    manager.applyTimeOfDay(3789, 11, 27, 24, 42);
+    QCOMPARE(decoded.count(), 1);
+    QCOMPARE(projected.count(), 1);
+    QCOMPARE(manager.eqDateTime().time().hour(), 23);
+    const seq::v1::Envelope envelope =
+        seq::encode::eqTimeSync(manager.eqDateTime());
+    QVERIFY(envelope.has_eq_time_sync());
+    QCOMPARE(envelope.eq_time_sync().hour(), uint32_t(23));
+}
+
+void RustSessionTest::reconnectResetsBeforeEachEnterWorld()
+{
+    ProtocolRegistry registry;
+    Session session(registry, backend());
+    std::array<uint8_t, 72> first{};
+    std::copy_n("Firona", 6, first.begin());
+    const Record& initial = session.decode(
+        Stream::World, enterWorldOpcode(), Direction::ClientToServer,
+        first.data(), first.size(), 1000);
+    auto initialEvents = lifecycleObservations(initial.batch);
+    QCOMPARE(initialEvents.size(), size_t(2));
+    QCOMPARE(initialEvents[0].kind, LifecycleKind::SessionReset);
+    QCOMPARE(initialEvents[1].kind, LifecycleKind::EnterWorld);
+
+    std::array<uint8_t, 72> second{};
+    std::copy_n("Firona", 6, second.begin());
+    const Record& reconnect = session.decode(
+        Stream::World, enterWorldOpcode(), Direction::ClientToServer,
+        second.data(), second.size(), 2000);
+    const auto reconnectEvents = lifecycleObservations(reconnect.batch);
+    QCOMPARE(reconnectEvents.size(), size_t(2));
+    QCOMPARE(reconnectEvents[0].kind, LifecycleKind::SessionReset);
+    QCOMPARE(reconnectEvents[1].kind, LifecycleKind::EnterWorld);
+    QCOMPARE(session.recordCount(), uint64_t(2));
+}
+
+void RustSessionTest::invalidAdapterPayloadFailsClosed()
+{
+    ffi::SessionDecodeBatch raw;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+    ffi::SessionEventRef event;
+    event.kind = ffi::SessionEventKind::ZoneChanged;
+    event.payload_index = 7;
+    raw.events.push_back(event);
+    QVERIFY_EXCEPTION_THROWN(translate(std::move(raw)), std::out_of_range);
 }
 
 void RustSessionTest::journalHonorsByteBudget()

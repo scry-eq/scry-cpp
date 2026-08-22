@@ -118,15 +118,18 @@ class EQPacketStream : public QObject
   // observers and legacy handlers. Shadow decoding uses this path so muted
   // boxes receive the same ordered packet stream as active boxes.
   using ApplicationPacketHook =
-      std::function<void(EQStreamID, uint8_t, uint16_t,
+      std::function<bool(EQStreamID, uint8_t, uint16_t,
                          const uint8_t*, size_t, int64_t,
                          EQPacketFlowKey, uintptr_t)>;
+  using ApplicationPacketCompleteHook = std::function<void(bool)>;
   using TimestampProvider = std::function<int64_t()>;
   void setApplicationPacketHook(ApplicationPacketHook hook,
-                                TimestampProvider timestampProvider)
+                                TimestampProvider timestampProvider,
+                                ApplicationPacketCompleteHook completeHook = {})
   {
     m_applicationPacketHook = std::move(hook);
     m_timestampProvider = std::move(timestampProvider);
+    m_applicationPacketCompleteHook = std::move(completeHook);
   }
 
   struct StreamHandoff {
@@ -200,6 +203,7 @@ class EQPacketStream : public QObject
   uint8_t m_session_tracking_enabled;
   bool m_muted = false;
   ApplicationPacketHook m_applicationPacketHook;
+  ApplicationPacketCompleteHook m_applicationPacketCompleteHook;
   TimestampProvider m_timestampProvider;
 
   // Payload-size-mismatch warnings, deduped on (opcode, length). A gated

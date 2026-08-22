@@ -50,6 +50,7 @@ private slots:
   void ignoresWrongOpcodeName();
   void ignoresWrongLength();
   void ignoresServerDirection();
+  void mutationGuardBlocksMalformedOwnedPacket();
   void mergesRelogByName();
 
 private:
@@ -124,6 +125,25 @@ void NamePromoterTest::ignoresServerDirection()
        enterWorldPayload("Alpha"), DIR_Server);
 
   QVERIFY(box->display_name.isEmpty());           // C>S only
+}
+
+void NamePromoterTest::mutationGuardBlocksMalformedOwnedPacket()
+{
+  EQPacketOPCodeDB db{QStringLiteral("zone")};
+  EQPacketStream stream(client2world, DIR_Client, 0, db);
+  BoxRegistry reg;
+  Box* box = reg.observe(kClientIp, kServerIp, cport(1000), kSrvPort, 1);
+  NamePromoter promoter(box, &reg, &stream);
+  promoter.setMutationGuard([] { return false; });
+  int observations = 0;
+  promoter.setPromotedObserver(
+      [&observations](const QString&) { ++observations; });
+
+  feed(stream, QStringLiteral("OP_EnterWorld"),
+       enterWorldPayload("MalformedButLegacyShaped"), DIR_Client);
+
+  QVERIFY(box->display_name.isEmpty());
+  QCOMPARE(observations, 0);
 }
 
 void NamePromoterTest::mergesRelogByName()

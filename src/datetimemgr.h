@@ -48,6 +48,8 @@ class DateTimeMgr : public QObject
   const QDateTime& updatedDateTime();
   int updateFrequency();
   void setUpdateFrequency(int seconds); // 3 seconds = 1 EQ minute
+  void applyTimeOfDay(uint32_t year, uint32_t month, uint32_t day,
+                      uint32_t wireHour, uint32_t minute);
 
  public slots:
   void timeOfDay(const uint8_t* tday);
@@ -56,6 +58,10 @@ class DateTimeMgr : public QObject
  signals:
   void syncDateTime(const QDateTime& dt);
   void updatedDateTime(const QDateTime& dt);
+  // Raw shared-event fields. wireHour stays 1..24 for ordered shadow
+  // comparison; syncDateTime carries the public seq.v1 0..23 value.
+  void decodedTimeOfDay(uint32_t year, uint32_t month, uint32_t day,
+                        uint32_t wireHour, uint32_t minute);
 
  protected:
 
