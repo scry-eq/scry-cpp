@@ -888,7 +888,13 @@ void SpawnShell::applyEntitySpawn(
     uint32_t curHp, std::optional<uint32_t> maxHp, uint32_t guildID,
     uint32_t guildServerID, uint32_t classMask, std::optional<int32_t> x,
     std::optional<int32_t> y, std::optional<int32_t> z,
-    std::optional<uint16_t> headingDegrees)
+    std::optional<uint16_t> headingDegrees,
+    std::optional<int32_t> velocityX,
+    std::optional<int32_t> velocityY,
+    std::optional<int32_t> velocityZ,
+    std::optional<int16_t> deltaHeading,
+    std::optional<int16_t> animation,
+    const std::optional<std::vector<uint32_t>>& equipmentModels)
 {
   if (id > UINT16_MAX) return;
   const int16_t px = int16_t(std::clamp(x.value_or(0),
@@ -916,7 +922,27 @@ void SpawnShell::applyEntitySpawn(
   spawn->setGuildTag(
       m_guildMgr->guildIdToName(uint16_t(guildID), uint16_t(guildServerID)));
   if (x && y && z) spawn->setPos(px, py, pz);
-  if (headingDegrees) spawn->setHeading(entityHeading(*headingDegrees), 0);
+  if (headingDegrees)
+    spawn->setHeading(entityHeading(*headingDegrees),
+                      int8_t(deltaHeading.value_or(0)));
+  if (velocityX || velocityY || velocityZ)
+    spawn->setDeltas(
+        int16_t(std::clamp(velocityX.value_or(0), int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))),
+        int16_t(std::clamp(velocityY.value_or(0), int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))),
+        int16_t(std::clamp(velocityZ.value_or(0), int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))));
+  if (animation) spawn->setAnimation(uint8_t(*animation));
+  if (equipmentModels) {
+    const size_t count = std::min<size_t>(equipmentModels->size(),
+                                          tLastCoreWearSlot + 1);
+    for (size_t i = 0; i < count; ++i) {
+      EquipStruct equipment = spawn->equipment(uint8_t(i));
+      equipment.itemId = (*equipmentModels)[i];
+      spawn->setEquipment(uint8_t(i), equipment);
+    }
+  }
   updateFilterFlags(spawn);
   updateRuntimeFilterFlags(spawn);
   spawn->updateLastChanged();
@@ -930,7 +956,12 @@ void SpawnShell::applyEntitySpawn(
 }
 
 void SpawnShell::applyEntityMove(uint32_t id, int32_t x, int32_t y,
-                                 int32_t z, uint16_t headingDegrees)
+                                 int32_t z, uint16_t headingDegrees,
+                                 std::optional<int32_t> velocityX,
+                                 std::optional<int32_t> velocityY,
+                                 std::optional<int32_t> velocityZ,
+                                 std::optional<int16_t> deltaHeading,
+                                 std::optional<int16_t> animation)
 {
   if (id > UINT16_MAX) return;
   Item* item = id == m_player->id()
@@ -941,7 +972,20 @@ void SpawnShell::applyEntityMove(uint32_t id, int32_t x, int32_t y,
   spawn->setPos(int16_t(std::clamp(x, int32_t(INT16_MIN), int32_t(INT16_MAX))),
                 int16_t(std::clamp(y, int32_t(INT16_MIN), int32_t(INT16_MAX))),
                 int16_t(std::clamp(z, int32_t(INT16_MIN), int32_t(INT16_MAX))));
-  spawn->setHeading(entityHeading(headingDegrees), 0);
+  spawn->setHeading(entityHeading(headingDegrees),
+                    int8_t(deltaHeading.value_or(spawn->deltaHeading())));
+  if (velocityX || velocityY || velocityZ)
+    spawn->setDeltas(
+        int16_t(std::clamp(velocityX.value_or(spawn->deltaX()),
+                           int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))),
+        int16_t(std::clamp(velocityY.value_or(spawn->deltaY()),
+                           int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))),
+        int16_t(std::clamp(velocityZ.value_or(spawn->deltaZ()),
+                           int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))));
+  if (animation) spawn->setAnimation(uint8_t(*animation));
   spawn->updateLast();
   item->updateLastChanged();
   emit changeItem(item, tSpawnChangedPosition);
@@ -1053,7 +1097,9 @@ void SpawnShell::updateSpawnHP(uint16_t id, int32_t curHp, int32_t maxHp)
 // fields a loadout swap changes on an already-known spawn (level + class);
 // position/HP are left to their own streams. The player's own spawn is not
 // tracked in m_spawns — the caller refreshes it via Player::setIdentity.
-void SpawnShell::updateSpawnIdentity(uint16_t id, uint8_t level, uint8_t classVal)
+void SpawnShell::updateSpawnIdentity(uint16_t id, uint8_t level,
+                                     uint8_t classVal,
+                                     std::optional<uint16_t> race)
 {
   Item* item = m_spawns.value(id, nullptr);
   if (item == NULL)
@@ -1061,8 +1107,43 @@ void SpawnShell::updateSpawnIdentity(uint16_t id, uint8_t level, uint8_t classVa
   Spawn* spawn = (Spawn*)item;
   spawn->setLevel(level);
   spawn->setClassVal(classVal);
+  if (race) spawn->setRace(*race);
   item->updateLastChanged();
   emit changeItem(item, tSpawnChangedALL);
+}
+
+void SpawnShell::applySpawnDeath(uint32_t id,
+                                 std::optional<uint32_t> killerId)
+{
+  if (id > UINT16_MAX) return;
+  Item* deceased = m_spawns.value(int(id), nullptr);
+  if (!deceased) return;
+  Item* killer = nullptr;
+  if (killerId && *killerId <= UINT16_MAX) {
+    if (m_player && *killerId == m_player->id())
+      killer = m_player;
+    else
+      killer = m_spawns.value(int(*killerId), nullptr);
+  }
+  auto* spawn = static_cast<Spawn*>(deceased);
+  spawn->killSpawn();
+  spawn->updateLast();
+  deceased->updateLastChanged();
+  emit killSpawn(deceased, killer,
+                 killer ? 0 : uint16_t(killerId.value_or(0)));
+}
+
+void SpawnShell::applyPlayerDeath(std::optional<uint32_t> killerId)
+{
+  if (!m_player || m_player->id() == 0) return;
+  Item* killer = nullptr;
+  if (killerId && *killerId <= UINT16_MAX)
+    killer = m_spawns.value(int(*killerId), nullptr);
+  m_player->killSpawn();
+  m_player->updateLast();
+  m_player->updateLastChanged();
+  emit killSpawn(m_player, killer,
+                 killer ? 0 : uint16_t(killerId.value_or(0)));
 }
 
 void SpawnShell::updateSpawnAnimation(uint16_t id, uint8_t animation)

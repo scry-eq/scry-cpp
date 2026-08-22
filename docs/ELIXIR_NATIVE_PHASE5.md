@@ -18,7 +18,12 @@ identify current opcode IDs. In Rust mode an unmapped packet does not fall back
 to the legacy handler. Restart the session with `--entity-decoder=legacy` to
 roll back the whole family.
 
-Movement shadow comparisons may report a projection mismatch when a legacy
-packet supplies velocity or animation fields. The current shared `SpawnMoved`
-event carries position and heading only. This is one reason the selector stays
-on `legacy` pending capture soak and an additive event-contract update.
+The decoder pin at `47aa6a4` carries the complete additive spatial contract:
+optional initial position, independent velocity-component presence,
+`delta_heading`, animation, and the optional nine-model equipment list. The
+C++ state adapter preserves absent values and the `seq.v1` projector now matches
+the production legacy `fillSpawn` and `fillPos` output byte-for-byte in the
+Phase-5 regression test. The earlier movement-projection parity blocker is
+therefore closed. The selector remains `legacy` by default because repository
+capture fixtures were not available for the required Live, Test, and EQL replay
+and soak checks.

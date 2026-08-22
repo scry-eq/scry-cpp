@@ -84,6 +84,21 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
                 handler(data, len, dir);
         };
     };
+    auto player = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet || m_packet->legacyPlayersEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
+    auto playerAppearance = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet ||
+                m_packet->legacyPlayerAppearanceEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
 
     // --- ZoneMgr: zone transitions + player profile.
     wire("OP_ZoneEntry", SP_Zone, DIR_Client,
@@ -156,8 +171,11 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // connected in buildManagerSet() — preserves slot fire order). This is an
     // inter-manager Qt signal (ZoneMgr and Player stay QObjects), not a packet
     // dispatch.
-    connect(ms.zoneMgr, SIGNAL(playerProfile(const charProfileStruct*)),
-            ms.player,  SLOT(player(const charProfileStruct*)));
+    connect(ms.zoneMgr, &ZoneMgr::playerProfile, this,
+            [this, player = ms.player](const charProfileStruct* profile) {
+        if (!m_packet || m_packet->legacyPlayersEnabledForCurrentPacket())
+            player->player(profile);
+    });
     connect(ms.zoneMgr, SIGNAL(playerProfileSupplement(const charProfileStruct*)),
             ms.player,  SLOT(applyProfileSupplement(const charProfileStruct*)));
 
@@ -165,7 +183,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // the DIR_Server playerSpawnPos variant goes to SpawnShell below.
     wire("OP_ClientUpdate", SP_Zone, DIR_Server | DIR_Client,
          "playerSelfPosStruct", SZC_Match,
-         seqBind(ms.player, &Player::playerUpdateSelf));
+         player(seqBind(ms.player, &Player::playerUpdateSelf)));
 
     // OP_ItemPacket / OP_TimeOfDay / OP_ZoneServerInfo feed daemon-GLOBAL
     // sinks. Only the active box wires them — otherwise every box's
@@ -208,20 +226,20 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          seqBind(ms.spawnShell, &SpawnShell::updateSpawnLock));
     wire("OP_HPUpdate", SP_Zone, DIR_Server | DIR_Client,
          "hpNpcUpdateStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::updateNpcHP));
+         player(seqBind(ms.spawnShell, &SpawnShell::updateNpcHP)));
     wire("OP_MobHealth", SP_Zone, DIR_Server,
          "mobHealthStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::updateMobHealth));
+         player(seqBind(ms.spawnShell, &SpawnShell::updateMobHealth)));
 
     // Player vitals — same opcodes also feed Player (filtered by self).
     // SpawnShell's OP_HPUpdate/OP_WearChange wires above MUST precede
     // these (shared opcode+payload on the same stream dispatches in order).
     wire("OP_HPUpdate", SP_Zone, DIR_Server | DIR_Client,
          "hpNpcUpdateStruct", SZC_Match,
-         seqBind(ms.player, &Player::updateNpcHP));
+         player(seqBind(ms.player, &Player::updateNpcHP)));
     wire("OP_ManaChange", SP_Zone, DIR_Server,
          "manaDecrementStruct", SZC_Match,
-         seqBind(ms.player, &Player::manaChange));
+         player(seqBind(ms.player, &Player::manaChange)));
     wire("OP_Stamina", SP_Zone, DIR_Server,
          "staminaStruct", SZC_Match,
          seqBind(ms.player, &Player::updateStamina));
@@ -254,13 +272,14 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          entity(seqBind(ms.spawnShell, &SpawnShell::renameSpawn)));
     wire("OP_Illusion", SP_Zone, DIR_Server | DIR_Client,
          "spawnIllusionStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::illusionSpawn));
+         playerAppearance(seqBind(ms.spawnShell, &SpawnShell::illusionSpawn)));
     wire("OP_SpawnAppearance", SP_Zone, DIR_Server | DIR_Client,
          "spawnAppearanceStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::updateSpawnAppearance));
+         playerAppearance(
+             seqBind(ms.spawnShell, &SpawnShell::updateSpawnAppearance)));
     wire("OP_Death", SP_Zone, DIR_Server,
          "newCorpseStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::killSpawn));
+         player(seqBind(ms.spawnShell, &SpawnShell::killSpawn)));
     wire("OP_Shroud", SP_Zone, DIR_Server,
          "spawnShroudSelf", SZC_None,
          seqBind(ms.spawnShell, &SpawnShell::shroudSpawn));

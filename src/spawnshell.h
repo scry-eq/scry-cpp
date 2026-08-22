@@ -142,9 +142,20 @@ public:
                          std::optional<int32_t> x,
                          std::optional<int32_t> y,
                          std::optional<int32_t> z,
-                         std::optional<uint16_t> headingDegrees);
+                         std::optional<uint16_t> headingDegrees,
+                         std::optional<int32_t> velocityX,
+                         std::optional<int32_t> velocityY,
+                         std::optional<int32_t> velocityZ,
+                         std::optional<int16_t> deltaHeading,
+                         std::optional<int16_t> animation,
+                         const std::optional<std::vector<uint32_t>>& equipmentModels);
    void applyEntityMove(uint32_t id, int32_t x, int32_t y, int32_t z,
-                        uint16_t headingDegrees);
+                        uint16_t headingDegrees,
+                        std::optional<int32_t> velocityX,
+                        std::optional<int32_t> velocityY,
+                        std::optional<int32_t> velocityZ,
+                        std::optional<int16_t> deltaHeading,
+                        std::optional<int16_t> animation);
    void applyEntityRemove(uint32_t id);
    void applyEntityRename(std::optional<uint32_t> id,
                           const QString& oldName, const QString& newName);
@@ -155,7 +166,10 @@ public:
    void applyEntityGroundItemRemoved(uint32_t id);
    void applyEntityCorpseLocation(uint32_t id, float x, float y, float z);
    void updateSpawnHP(uint16_t id, int32_t curHp, int32_t maxHp);
-   void updateSpawnIdentity(uint16_t id, uint8_t level, uint8_t classVal);
+   void updateSpawnIdentity(uint16_t id, uint8_t level, uint8_t classVal,
+                            std::optional<uint16_t> race = std::nullopt);
+   void applySpawnDeath(uint32_t id, std::optional<uint32_t> killerId);
+   void applyPlayerDeath(std::optional<uint32_t> killerId);
    // Stand/sit/duck pose only, for backends that broadcast it independently of
    // a position update (the stock position path sets animation alongside coords).
    void updateSpawnAnimation(uint16_t id, uint8_t animation);

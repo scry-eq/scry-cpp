@@ -20,6 +20,7 @@ enum class FlushReason { Shutdown, ZoneTransition, ReplayEnd, Reset };
 enum class Disposition { Decoded, Ignored, Unhandled, Malformed, Unmapped };
 enum class LifecycleSelector { Legacy, Shadow, Rust };
 using EntitySelector = LifecycleSelector;
+using PlayerSelector = LifecycleSelector;
 enum class LifecycleKind {
     SessionReset,
     EnterWorld,
@@ -41,6 +42,25 @@ enum class EntityKind {
     CorpseLocated,
     ZonePoints,
 };
+enum class PlayerKind {
+    PlayerIdentityUpdated,
+    PlayerMoved,
+    PlayerVitalsUpdated,
+    SpawnHealthUpdated,
+    PlayerDied,
+    SpawnDied,
+    SpawnIdentityUpdated,
+    PlayerAppearanceUpdated,
+};
+
+struct PlayerIdentityUpdated { rust::EventPlayerIdentity payload; };
+struct PlayerMoved { rust::EventPlayerMoved payload; };
+struct PlayerVitalsUpdated { rust::EventPlayerVitals payload; };
+struct SpawnHealthUpdated { rust::EventSpawnHealth payload; };
+struct PlayerDied { rust::EventPlayerDied payload; };
+struct SpawnDied { rust::EventSpawnDied payload; };
+struct SpawnIdentityUpdated { rust::EventSpawnIdentity payload; };
+struct PlayerAppearanceUpdated { rust::EventPlayerAppearance payload; };
 
 struct SpawnAdded { rust::EventSpawnInfo payload; };
 struct SpawnMoved { rust::EventSpawnMoved payload; };
@@ -99,6 +119,9 @@ struct LevelUpdate { rust::EventLevelUpdatePayload payload; };
 struct EnterWorld { rust::EventEnterWorld payload; };
 
 using Event = std::variant<
+    PlayerIdentityUpdated, PlayerMoved, PlayerVitalsUpdated,
+    SpawnHealthUpdated, PlayerDied, SpawnDied, SpawnIdentityUpdated,
+    PlayerAppearanceUpdated,
     SpawnAdded, SpawnMoved, SpawnRenamed, SpawnRemoved, SpawnKilled, SpawnHp, StatSync,
     SelfPos, SpawnAnimation, SpawnIllusion, GuildsInZone, TimeOfDay,
     ZoneChanged, PlayerProfile, Stance, Invocation, InspectAnswer, GuildRoster,
@@ -111,7 +134,7 @@ using Event = std::variant<
     LevelUpdate, EnterWorld, SessionReset, ZoneTransition,
     ZoneEnvironmentChanged>;
 
-static_assert(std::variant_size_v<Event> == 55,
+static_assert(std::variant_size_v<Event> == 63,
               "the C++ shadow event model must cover every Rust event kind");
 
 // A copyable, deterministic representation used by shadow comparison. The
@@ -147,6 +170,18 @@ struct EntityObservation {
 };
 
 using EntityComparison = LifecycleComparison;
+
+struct PlayerObservation {
+    PlayerKind kind = PlayerKind::PlayerIdentityUpdated;
+    std::vector<uint8_t> payload;
+
+    bool operator==(const PlayerObservation& other) const
+    {
+        return kind == other.kind && payload == other.payload;
+    }
+};
+
+using PlayerComparison = LifecycleComparison;
 
 struct LifecycleProfile {
     std::string name;
@@ -212,6 +247,12 @@ EntityComparison compareEntities(
     const Batch& rustBatch,
     const std::vector<EntityObservation>& legacyEvents,
     const std::vector<seq::v1::Envelope>& legacyProjections);
+std::vector<PlayerObservation> playerObservations(const Batch& batch);
+std::vector<seq::v1::Envelope> projectPlayers(const Batch& batch);
+PlayerComparison comparePlayers(
+    const Batch& rustBatch,
+    const std::vector<PlayerObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections);
 LifecycleObservation observeSessionReset(rust::EventSessionResetReason reason);
 LifecycleObservation observeEnterWorld(const std::string& characterName);
 LifecycleObservation observeZoneServer(const std::string& host, uint16_t port);
@@ -238,6 +279,7 @@ LifecycleComparison compareLifecycle(
     const std::vector<seq::v1::Envelope>& legacyProjections);
 bool isLifecycleEvent(const Event& event);
 bool isEntityEvent(const Event& event);
+bool isPlayerEvent(const Event& event);
 
 class ProtocolRegistry {
 public:
@@ -259,7 +301,8 @@ public:
             size_t journalLimit = 256,
             size_t journalByteLimit = 4 * 1024 * 1024,
             LifecycleSelector lifecycleSelector = LifecycleSelector::Shadow,
-            EntitySelector entitySelector = EntitySelector::Legacy);
+            EntitySelector entitySelector = EntitySelector::Legacy,
+            PlayerSelector playerSelector = PlayerSelector::Legacy);
 
     const Record& decode(Stream stream, uint16_t opcode, Direction direction,
                          const uint8_t* payload, size_t payloadSize,
@@ -283,6 +326,13 @@ public:
     { return m_entitySelector == EntitySelector::Shadow; }
     bool appliesRustEntities() const
     { return m_entitySelector == EntitySelector::Rust; }
+    PlayerSelector playerSelector() const { return m_playerSelector; }
+    bool runsLegacyPlayers() const
+    { return m_playerSelector != PlayerSelector::Rust; }
+    bool comparesPlayers() const
+    { return m_playerSelector == PlayerSelector::Shadow; }
+    bool appliesRustPlayers() const
+    { return m_playerSelector == PlayerSelector::Rust; }
     const std::optional<LifecycleComparison>& lastLifecycleComparison() const
     { return m_lastLifecycleComparison; }
     void recordLifecycleComparison(LifecycleComparison comparison)
@@ -291,6 +341,10 @@ public:
     { return m_lastEntityComparison; }
     void recordEntityComparison(EntityComparison comparison)
     { m_lastEntityComparison = std::move(comparison); }
+    const std::optional<PlayerComparison>& lastPlayerComparison() const
+    { return m_lastPlayerComparison; }
+    void recordPlayerComparison(PlayerComparison comparison)
+    { m_lastPlayerComparison = std::move(comparison); }
 
 private:
     const Record& append(Record record);
@@ -301,11 +355,13 @@ private:
     size_t m_journalBytes = 0;
     const LifecycleSelector m_lifecycleSelector;
     const EntitySelector m_entitySelector;
+    const PlayerSelector m_playerSelector;
     uint64_t m_recordCount = 0;
     uint64_t m_droppedRecordCount = 0;
     std::deque<Record> m_journal;
     std::optional<LifecycleComparison> m_lastLifecycleComparison;
     std::optional<EntityComparison> m_lastEntityComparison;
+    std::optional<PlayerComparison> m_lastPlayerComparison;
 };
 
 } // namespace seq::shadow

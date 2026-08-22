@@ -213,6 +213,38 @@ Batch translate(rust::SessionDecodeBatch batch)
     for (const rust::SessionEventRef& event : batch.events) {
         const uint32_t index = event.payload_index;
         switch (event.kind) {
+        case rust::SessionEventKind::PlayerIdentityUpdated:
+            out.events.emplace_back(PlayerIdentityUpdated{
+                takePayload(batch.player_identity_updated, index)});
+            break;
+        case rust::SessionEventKind::PlayerMoved:
+            out.events.emplace_back(PlayerMoved{
+                takePayload(batch.player_moved, index)});
+            break;
+        case rust::SessionEventKind::PlayerVitalsUpdated:
+            out.events.emplace_back(PlayerVitalsUpdated{
+                takePayload(batch.player_vitals_updated, index)});
+            break;
+        case rust::SessionEventKind::SpawnHealthUpdated:
+            out.events.emplace_back(SpawnHealthUpdated{
+                takePayload(batch.spawn_health_updated, index)});
+            break;
+        case rust::SessionEventKind::PlayerDied:
+            out.events.emplace_back(PlayerDied{
+                takePayload(batch.player_died, index)});
+            break;
+        case rust::SessionEventKind::SpawnDied:
+            out.events.emplace_back(SpawnDied{
+                takePayload(batch.spawn_died, index)});
+            break;
+        case rust::SessionEventKind::SpawnIdentityUpdated:
+            out.events.emplace_back(SpawnIdentityUpdated{
+                takePayload(batch.spawn_identity_updated, index)});
+            break;
+        case rust::SessionEventKind::PlayerAppearanceUpdated:
+            out.events.emplace_back(PlayerAppearanceUpdated{
+                takePayload(batch.player_appearance_updated, index)});
+            break;
         case rust::SessionEventKind::SpawnAdded:
             out.events.emplace_back(SpawnAdded{takePayload(batch.spawn_added, index)});
             break;
@@ -534,11 +566,36 @@ std::vector<EntityObservation> entityObservations(const Batch& batch)
                 appendScalar(observation.payload, p.class_mask);
                 appendScalar(observation.payload, p.has_pos);
                 if (p.has_pos) pushPos(observation.payload, p.pos);
+                appendScalar(observation.payload, p.velocity.has_x);
+                if (p.velocity.has_x) appendScalar(observation.payload, p.velocity.x);
+                appendScalar(observation.payload, p.velocity.has_y);
+                if (p.velocity.has_y) appendScalar(observation.payload, p.velocity.y);
+                appendScalar(observation.payload, p.velocity.has_z);
+                if (p.velocity.has_z) appendScalar(observation.payload, p.velocity.z);
+                appendScalar(observation.payload, p.has_delta_heading);
+                if (p.has_delta_heading)
+                    appendScalar(observation.payload, p.delta_heading);
+                appendScalar(observation.payload, p.has_animation);
+                if (p.has_animation) appendScalar(observation.payload, p.animation);
+                appendScalar(observation.payload, p.has_equipment_models);
+                if (p.has_equipment_models)
+                    appendVector(observation.payload, p.equipment_models);
                 out.push_back(std::move(observation));
             } else if constexpr (std::is_same_v<T, SpawnMoved>) {
                 EntityObservation observation{EntityKind::SpawnMoved, {}};
                 appendScalar(observation.payload, p.id);
                 pushPos(observation.payload, p.pos);
+                appendScalar(observation.payload, p.velocity.has_x);
+                if (p.velocity.has_x) appendScalar(observation.payload, p.velocity.x);
+                appendScalar(observation.payload, p.velocity.has_y);
+                if (p.velocity.has_y) appendScalar(observation.payload, p.velocity.y);
+                appendScalar(observation.payload, p.velocity.has_z);
+                if (p.velocity.has_z) appendScalar(observation.payload, p.velocity.z);
+                appendScalar(observation.payload, p.has_delta_heading);
+                if (p.has_delta_heading)
+                    appendScalar(observation.payload, p.delta_heading);
+                appendScalar(observation.payload, p.has_animation);
+                if (p.has_animation) appendScalar(observation.payload, p.animation);
                 out.push_back(std::move(observation));
             } else if constexpr (std::is_same_v<T, SpawnRemoved>) {
                 EntityObservation observation{EntityKind::SpawnRemoved, {}};
@@ -627,6 +684,18 @@ std::vector<seq::v1::Envelope> projectEntities(const Batch& batch)
         target->set_z(z);
         target->set_heading(int32_t(heading));
     };
+    auto motion = [](seq::v1::Pos* target,
+                     const rust::EventVelocity& velocity,
+                     bool hasDeltaHeading, int16_t deltaHeading,
+                     bool hasAnimation, int16_t animation) {
+        target->set_vx(velocity.has_x ? -velocity.x : 0);
+        target->set_vy(velocity.has_y ? -velocity.y : 0);
+        target->set_vz(velocity.has_z ? velocity.z : 0);
+        target->set_delta_heading(
+            hasDeltaHeading ? int32_t(int8_t(deltaHeading)) : 0);
+        target->set_animation(
+            hasAnimation ? uint32_t(uint8_t(animation)) : 0);
+    };
     for (const Event& event : batch.events) {
         std::visit([&](const auto& value) {
             using T = std::decay_t<decltype(value)>;
@@ -654,9 +723,17 @@ std::vector<seq::v1::Envelope> projectEntities(const Batch& batch)
                 case 3: spawn->set_type(seq::v1::CORPSE_NPC); break;
                 default: spawn->set_type(seq::v1::NPC); break;
                 }
-                if (p.has_pos)
+                if (p.has_pos) {
                     position(spawn->mutable_pos(), p.pos.x, p.pos.y,
                              p.pos.z, p.pos.heading_deg);
+                    motion(spawn->mutable_pos(), p.velocity,
+                           p.has_delta_heading, p.delta_heading,
+                           p.has_animation, p.animation);
+                }
+                if (p.has_equipment_models) {
+                    for (uint32_t model : p.equipment_models)
+                        spawn->add_equip_models(model);
+                }
                 out.push_back(std::move(envelope));
             } else if constexpr (std::is_same_v<T, SpawnMoved>) {
                 seq::v1::Envelope envelope;
@@ -664,6 +741,9 @@ std::vector<seq::v1::Envelope> projectEntities(const Batch& batch)
                 update->set_id(p.id);
                 position(update->mutable_pos(), p.pos.x, p.pos.y, p.pos.z,
                          p.pos.heading_deg);
+                motion(update->mutable_pos(), p.velocity,
+                       p.has_delta_heading, p.delta_heading,
+                       p.has_animation, p.animation);
                 out.push_back(std::move(envelope));
             } else if constexpr (std::is_same_v<T, SpawnRemoved>) {
                 seq::v1::Envelope envelope;
@@ -729,6 +809,189 @@ EntityComparison compareEntities(
     EntityComparison comparison;
     const auto rustEvents = entityObservations(rustBatch);
     const auto rustProjections = projectEntities(rustBatch);
+    comparison.rustEventCount = rustEvents.size();
+    comparison.legacyEventCount = legacyEvents.size();
+    comparison.rustProjectionCount = rustProjections.size();
+    comparison.legacyProjectionCount = legacyProjections.size();
+    comparison.orderedEventsEqual = rustEvents == legacyEvents;
+    comparison.projectionsEqual =
+        rustProjections.size() == legacyProjections.size() &&
+        std::equal(rustProjections.begin(), rustProjections.end(),
+                   legacyProjections.begin(), sameEnvelope);
+    return comparison;
+}
+
+bool isPlayerEvent(const Event& event)
+{
+    return std::visit([](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        return std::is_same_v<T, PlayerIdentityUpdated> ||
+               std::is_same_v<T, PlayerMoved> ||
+               std::is_same_v<T, PlayerVitalsUpdated> ||
+               std::is_same_v<T, SpawnHealthUpdated> ||
+               std::is_same_v<T, PlayerDied> ||
+               std::is_same_v<T, SpawnDied> ||
+               std::is_same_v<T, SpawnIdentityUpdated> ||
+               std::is_same_v<T, PlayerAppearanceUpdated>;
+    }, event);
+}
+
+std::vector<PlayerObservation> playerObservations(const Batch& batch)
+{
+    std::vector<PlayerObservation> out;
+    auto point = [](std::vector<uint8_t>& bytes, const rust::EventPos& pos) {
+        appendScalar(bytes, pos.x); appendScalar(bytes, pos.y);
+        appendScalar(bytes, pos.z); appendScalar(bytes, pos.heading_deg);
+    };
+    auto vital = [](std::vector<uint8_t>& bytes,
+                    const rust::EventVitalValue& value) {
+        appendScalar(bytes, value.current);
+        appendScalar(bytes, value.has_maximum);
+        if (value.has_maximum) appendScalar(bytes, value.maximum);
+    };
+    for (const Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            PlayerObservation observation;
+            bool selected = true;
+            if constexpr (std::is_same_v<T, PlayerIdentityUpdated>) {
+                observation.kind = PlayerKind::PlayerIdentityUpdated;
+                appendScalar(observation.payload, p.has_spawn_id);
+                if (p.has_spawn_id) appendScalar(observation.payload, p.spawn_id);
+                appendString(observation.payload, p.name);
+                appendString(observation.payload, p.last_name);
+                appendScalar(observation.payload, p.race);
+                appendScalar(observation.payload, p.class_);
+                appendScalar(observation.payload, p.deity);
+                appendScalar(observation.payload, p.level);
+                appendScalar(observation.payload, p.class_mask);
+            } else if constexpr (std::is_same_v<T, PlayerMoved>) {
+                observation.kind = PlayerKind::PlayerMoved;
+                appendScalar(observation.payload, p.has_spawn_id);
+                if (p.has_spawn_id) appendScalar(observation.payload, p.spawn_id);
+                point(observation.payload, p.pos);
+            } else if constexpr (std::is_same_v<T, PlayerVitalsUpdated>) {
+                observation.kind = PlayerKind::PlayerVitalsUpdated;
+                appendScalar(observation.payload, p.has_health);
+                if (p.has_health) vital(observation.payload, p.health);
+                appendScalar(observation.payload, p.has_mana);
+                if (p.has_mana) vital(observation.payload, p.mana);
+                appendScalar(observation.payload, p.has_endurance);
+                if (p.has_endurance) vital(observation.payload, p.endurance);
+            } else if constexpr (std::is_same_v<T, SpawnHealthUpdated>) {
+                observation.kind = PlayerKind::SpawnHealthUpdated;
+                appendScalar(observation.payload, p.id);
+                appendScalar(observation.payload, p.current);
+                appendScalar(observation.payload, p.maximum);
+            } else if constexpr (std::is_same_v<T, PlayerDied>) {
+                observation.kind = PlayerKind::PlayerDied;
+                appendScalar(observation.payload, p.has_killer_id);
+                if (p.has_killer_id) appendScalar(observation.payload, p.killer_id);
+            } else if constexpr (std::is_same_v<T, SpawnDied>) {
+                observation.kind = PlayerKind::SpawnDied;
+                appendScalar(observation.payload, p.id);
+                appendScalar(observation.payload, p.has_killer_id);
+                if (p.has_killer_id) appendScalar(observation.payload, p.killer_id);
+            } else if constexpr (std::is_same_v<T, SpawnIdentityUpdated>) {
+                observation.kind = PlayerKind::SpawnIdentityUpdated;
+                appendScalar(observation.payload, p.id);
+                appendScalar(observation.payload, p.level);
+                appendScalar(observation.payload, p.class_);
+                appendScalar(observation.payload, p.race);
+            } else if constexpr (std::is_same_v<T, PlayerAppearanceUpdated>) {
+                observation.kind = PlayerKind::PlayerAppearanceUpdated;
+                appendScalar(observation.payload, p.has_race);
+                if (p.has_race) appendScalar(observation.payload, p.race);
+                appendScalar(observation.payload, p.has_gender);
+                if (p.has_gender) appendScalar(observation.payload, p.gender);
+                appendScalar(observation.payload, p.has_animation);
+                if (p.has_animation) appendScalar(observation.payload, p.animation);
+            } else {
+                selected = false;
+            }
+            if (selected) out.push_back(std::move(observation));
+        }, event);
+    }
+    return out;
+}
+
+std::vector<seq::v1::Envelope> projectPlayers(const Batch& batch)
+{
+    std::vector<seq::v1::Envelope> out;
+    auto pos = [](seq::v1::Pos* target, const rust::EventPos& source) {
+        target->set_x(-source.x); target->set_y(-source.y);
+        target->set_z(source.z); target->set_heading(source.heading_deg);
+    };
+    for (const Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, PlayerIdentityUpdated>) {
+                seq::v1::Envelope envelope;
+                auto* stats = envelope.mutable_player_stats();
+                stats->set_name(std::string(p.name));
+                stats->set_class_(p.class_); stats->set_race(p.race);
+                stats->set_level(p.level); stats->set_class_mask(p.class_mask);
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, PlayerMoved>) {
+                if (!p.has_spawn_id) return;
+                seq::v1::Envelope envelope;
+                auto* update = envelope.mutable_spawn_updated();
+                update->set_id(p.spawn_id); pos(update->mutable_pos(), p.pos);
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, PlayerVitalsUpdated>) {
+                seq::v1::Envelope envelope;
+                auto* stats = envelope.mutable_player_stats();
+                if (p.has_health) {
+                    stats->set_hp_cur(uint32_t(std::max(p.health.current, 0)));
+                    if (p.health.has_maximum)
+                        stats->set_hp_max(uint32_t(std::max(p.health.maximum, 0)));
+                }
+                if (p.has_mana) {
+                    stats->set_mana_cur(uint32_t(std::max(p.mana.current, 0)));
+                    if (p.mana.has_maximum)
+                        stats->set_mana_max(uint32_t(std::max(p.mana.maximum, 0)));
+                }
+                if (p.has_endurance) {
+                    stats->set_endurance_cur(
+                        uint32_t(std::max(p.endurance.current, 0)));
+                    if (p.endurance.has_maximum)
+                        stats->set_endurance_max(
+                            uint32_t(std::max(p.endurance.maximum, 0)));
+                }
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, SpawnHealthUpdated>) {
+                seq::v1::Envelope envelope;
+                auto* update = envelope.mutable_spawn_updated();
+                update->set_id(p.id);
+                update->set_hp_cur(uint32_t(std::max(p.current, 0)));
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, SpawnDied>) {
+                seq::v1::Envelope envelope;
+                auto* killed = envelope.mutable_spawn_killed();
+                killed->set_deceased_id(p.id);
+                killed->set_killer_id(p.has_killer_id ? p.killer_id : 0);
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, SpawnIdentityUpdated>) {
+                seq::v1::Envelope envelope;
+                auto* update = envelope.mutable_spawn_updated();
+                update->set_id(p.id); update->set_level(p.level);
+                out.push_back(std::move(envelope));
+            }
+        }, event);
+    }
+    return out;
+}
+
+PlayerComparison comparePlayers(
+    const Batch& rustBatch,
+    const std::vector<PlayerObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections)
+{
+    PlayerComparison comparison;
+    const auto rustEvents = playerObservations(rustBatch);
+    const auto rustProjections = projectPlayers(rustBatch);
     comparison.rustEventCount = rustEvents.size();
     comparison.legacyEventCount = legacyEvents.size();
     comparison.rustProjectionCount = rustProjections.size();
@@ -818,12 +1081,14 @@ Session::Session(const ProtocolRegistry& registry,
                  rust::SessionBackend backend, size_t journalLimit,
                  size_t journalByteLimit,
                  LifecycleSelector lifecycleSelector,
-                 EntitySelector entitySelector)
+                 EntitySelector entitySelector,
+                 PlayerSelector playerSelector)
     : m_session(rust::session_new(registry.rustRegistry(), backend))
     , m_journalLimit(std::max<size_t>(journalLimit, 1))
     , m_journalByteLimit(std::max<size_t>(journalByteLimit, sizeof(Record)))
     , m_lifecycleSelector(lifecycleSelector)
     , m_entitySelector(entitySelector)
+    , m_playerSelector(playerSelector)
 {
 }
 

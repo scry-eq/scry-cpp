@@ -114,7 +114,7 @@ state machines without replay, so the temporary side is finalized instead.
 decoded-packet observers or legacy handlers. The hook sends the stream, numeric
 opcode, direction, payload, and capture timestamp to Rust. The adapter switches
 only on `SessionEventKind` and moves the indexed typed payload into an exhaustive
-52-alternative `std::variant`. It does no opcode lookup, backend selection, or
+63-alternative `std::variant`. It does no opcode lookup, backend selection, or
 correlation. Capture timestamps and attribution follow cached, nested, and
 fragmented protocol packets instead of being sampled when a cache drains. Each
 session keeps at most 256 ordered packet and flush records under a 4 MiB source
@@ -136,6 +136,17 @@ gate prevents malformed Rust-owned packets from reaching those tails or the raw
 session-creation, flush, or host-apply failure stops the daemon and aborts the
 current packet before observers and handlers run. It does not switch a live
 session back to legacy ownership.
+
+`--entity-decoder legacy|shadow|rust` and
+`--player-decoder legacy|shadow|rust` add independent immutable session
+selectors for the Phase-5 entity/spatial and Phase-6 player families. Both
+default to `legacy`. Shadow mode compares ordered manager observations and
+serialized `seq.v1` projections; Rust mode applies typed events through neutral
+host-state methods and gates matching legacy writes. The corrected Phase-5
+contract preserves optional initial position, per-axis velocity presence,
+delta heading, animation, and all nine equipment models. Player ownership
+covers tags 55 through 62, while EQL profile fields assigned to later phases
+remain in its compatibility tail.
 
 Zone projection runs after `loadZoneMap`, so shadow comparison includes
 production map geometry. Rust installs Live/Test NewZone environment before the

@@ -30,6 +30,7 @@
 #include <QVector>
 
 #include <vector>
+#include <optional>
 
 #include "everquest.h"
 #include "spawn.h"
@@ -221,6 +222,23 @@ public:
    void applyLifecycleIdentity(const QString& name, const QString& lastName,
                                uint16_t race, uint8_t classVal, uint8_t level,
                                uint16_t deity, uint32_t classMask);
+   void applyPlayerIdentity(std::optional<uint32_t> spawnId,
+                            const QString& name, const QString& lastName,
+                            uint16_t race, uint8_t classVal, uint16_t deity,
+                            uint8_t level, uint32_t classMask);
+   void applyPlayerMovement(std::optional<uint32_t> spawnId,
+                            int32_t x, int32_t y, int32_t z,
+                            uint16_t headingDegrees);
+   void applyPlayerVitals(bool hasHealth, int32_t healthCurrent,
+                          std::optional<int32_t> healthMaximum,
+                          bool hasMana, int32_t manaCurrent,
+                          std::optional<int32_t> manaMaximum,
+                          bool hasEndurance, int32_t enduranceCurrent,
+                          std::optional<int32_t> enduranceMaximum);
+   void applyPlayerAppearance(std::optional<uint32_t> race,
+                              std::optional<uint8_t> gender,
+                              std::optional<uint32_t> animation);
+   void applyPlayerDeath();
    void applyProfileSupplement(const charProfileStruct* player);
    // heading is eql's 13-bit facing (0..8191, 8192 per circle); valid on every
    // packet, turning included. See seq-backend-eql/src/player_self_pos.rs.

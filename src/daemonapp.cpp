@@ -492,6 +492,10 @@ bool DaemonApp::start()
             [this](const Box* box, const seq::shadow::Event& event) {
                 applyRustEntity(box, event);
             });
+        m_packet->setPlayerEventHandler(
+            [this](const Box* box, const seq::shadow::Event& event) {
+                applyRustPlayer(box, event);
+            });
         m_packet->setLifecycleProjectionEnricher(
             [this](const Box* box, bool addHostZoneProjection,
                    std::vector<seq::shadow::LifecycleObservation>& events,
@@ -535,6 +539,7 @@ bool DaemonApp::start()
             });
         connectLifecycleObservers();
         connectEntityObservers();
+        connectPlayerObservers();
 
         // Tap decoded packets BEFORE the regular wiring so the logger
         // sees every dispatch (it doesn't matter for correctness — the
@@ -763,12 +768,13 @@ void DaemonApp::applyRustLifecycle(const Box* box,
                                   uint16_t(payload.cha), uint16_t(payload.dex),
                                   uint16_t(payload.int_), uint16_t(payload.agi),
                                   uint16_t(payload.wis));
-            // Identity is the profile publication boundary: setIdentity emits
-            // levelChanged/PlayerStats, so seed represented state first.
-            player->applyLifecycleIdentity(
-                qString(payload.name), qString(payload.last_name),
-                uint16_t(payload.race), uint8_t(payload.class_), payload.level,
-                uint16_t(payload.deity), payload.class_mask);
+            // Phase 6 takes identity publication from the profile. Until then,
+            // lifecycle keeps the old boundary for legacy and shadow sessions.
+            if (m_packet->legacyPlayersEnabledForCurrentPacket())
+                player->applyLifecycleIdentity(
+                    qString(payload.name), qString(payload.last_name),
+                    uint16_t(payload.race), uint8_t(payload.class_), payload.level,
+                    uint16_t(payload.deity), payload.class_mask);
             player->setMoneyCoins(payload.platinum, payload.gold,
                                   payload.silver, payload.copper);
         } else if constexpr (std::is_same_v<T, seq::shadow::ZoneTransition>) {
@@ -796,6 +802,78 @@ void DaemonApp::applyRustLifecycle(const Box* box,
     }, event);
 }
 
+void DaemonApp::applyRustPlayer(const Box* box,
+                               const seq::shadow::Event& event)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+    if (!managers->player || !managers->spawnShell) return;
+
+    std::visit([&](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        const auto& p = value.payload;
+        if constexpr (std::is_same_v<T, seq::shadow::PlayerIdentityUpdated>) {
+            managers->player->applyPlayerIdentity(
+                p.has_spawn_id ? std::optional<uint32_t>(p.spawn_id)
+                               : std::nullopt,
+                qString(p.name), qString(p.last_name), uint16_t(p.race),
+                uint8_t(p.class_), uint16_t(p.deity), uint8_t(p.level),
+                p.class_mask);
+        } else if constexpr (std::is_same_v<T, seq::shadow::PlayerMoved>) {
+            managers->player->applyPlayerMovement(
+                p.has_spawn_id ? std::optional<uint32_t>(p.spawn_id)
+                               : std::nullopt,
+                p.pos.x, p.pos.y, p.pos.z, p.pos.heading_deg);
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::PlayerVitalsUpdated>) {
+            managers->player->applyPlayerVitals(
+                p.has_health, p.health.current,
+                p.has_health && p.health.has_maximum
+                    ? std::optional<int32_t>(p.health.maximum) : std::nullopt,
+                p.has_mana, p.mana.current,
+                p.has_mana && p.mana.has_maximum
+                    ? std::optional<int32_t>(p.mana.maximum) : std::nullopt,
+                p.has_endurance, p.endurance.current,
+                p.has_endurance && p.endurance.has_maximum
+                    ? std::optional<int32_t>(p.endurance.maximum) : std::nullopt);
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::SpawnHealthUpdated>) {
+            if (p.id <= UINT16_MAX)
+                managers->spawnShell->updateSpawnHP(
+                    uint16_t(p.id), p.current, p.maximum);
+        } else if constexpr (std::is_same_v<T, seq::shadow::PlayerDied>) {
+#if defined(SEQ_TARGET_EQL)
+            managers->player->applyPlayerDeath();
+#else
+            managers->spawnShell->applyPlayerDeath(
+                p.has_killer_id ? std::optional<uint32_t>(p.killer_id)
+                                : std::nullopt);
+#endif
+        } else if constexpr (std::is_same_v<T, seq::shadow::SpawnDied>) {
+            managers->spawnShell->applySpawnDeath(
+                p.id, p.has_killer_id ? std::optional<uint32_t>(p.killer_id)
+                                      : std::nullopt);
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::SpawnIdentityUpdated>) {
+            if (p.id <= UINT16_MAX)
+                managers->spawnShell->updateSpawnIdentity(
+                    uint16_t(p.id), uint8_t(p.level), uint8_t(p.class_),
+                    uint16_t(p.race));
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::PlayerAppearanceUpdated>) {
+            managers->player->applyPlayerAppearance(
+                p.has_race ? std::optional<uint32_t>(p.race) : std::nullopt,
+                p.has_gender ? std::optional<uint8_t>(p.gender) : std::nullopt,
+                p.has_animation ? std::optional<uint32_t>(p.animation)
+                                : std::nullopt);
+        }
+    }, event);
+}
+
 void DaemonApp::applyRustEntity(const Box* box,
                                 const seq::shadow::Event& event)
 {
@@ -811,6 +889,13 @@ void DaemonApp::applyRustEntity(const Box* box,
         using T = std::decay_t<decltype(value)>;
         const auto& p = value.payload;
         if constexpr (std::is_same_v<T, seq::shadow::SpawnAdded>) {
+            std::optional<std::vector<uint32_t>> equipmentModels;
+            if (p.has_equipment_models) {
+                equipmentModels.emplace();
+                equipmentModels->reserve(p.equipment_models.size());
+                for (uint32_t model : p.equipment_models)
+                    equipmentModels->push_back(model);
+            }
             managers->spawnShell->applyEntitySpawn(
                 p.id, qString(p.name), qString(p.last_name), p.race,
                 p.class_, p.deity, p.level, p.npc, p.cur_hp,
@@ -820,10 +905,31 @@ void DaemonApp::applyRustEntity(const Box* box,
                 p.has_pos ? std::optional<int32_t>(p.pos.y) : std::nullopt,
                 p.has_pos ? std::optional<int32_t>(p.pos.z) : std::nullopt,
                 p.has_pos ? std::optional<uint16_t>(p.pos.heading_deg)
-                          : std::nullopt);
+                          : std::nullopt,
+                p.velocity.has_x ? std::optional<int32_t>(p.velocity.x)
+                                 : std::nullopt,
+                p.velocity.has_y ? std::optional<int32_t>(p.velocity.y)
+                                 : std::nullopt,
+                p.velocity.has_z ? std::optional<int32_t>(p.velocity.z)
+                                 : std::nullopt,
+                p.has_delta_heading
+                    ? std::optional<int16_t>(p.delta_heading) : std::nullopt,
+                p.has_animation ? std::optional<int16_t>(p.animation)
+                                : std::nullopt,
+                equipmentModels);
         } else if constexpr (std::is_same_v<T, seq::shadow::SpawnMoved>) {
             managers->spawnShell->applyEntityMove(
-                p.id, p.pos.x, p.pos.y, p.pos.z, p.pos.heading_deg);
+                p.id, p.pos.x, p.pos.y, p.pos.z, p.pos.heading_deg,
+                p.velocity.has_x ? std::optional<int32_t>(p.velocity.x)
+                                 : std::nullopt,
+                p.velocity.has_y ? std::optional<int32_t>(p.velocity.y)
+                                 : std::nullopt,
+                p.velocity.has_z ? std::optional<int32_t>(p.velocity.z)
+                                 : std::nullopt,
+                p.has_delta_heading
+                    ? std::optional<int16_t>(p.delta_heading) : std::nullopt,
+                p.has_animation ? std::optional<int16_t>(p.animation)
+                                : std::nullopt);
         } else if constexpr (std::is_same_v<T, seq::shadow::SpawnRemoved>) {
             managers->spawnShell->applyEntityRemove(p.id);
         } else if constexpr (std::is_same_v<T, seq::shadow::SpawnRenamed>) {
@@ -1040,6 +1146,86 @@ void DaemonApp::connectEntityObservers()
     });
 }
 
+void DaemonApp::connectPlayerObservers()
+{
+    if (!m_packet || !m_player || !m_spawnShell) return;
+    auto accepted = [this](seq::shadow::PlayerKind kind) {
+        return m_packet->rustPlayerAcceptedForCurrentPacket(kind);
+    };
+    auto record = [this](seq::shadow::PlayerKind kind,
+                         seq::v1::Envelope envelope) {
+        m_packet->observeLegacyPlayer({kind, {}});
+        m_packet->observeLegacyPlayerProjection(std::move(envelope));
+    };
+
+    connect(m_player, &Player::levelChanged, this,
+            [this, accepted, record](uint8_t) {
+        const auto kind = seq::shadow::PlayerKind::PlayerIdentityUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* stats = envelope.mutable_player_stats();
+        stats->set_name(m_player->name().toStdString());
+        stats->set_class_(m_player->classVal());
+        stats->set_race(m_player->race());
+        stats->set_level(m_player->level());
+        stats->set_class_mask(m_player->classMask());
+        record(kind, std::move(envelope));
+    });
+    connect(m_player, &Player::posChanged, this,
+            [this, accepted, record](int16_t, int16_t, int16_t,
+                                     int16_t, int16_t, int16_t, int32_t) {
+        const auto kind = seq::shadow::PlayerKind::PlayerMoved;
+        if (!accepted(kind) || m_player->id() == 0) return;
+        seq::v1::Envelope envelope;
+        auto* update = envelope.mutable_spawn_updated();
+        update->set_id(m_player->id());
+        seq::encode::fillPos(update->mutable_pos(), *m_player);
+        record(kind, std::move(envelope));
+    });
+    connect(m_player, &Player::vitalsChanged, this,
+            [this, accepted, record] {
+        const auto kind = seq::shadow::PlayerKind::PlayerVitalsUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        seq::encode::fillPlayerStats(envelope.mutable_player_stats(), *m_player);
+        record(kind, std::move(envelope));
+    });
+    connect(m_spawnShell, &SpawnShell::changeItem, this,
+            [accepted, record](const Item* item, uint32_t changeType) {
+        const auto* spawn = dynamic_cast<const Spawn*>(item);
+        if (!spawn) return;
+        if ((changeType & tSpawnChangedHP) && accepted(
+                seq::shadow::PlayerKind::SpawnHealthUpdated)) {
+            seq::v1::Envelope envelope;
+            auto* update = envelope.mutable_spawn_updated();
+            update->set_id(spawn->id());
+            update->set_hp_cur(uint32_t(std::max(spawn->HP(), 0)));
+            record(seq::shadow::PlayerKind::SpawnHealthUpdated,
+                   std::move(envelope));
+        } else if ((changeType & tSpawnChangedLevel) && accepted(
+                       seq::shadow::PlayerKind::SpawnIdentityUpdated)) {
+            seq::v1::Envelope envelope;
+            auto* update = envelope.mutable_spawn_updated();
+            update->set_id(spawn->id()); update->set_level(spawn->level());
+            record(seq::shadow::PlayerKind::SpawnIdentityUpdated,
+                   std::move(envelope));
+        }
+    });
+    connect(m_spawnShell,
+            qOverload<const Item*, const Item*, uint16_t>(
+                &SpawnShell::killSpawn),
+            this, [accepted, record](const Item* deceased, const Item* killer,
+                                     uint16_t killerId) {
+        const auto kind = seq::shadow::PlayerKind::SpawnDied;
+        if (!deceased || !accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* killed = envelope.mutable_spawn_killed();
+        killed->set_deceased_id(deceased->id());
+        killed->set_killer_id(killer ? killer->id() : killerId);
+        record(kind, std::move(envelope));
+    });
+}
+
 bool DaemonApp::startServer()
 {
     if (!m_ws->listen(m_cfg.listenHost, m_cfg.listenPort)) {
@@ -1107,6 +1293,7 @@ bool DaemonApp::startCapture()
             /*playbackSpeed*/ 0,
             lifecycleSelector(m_cfg.lifecycleDecoder),
             lifecycleSelector(m_cfg.entityDecoder),
+            lifecycleSelector(m_cfg.playerDecoder),
             this, "packet");
     } catch (const std::exception& error) {
         qCritical("Rust decoder setup failed: %s", error.what());

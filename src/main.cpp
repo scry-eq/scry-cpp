@@ -222,6 +222,11 @@ int main(int argc, char** argv)
         "or rust. The default remains legacy until capture soak completes. "
         "Changing it requires a session restart.",
         "mode", "legacy");
+    QCommandLineOption playerDecoderOpt(QStringList{"player-decoder"},
+        "Immutable player identity, movement, vitals, appearance, and death "
+        "owner for each session: legacy, shadow, or rust. The default remains "
+        "legacy until capture soak completes. Changing it requires a session "
+        "restart.", "mode", "legacy");
     parser.addOption(deviceOpt);
     parser.addOption(ipOpt);
     parser.addOption(listenOpt);
@@ -245,6 +250,7 @@ int main(int argc, char** argv)
     parser.addOption(boxIdleTtlOpt);
     parser.addOption(lifecycleDecoderOpt);
     parser.addOption(entityDecoderOpt);
+    parser.addOption(playerDecoderOpt);
     parser.process(app);
 
     DaemonApp::Config cfg;
@@ -301,6 +307,13 @@ int main(int argc, char** argv)
         cfg.entityDecoder != QLatin1String("shadow") &&
         cfg.entityDecoder != QLatin1String("rust")) {
         qCritical("--entity-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.playerDecoder = parser.value(playerDecoderOpt).toLower();
+    if (cfg.playerDecoder != QLatin1String("legacy") &&
+        cfg.playerDecoder != QLatin1String("shadow") &&
+        cfg.playerDecoder != QLatin1String("rust")) {
+        qCritical("--player-decoder must be legacy, shadow, or rust");
         return 2;
     }
     if (parser.isSet(boxIdleTtlOpt)) {

@@ -82,6 +82,7 @@ EqlDispatch::EqlDispatch(ZoneMgr* zoneMgr, SpawnShell* spawnShell, Player* playe
                          std::function<bool()> rustLifecycleOwned,
                          std::function<bool(seq::shadow::LifecycleKind)>
                              rustLifecycleAccepted,
+                         std::function<bool()> rustPlayerOwned,
                          std::function<void(const seq::shadow::LifecycleProfile&)>
                              profileObserved)
     : m_zoneMgr(zoneMgr)
@@ -92,6 +93,7 @@ EqlDispatch::EqlDispatch(ZoneMgr* zoneMgr, SpawnShell* spawnShell, Player* playe
     , m_guildMgr(guildMgr)
     , m_rustLifecycleOwned(std::move(rustLifecycleOwned))
     , m_rustLifecycleAccepted(std::move(rustLifecycleAccepted))
+    , m_rustPlayerOwned(std::move(rustPlayerOwned))
     , m_profileObserved(std::move(profileObserved))
     , m_selfTracker(seq::rust::eql_self_tracker_new())
 {
@@ -253,15 +255,20 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
     // world handshake was never captured (no OP_ZoneServerInfo -> zone sessions
     // bound "by world recency") stopped resetting entirely and piled every zone
     // into one list — 1900+ spawns and stale records under recycled ids.
+    const bool rustPlayer = m_rustPlayerOwned && m_rustPlayerOwned();
     m_spawnShell->clear();
-    m_player->setID(0);
+    // Rust player events are applied before the compatibility tail. Do not
+    // erase the freshly-applied player id while preserving the legacy
+    // lifecycle reset and later-family profile seeding below.
+    if (!rustPlayer)
+        m_player->setID(0);
     m_selfTracker->reset();
     // Name first: setPlayerName only stores it (+ signals the box picker); the
     // setIdentity() below then emits changeItem(tSpawnChangedALL) carrying the
     // new name. An empty name (anchor block not found) leaves box-naming to
     // own-spawn adoption (SpawnShell::playerChangedID), the prior source.
     QString name = latin1(out.name);
-    if (!name.isEmpty())
+    if (!rustPlayer && !name.isEmpty())
         m_player->setPlayerName(name);
     // Seed the whole skill array (walked out of the profile in seq-backend-eql)
     // BEFORE setIdentity: setIdentity's levelChanged triggers the coalesced
@@ -294,8 +301,10 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
         m_player->setStance(sn);
     if (QString invName = invocationName(out.invocation); !invName.isEmpty())
         m_player->setInvocation(invName);
-    m_player->setIdentity((uint16_t)out.race, (uint8_t)out.class_, out.level);
-    m_player->setClassMask(out.class_mask);   // EQL multiclass (bit N = class N)
+    if (!rustPlayer) {
+        m_player->setIdentity((uint16_t)out.race, (uint8_t)out.class_, out.level);
+        m_player->setClassMask(out.class_mask);
+    }
     // Carried coin (fixed offset, read in seq-backend-eql). Redundant with
     // OP_MoneyUpdate, which carries the same values in a far more durable 20B
     // struct — kept as a second source so a drifted profile offset or a missing
@@ -617,6 +626,9 @@ void EqlDispatch::spawn(const uint8_t* data, size_t len, uint8_t dir)
     if (!out.ok)
         return;
     const QString name = latin1(out.name);
+    if (m_rustPlayerOwned && m_rustPlayerOwned() && m_player &&
+        name.compare(m_player->realName(), Qt::CaseInsensitive) == 0)
+        return;
     // Keep the local player's own ZoneEntry (and its phantom twin) out of the
     // spawn list; adopt/re-home the self-id from it instead.
     if (consumeSelfSpawn(name, (uint16_t)out.spawn_id))

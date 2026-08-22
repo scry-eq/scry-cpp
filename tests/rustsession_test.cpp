@@ -8,6 +8,7 @@
 #include "rustsession.h"
 #include "datetimemgr.h"
 #include "protoencoder.h"
+#include "spawn.h"
 
 namespace {
 
@@ -74,6 +75,14 @@ SAME_PAYLOAD(GroupFollow, EventGroupFollowPayload);
 SAME_PAYLOAD(GroupDisband, EventGroupDisbandPayload);
 SAME_PAYLOAD(LevelUpdate, EventLevelUpdatePayload);
 SAME_PAYLOAD(EnterWorld, EventEnterWorld);
+SAME_PAYLOAD(PlayerIdentityUpdated, EventPlayerIdentity);
+SAME_PAYLOAD(PlayerMoved, EventPlayerMoved);
+SAME_PAYLOAD(PlayerVitalsUpdated, EventPlayerVitals);
+SAME_PAYLOAD(SpawnHealthUpdated, EventSpawnHealth);
+SAME_PAYLOAD(PlayerDied, EventPlayerDied);
+SAME_PAYLOAD(SpawnDied, EventSpawnDied);
+SAME_PAYLOAD(SpawnIdentityUpdated, EventSpawnIdentity);
+SAME_PAYLOAD(PlayerAppearanceUpdated, EventPlayerAppearance);
 #undef SAME_PAYLOAD
 
 template <typename T>
@@ -140,6 +149,8 @@ private slots:
     void malformedLifecycleDoesNotReset();
     void lifecycleSelectorIsImmutablePerSession();
     void entityAdapterPreservesOptionalFieldsAndProjectionOrder();
+    void entityMotionEquipmentMatchLegacyProjection();
+    void playerAdapterPreservesAllPhaseSixEventsInOrder();
     void resetPrecedesProfileAndUsesProductionProjection();
     void publicTimeContractNormalizesWireHourOnce();
     void reconnectResetsBeforeEachEnterWorld();
@@ -210,12 +221,21 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     ADD(session_reset, SessionReset, EventSessionReset);
     ADD(zone_transition, ZoneTransition, EventZoneTransition);
     ADD(zone_environment_changed, ZoneEnvironmentChanged, EventZoneEnvironment);
+    ADD(player_identity_updated, PlayerIdentityUpdated, EventPlayerIdentity);
+    ADD(player_moved, PlayerMoved, EventPlayerMoved);
+    ADD(player_vitals_updated, PlayerVitalsUpdated, EventPlayerVitals);
+    ADD(spawn_health_updated, SpawnHealthUpdated, EventSpawnHealth);
+    ADD(player_died, PlayerDied, EventPlayerDied);
+    ADD(spawn_died, SpawnDied, EventSpawnDied);
+    ADD(spawn_identity_updated, SpawnIdentityUpdated, EventSpawnIdentity);
+    ADD(player_appearance_updated, PlayerAppearanceUpdated,
+        EventPlayerAppearance);
 #undef ADD
 
     Batch batch = translate(std::move(raw));
     QCOMPARE(batch.protocolGeneration, uint64_t(77));
     QCOMPARE(batch.disposition, Disposition::Decoded);
-    QCOMPARE(batch.events.size(), size_t(55));
+    QCOMPARE(batch.events.size(), size_t(63));
 
 #define CHECK(index, type) QVERIFY(std::holds_alternative<type>(batch.events[index]))
     CHECK(0, SpawnAdded); CHECK(1, SpawnMoved); CHECK(2, SpawnRenamed);
@@ -238,6 +258,10 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     CHECK(50, LevelUpdate); CHECK(51, EnterWorld);
     CHECK(52, SessionReset); CHECK(53, ZoneTransition);
     CHECK(54, ZoneEnvironmentChanged);
+    CHECK(55, PlayerIdentityUpdated); CHECK(56, PlayerMoved);
+    CHECK(57, PlayerVitalsUpdated); CHECK(58, SpawnHealthUpdated);
+    CHECK(59, PlayerDied); CHECK(60, SpawnDied);
+    CHECK(61, SpawnIdentityUpdated); CHECK(62, PlayerAppearanceUpdated);
 #undef CHECK
 }
 
@@ -561,6 +585,20 @@ void RustSessionTest::lifecycleSelectorIsImmutablePerSession()
     QVERIFY(entityShadow.comparesEntities());
     QVERIFY(!entityRust.runsLegacyEntities());
     QVERIFY(entityRust.appliesRustEntities());
+
+    Session playerLegacy(registry, backend(), 256, 4 * 1024 * 1024,
+                         LifecycleSelector::Shadow, EntitySelector::Legacy,
+                         PlayerSelector::Legacy);
+    Session playerShadow(registry, backend(), 256, 4 * 1024 * 1024,
+                         LifecycleSelector::Shadow, EntitySelector::Legacy,
+                         PlayerSelector::Shadow);
+    Session playerRust(registry, backend(), 256, 4 * 1024 * 1024,
+                       LifecycleSelector::Shadow, EntitySelector::Legacy,
+                       PlayerSelector::Rust);
+    QVERIFY(playerLegacy.runsLegacyPlayers());
+    QVERIFY(playerShadow.comparesPlayers());
+    QVERIFY(!playerRust.runsLegacyPlayers());
+    QVERIFY(playerRust.appliesRustPlayers());
 }
 
 void RustSessionTest::entityAdapterPreservesOptionalFieldsAndProjectionOrder()
@@ -679,6 +717,155 @@ void RustSessionTest::entityAdapterPreservesOptionalFieldsAndProjectionOrder()
     auto wrong = projections;
     wrong[0].mutable_spawn_updated()->set_name("different");
     QVERIFY(!compareEntities(batch, observations, wrong).projectionsEqual);
+}
+
+void RustSessionTest::entityMotionEquipmentMatchLegacyProjection()
+{
+    ffi::SessionDecodeBatch raw;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+    ffi::EventSpawnInfo added;
+    added.id = 77;
+    added.name = ::rust::String("a_goblin00");
+    added.last_name = ::rust::String("Scout");
+    added.race = 46; added.class_ = 1; added.deity = 140;
+    added.level = 42; added.npc = 1; added.cur_hp = 80;
+    added.has_max_hp = true; added.max_hp = 100;
+    added.has_pos = true;
+    added.pos.x = 100; added.pos.y = -200; added.pos.z = 30;
+    added.pos.heading_deg = 90;
+    added.velocity.has_x = true; added.velocity.x = 4;
+    added.velocity.has_y = true; added.velocity.y = -5;
+    added.velocity.has_z = true; added.velocity.z = 6;
+    added.has_delta_heading = true; added.delta_heading = -3;
+    added.has_animation = true; added.animation = 7;
+    added.has_equipment_models = true;
+    for (uint32_t i = 1; i <= 9; ++i) added.equipment_models.push_back(i);
+    addPayload(raw, raw.spawn_added, ffi::SessionEventKind::SpawnAdded,
+               std::move(added));
+
+    ffi::EventSpawnMoved moved;
+    moved.id = 77; moved.pos.x = 101; moved.pos.y = -201;
+    moved.pos.z = 31; moved.pos.heading_deg = 180;
+    moved.velocity.has_x = true; moved.velocity.x = -8;
+    moved.velocity.has_y = false;
+    moved.velocity.has_z = true; moved.velocity.z = 9;
+    moved.has_delta_heading = true; moved.delta_heading = 2;
+    moved.has_animation = true; moved.animation = 10;
+    addPayload(raw, raw.spawn_moved, ffi::SessionEventKind::SpawnMoved,
+               std::move(moved));
+
+    const Batch batch = translate(std::move(raw));
+    const auto projections = projectEntities(batch);
+    QCOMPARE(projections.size(), size_t(2));
+    const auto& spawn = projections[0].spawn_added().spawn();
+    QCOMPARE(spawn.pos().vx(), -4); QCOMPARE(spawn.pos().vy(), 5);
+    QCOMPARE(spawn.pos().vz(), 6);
+    QCOMPARE(spawn.pos().delta_heading(), -3);
+    QCOMPARE(spawn.pos().animation(), uint32_t(7));
+    QCOMPARE(spawn.equip_models_size(), 9);
+    for (int i = 0; i < 9; ++i)
+        QCOMPARE(spawn.equip_models(i), uint32_t(i + 1));
+    const auto& update = projections[1].spawn_updated();
+    QCOMPARE(update.pos().vx(), 8); QCOMPARE(update.pos().vy(), 0);
+    QCOMPARE(update.pos().vz(), 9);
+    QCOMPARE(update.pos().delta_heading(), 2);
+    QCOMPARE(update.pos().animation(), uint32_t(10));
+
+    Spawn legacy(77, 100, -200, 30, 4, -5, 6, int8_t(192), -3, 7);
+    legacy.setName("a_goblin00"); legacy.setLastName("Scout");
+    legacy.setRace(46); legacy.setClassVal(1); legacy.setDeity(140);
+    legacy.setLevel(42); legacy.setNPC(SPAWN_NPC);
+    legacy.setHP(80); legacy.setMaxHP(100);
+    legacy.setGuildID(0); legacy.setGuildServerID(0);
+    for (uint8_t i = 0; i < 9; ++i) {
+        EquipStruct equipment{}; equipment.itemId = i + 1;
+        legacy.setEquipment(i, equipment);
+    }
+    seq::v1::Envelope legacyEnvelope;
+    seq::encode::fillSpawn(
+        legacyEnvelope.mutable_spawn_added()->mutable_spawn(), legacy);
+    QCOMPARE(projections[0].SerializeAsString(),
+             legacyEnvelope.SerializeAsString());
+    legacy.setPos(101, -201, 31);
+    legacy.setDeltas(-8, 0, 9);
+    legacy.setHeading(int8_t(128), 2);
+    legacy.setAnimation(10);
+    seq::v1::Envelope legacyMove;
+    auto* legacyUpdate = legacyMove.mutable_spawn_updated();
+    legacyUpdate->set_id(77);
+    seq::encode::fillPos(legacyUpdate->mutable_pos(), legacy);
+    QCOMPARE(projections[1].SerializeAsString(),
+             legacyMove.SerializeAsString());
+}
+
+void RustSessionTest::playerAdapterPreservesAllPhaseSixEventsInOrder()
+{
+    ffi::SessionDecodeBatch raw;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+    ffi::EventPlayerIdentity identity;
+    identity.has_spawn_id = true; identity.spawn_id = 10;
+    identity.name = ::rust::String("Firona");
+    identity.last_name = ::rust::String("Vie");
+    identity.race = 1; identity.class_ = 2; identity.deity = 3;
+    identity.level = 60; identity.class_mask = 4;
+    addPayload(raw, raw.player_identity_updated,
+               ffi::SessionEventKind::PlayerIdentityUpdated,
+               std::move(identity));
+    ffi::EventPlayerMoved moved;
+    moved.has_spawn_id = true; moved.spawn_id = 10;
+    moved.pos.x = 11; moved.pos.y = 12; moved.pos.z = 13;
+    moved.pos.heading_deg = 14;
+    addPayload(raw, raw.player_moved, ffi::SessionEventKind::PlayerMoved,
+               std::move(moved));
+    ffi::EventPlayerVitals vitals;
+    vitals.has_health = true; vitals.health.current = 90;
+    vitals.health.has_maximum = true; vitals.health.maximum = 100;
+    vitals.has_mana = true; vitals.mana.current = 80;
+    addPayload(raw, raw.player_vitals_updated,
+               ffi::SessionEventKind::PlayerVitalsUpdated, std::move(vitals));
+    ffi::EventSpawnHealth health;
+    health.id = 20; health.current = 30; health.maximum = 40;
+    addPayload(raw, raw.spawn_health_updated,
+               ffi::SessionEventKind::SpawnHealthUpdated, std::move(health));
+    ffi::EventPlayerDied playerDied;
+    playerDied.has_killer_id = true; playerDied.killer_id = 21;
+    addPayload(raw, raw.player_died, ffi::SessionEventKind::PlayerDied,
+               std::move(playerDied));
+    ffi::EventSpawnDied spawnDied;
+    spawnDied.id = 20; spawnDied.has_killer_id = true;
+    spawnDied.killer_id = 10;
+    addPayload(raw, raw.spawn_died, ffi::SessionEventKind::SpawnDied,
+               std::move(spawnDied));
+    ffi::EventSpawnIdentity spawnIdentity;
+    spawnIdentity.id = 20; spawnIdentity.level = 61;
+    spawnIdentity.class_ = 5; spawnIdentity.race = 6;
+    addPayload(raw, raw.spawn_identity_updated,
+               ffi::SessionEventKind::SpawnIdentityUpdated,
+               std::move(spawnIdentity));
+    ffi::EventPlayerAppearance appearance;
+    appearance.has_race = true; appearance.race = 7;
+    appearance.has_gender = true; appearance.gender = 1;
+    appearance.has_animation = true; appearance.animation = 110;
+    addPayload(raw, raw.player_appearance_updated,
+               ffi::SessionEventKind::PlayerAppearanceUpdated,
+               std::move(appearance));
+
+    const Batch batch = translate(std::move(raw));
+    const auto observations = playerObservations(batch);
+    QCOMPARE(observations.size(), size_t(8));
+    QCOMPARE(observations[0].kind, PlayerKind::PlayerIdentityUpdated);
+    QCOMPARE(observations[7].kind, PlayerKind::PlayerAppearanceUpdated);
+    const auto projections = projectPlayers(batch);
+    QCOMPARE(projections.size(), size_t(6));
+    QVERIFY(projections[0].has_player_stats());
+    QVERIFY(projections[1].has_spawn_updated());
+    QVERIFY(projections[2].has_player_stats());
+    QVERIFY(projections[3].has_spawn_updated());
+    QVERIFY(projections[4].has_spawn_killed());
+    QVERIFY(projections[5].has_spawn_updated());
+    const auto comparison = comparePlayers(batch, observations, projections);
+    QVERIFY(comparison.orderedEventsEqual);
+    QVERIFY(comparison.projectionsEqual);
 }
 
 void RustSessionTest::resetPrecedesProfileAndUsesProductionProjection()

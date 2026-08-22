@@ -47,6 +47,7 @@ public:
                 std::function<bool()> rustLifecycleOwned,
                 std::function<bool(seq::shadow::LifecycleKind)>
                     rustLifecycleAccepted,
+                std::function<bool()> rustPlayerOwned,
                 std::function<void(const seq::shadow::LifecycleProfile&)>
                     profileObserved);
 
@@ -139,6 +140,7 @@ private:
     GuildMgr*   m_guildMgr;    // daemon-global guild id->name map
     std::function<bool()> m_rustLifecycleOwned;
     std::function<bool(seq::shadow::LifecycleKind)> m_rustLifecycleAccepted;
+    std::function<bool()> m_rustPlayerOwned;
     std::function<void(const seq::shadow::LifecycleProfile&)>
         m_profileObserved;
     // While awaiting the in-zone respawn after the local player's own death,

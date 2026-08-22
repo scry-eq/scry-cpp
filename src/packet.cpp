@@ -139,6 +139,7 @@ EQPacket::EQPacket(const QString& opcodesToml,
 		   int8_t playbackSpeed, 
 		   seq::shadow::LifecycleSelector lifecycleSelector,
 		   seq::shadow::EntitySelector entitySelector,
+		   seq::shadow::PlayerSelector playerSelector,
 		   QObject * parent, const char *name)
   : QObject (parent),
     m_packetCapture(NULL),
@@ -158,7 +159,8 @@ EQPacket::EQPacket(const QString& opcodesToml,
     m_playbackPackets(playbackPackets),
     m_playbackSpeed(playbackSpeed),
     m_lifecycleSelector(lifecycleSelector),
-    m_entitySelector(entitySelector)
+    m_entitySelector(entitySelector),
+    m_playerSelector(playerSelector)
 {
   setObjectName(name);
   // create the packet type db
@@ -201,7 +203,8 @@ EQPacket::EQPacket(const QString& opcodesToml,
             m_shadowRegistry->contentHash(shadowBackend()).c_str());
   } catch (const std::exception& error) {
     if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust ||
-        m_entitySelector == seq::shadow::EntitySelector::Rust)
+        m_entitySelector == seq::shadow::EntitySelector::Rust ||
+        m_playerSelector == seq::shadow::PlayerSelector::Rust)
       throw;
     // Shadow diagnostics must never take down the legacy mutation path.
     seqWarn("Rust shadow disabled: protocol registry failed: %s", error.what());
@@ -345,14 +348,15 @@ EQPacket::EQPacket(const QString& opcodesToml,
       try {
         auto session = std::make_unique<seq::shadow::Session>(
             *m_shadowRegistry, shadowBackend(), 256, 4 * 1024 * 1024,
-            m_lifecycleSelector, m_entitySelector);
+            m_lifecycleSelector, m_entitySelector, m_playerSelector);
         m_shadowSessions.emplace(&box, std::move(session));
         for (EQPacketStream* stream : {box.world_c2s, box.world_s2c,
                                        box.zone_c2s, box.zone_s2c})
           installShadowHook(stream);
       } catch (const std::exception& error) {
         if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust ||
-            m_entitySelector == seq::shadow::EntitySelector::Rust) {
+            m_entitySelector == seq::shadow::EntitySelector::Rust ||
+            m_playerSelector == seq::shadow::PlayerSelector::Rust) {
           m_lifecycleFatal = true;
           qCritical("Rust-owned lifecycle session creation failed for box %s: %s",
                     qUtf8Printable(box.box_id), error.what());
@@ -791,14 +795,15 @@ seq::shadow::Session* EQPacket::temporaryShadowSession(EQPacketFlowKey flowKey)
     TemporaryShadowSession temporary;
     temporary.session = std::make_unique<seq::shadow::Session>(
         *m_shadowRegistry, shadowBackend(), 256, 4 * 1024 * 1024,
-        m_lifecycleSelector, m_entitySelector);
+        m_lifecycleSelector, m_entitySelector, m_playerSelector);
     temporary.lastUsed = ++m_temporaryShadowClock;
     auto [it, inserted] =
         m_temporaryShadowSessions.emplace(flowKey, std::move(temporary));
     return inserted ? it->second.session.get() : nullptr;
   } catch (const std::exception& error) {
     if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust ||
-        m_entitySelector == seq::shadow::EntitySelector::Rust) {
+        m_entitySelector == seq::shadow::EntitySelector::Rust ||
+        m_playerSelector == seq::shadow::PlayerSelector::Rust) {
       m_lifecycleFatal = true;
       qCritical("Temporary Rust-owned lifecycle session creation failed: %s",
                 error.what());
@@ -823,7 +828,8 @@ void EQPacket::evictOldestTemporaryShadowSession()
       oldest->second.session->flush(seq::shadow::FlushReason::Shutdown);
     } catch (const std::exception& error) {
       if (oldest->second.session->appliesRustLifecycle() ||
-          oldest->second.session->appliesRustEntities()) {
+          oldest->second.session->appliesRustEntities() ||
+          oldest->second.session->appliesRustPlayers()) {
         m_lifecycleFatal = true;
         qCritical("Temporary Rust-owned lifecycle eviction flush failed: %s",
                   error.what());
@@ -867,7 +873,8 @@ bool EQPacket::decodeShadowApplication(
           temporary->second.session->flush(seq::shadow::FlushReason::Reset);
         } catch (const std::exception& error) {
           if (temporary->second.session->appliesRustLifecycle() ||
-              temporary->second.session->appliesRustEntities()) {
+              temporary->second.session->appliesRustEntities() ||
+              temporary->second.session->appliesRustPlayers()) {
             m_lifecycleFatal = true;
             qCritical("Temporary Rust-owned lifecycle attribution flush "
                       "failed: %s", error.what());
@@ -894,6 +901,8 @@ bool EQPacket::decodeShadowApplication(
   m_currentLifecycleSession = session;
   m_currentRustLifecycleKinds.clear();
   m_currentRustEntityKinds.clear();
+  m_currentRustPlayerKinds.clear();
+  m_currentRustPacketDecoded = false;
   try {
     const seq::shadow::Record& record = session->decode(
         world ? seq::shadow::Stream::World : seq::shadow::Stream::Zone,
@@ -902,6 +911,8 @@ bool EQPacket::decodeShadowApplication(
             ? seq::shadow::Direction::ServerToClient
             : seq::shadow::Direction::ClientToServer,
         payload, payloadSize, timestamp);
+    m_currentRustPacketDecoded =
+        record.batch.disposition == seq::shadow::Disposition::Decoded;
 
     auto rustEvents = seq::shadow::lifecycleObservations(record.batch);
     const bool ownsGlobalLifecycle =
@@ -939,6 +950,11 @@ bool EQPacket::decodeShadowApplication(
     // action order, because legacy manager signals cannot recover every
     // optional input field after mutation.
     for (auto& observation : rustEntityEvents)
+      observation.payload.clear();
+    auto rustPlayerEvents = seq::shadow::playerObservations(record.batch);
+    for (const auto& observation : rustPlayerEvents)
+      m_currentRustPlayerKinds.push_back(observation.kind);
+    for (auto& observation : rustPlayerEvents)
       observation.payload.clear();
     if (session->comparesLifecycle()) {
         PendingLifecycleComparison pending;
@@ -995,11 +1011,29 @@ bool EQPacket::decodeShadowApplication(
           m_entityEventHandler(box, event);
       }
     }
+    if (session->comparesPlayers()) {
+      PendingPlayerComparison pending;
+      pending.session = session;
+      pending.box = box;
+      pending.rustEvents = std::move(rustPlayerEvents);
+      pending.rustProjections = seq::shadow::projectPlayers(record.batch);
+      m_pendingPlayer = std::move(pending);
+    } else if (!rustPlayerEvents.empty() && session->appliesRustPlayers()) {
+      if (!box || !m_playerEventHandler)
+        throw std::runtime_error(
+            "Rust player event has no attributed host applier");
+      for (const seq::shadow::Event& event : record.batch.events) {
+        if (seq::shadow::isPlayerEvent(event))
+          m_playerEventHandler(box, event);
+      }
+    }
   } catch (const std::exception& error) {
     m_pendingLifecycle.reset();
     m_pendingEntity.reset();
+    m_pendingPlayer.reset();
     if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust ||
-        m_entitySelector == seq::shadow::EntitySelector::Rust) {
+        m_entitySelector == seq::shadow::EntitySelector::Rust ||
+        m_playerSelector == seq::shadow::PlayerSelector::Rust) {
       m_lifecycleFatal = true;
       qCritical("Rust lifecycle decode/apply failed for box %s: %s; "
                 "the immutable Rust-owned session cannot fall back in place",
@@ -1008,6 +1042,8 @@ bool EQPacket::decodeShadowApplication(
       QCoreApplication::exit(EXIT_FAILURE);
       m_currentLifecycleSession = nullptr;
       m_currentRustEntityKinds.clear();
+      m_currentRustPlayerKinds.clear();
+      m_currentRustPacketDecoded = false;
       return false;
     }
     if (box) {
@@ -1055,6 +1091,32 @@ bool EQPacket::rustEntityAcceptedForCurrentPacket(
          m_currentRustEntityKinds.end();
 }
 
+bool EQPacket::legacyPlayersEnabledForCurrentPacket() const
+{
+  return !m_lifecycleFatal &&
+         (!m_currentLifecycleSession ||
+          m_currentLifecycleSession->runsLegacyPlayers());
+}
+
+bool EQPacket::legacyPlayerAppearanceEnabledForCurrentPacket() const
+{
+  if (legacyPlayersEnabledForCurrentPacket()) return true;
+  // These opcodes also target non-player spawns. A decoded non-player event
+  // stays outside Phase 6 and keeps its legacy owner; malformed or unhandled
+  // Rust-owned packets remain fail-closed.
+  return m_currentRustPacketDecoded &&
+         !rustPlayerAcceptedForCurrentPacket(
+             seq::shadow::PlayerKind::PlayerAppearanceUpdated);
+}
+
+bool EQPacket::rustPlayerAcceptedForCurrentPacket(
+    seq::shadow::PlayerKind kind) const
+{
+  return std::find(m_currentRustPlayerKinds.begin(),
+                   m_currentRustPlayerKinds.end(), kind) !=
+         m_currentRustPlayerKinds.end();
+}
+
 void EQPacket::observeLegacyLifecycle(
     seq::shadow::LifecycleObservation observation)
 {
@@ -1081,6 +1143,19 @@ void EQPacket::observeLegacyEntityProjection(seq::v1::Envelope envelope)
     m_pendingEntity->legacyProjections.push_back(std::move(envelope));
 }
 
+void EQPacket::observeLegacyPlayer(
+    seq::shadow::PlayerObservation observation)
+{
+  if (m_pendingPlayer)
+    m_pendingPlayer->legacyEvents.push_back(std::move(observation));
+}
+
+void EQPacket::observeLegacyPlayerProjection(seq::v1::Envelope envelope)
+{
+  if (m_pendingPlayer)
+    m_pendingPlayer->legacyProjections.push_back(std::move(envelope));
+}
+
 void EQPacket::applyValidatedZoneServerInfo(Box* box, uint16_t port)
 {
   if (!box) return;
@@ -1095,6 +1170,8 @@ void EQPacket::completeShadowApplication(bool legacyDispatched)
   m_currentLifecycleSession = nullptr;
   m_currentRustLifecycleKinds.clear();
   m_currentRustEntityKinds.clear();
+  m_currentRustPlayerKinds.clear();
+  m_currentRustPacketDecoded = false;
   if (m_pendingLifecycle) {
     PendingLifecycleComparison pending = std::move(*m_pendingLifecycle);
     m_pendingLifecycle.reset();
@@ -1155,6 +1232,41 @@ void EQPacket::completeShadowApplication(bool legacyDispatched)
       }
     }
   }
+  if (m_pendingPlayer) {
+    PendingPlayerComparison pending = std::move(*m_pendingPlayer);
+    m_pendingPlayer.reset();
+    if (legacyDispatched &&
+        (!pending.rustEvents.empty() || !pending.rustProjections.empty() ||
+         !pending.legacyEvents.empty() || !pending.legacyProjections.empty())) {
+      seq::shadow::PlayerComparison comparison;
+      comparison.rustEventCount = pending.rustEvents.size();
+      comparison.legacyEventCount = pending.legacyEvents.size();
+      comparison.rustProjectionCount = pending.rustProjections.size();
+      comparison.legacyProjectionCount = pending.legacyProjections.size();
+      comparison.orderedEventsEqual =
+          pending.rustEvents == pending.legacyEvents;
+      comparison.projectionsEqual =
+          pending.rustProjections.size() == pending.legacyProjections.size();
+      if (comparison.projectionsEqual) {
+        for (size_t i = 0; i < pending.rustProjections.size(); ++i) {
+          if (pending.rustProjections[i].SerializeAsString() !=
+              pending.legacyProjections[i].SerializeAsString()) {
+            comparison.projectionsEqual = false;
+            break;
+          }
+        }
+      }
+      if (pending.session)
+        pending.session->recordPlayerComparison(comparison);
+      if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
+        seqWarn("Rust player shadow mismatch: events rust=%zu legacy=%zu, "
+                "seq.v1 rust=%zu legacy=%zu",
+                comparison.rustEventCount, comparison.legacyEventCount,
+                comparison.rustProjectionCount,
+                comparison.legacyProjectionCount);
+      }
+    }
+  }
 }
 
 const seq::shadow::Session* EQPacket::shadowSession(const Box* box) const
@@ -1173,7 +1285,8 @@ void EQPacket::flushShadowSession(const Box* box,
     it->second->flush(reason);
   } catch (const std::exception& error) {
     if (it->second->appliesRustLifecycle() ||
-        it->second->appliesRustEntities()) {
+        it->second->appliesRustEntities() ||
+        it->second->appliesRustPlayers()) {
       m_lifecycleFatal = true;
       qCritical("Rust lifecycle flush failed for box %s: %s; the immutable "
                 "Rust-owned session cannot fall back in place",
@@ -1195,7 +1308,8 @@ void EQPacket::flushAllShadowSessions(seq::shadow::FlushReason reason)
       entry.second.session->flush(reason);
     } catch (const std::exception& error) {
       if (entry.second.session->appliesRustLifecycle() ||
-          entry.second.session->appliesRustEntities()) {
+          entry.second.session->appliesRustEntities() ||
+          entry.second.session->appliesRustPlayers()) {
         m_lifecycleFatal = true;
         qCritical("Temporary Rust-owned lifecycle flush failed: %s",
                   error.what());

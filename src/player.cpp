@@ -31,6 +31,7 @@
 #include "main.h"
 
 #include <cstdio>
+#include <algorithm>
 #include <unistd.h>
 
 #include <QDir>
@@ -1166,6 +1167,95 @@ void Player::applyLifecycleIdentity(const QString& name,
   setDeity(deity);
   setIdentity(race, classVal, level);
   setClassMask(classMask);
+}
+
+void Player::applyPlayerIdentity(std::optional<uint32_t> spawnId,
+                                 const QString& name,
+                                 const QString& lastName, uint16_t race,
+                                 uint8_t classVal, uint16_t deity,
+                                 uint8_t level, uint32_t classMask)
+{
+  if (!name.isEmpty()) setPlayerName(name);
+  setLastName(lastName);
+  setDeity(deity);
+  setIdentity(race, classVal, level);
+  setClassMask(classMask);
+  if (spawnId && *spawnId <= UINT16_MAX)
+    setPlayerID(uint16_t(*spawnId));
+}
+
+void Player::applyPlayerMovement(std::optional<uint32_t> spawnId,
+                                 int32_t px, int32_t py, int32_t pz,
+                                 uint16_t headingDegrees)
+{
+  if (spawnId && *spawnId <= UINT16_MAX && id() != uint16_t(*spawnId))
+    setPlayerID(uint16_t(*spawnId));
+  setPos(int16_t(std::clamp(px, int32_t(INT16_MIN), int32_t(INT16_MAX))),
+         int16_t(std::clamp(py, int32_t(INT16_MIN), int32_t(INT16_MAX))),
+         int16_t(std::clamp(pz, int32_t(INT16_MIN), int32_t(INT16_MAX))),
+         showeq_params->walkpathrecord, showeq_params->walkpathlength);
+  setDeltas(0, 0, 0);
+  const uint16_t normalized = headingDegrees % 360;
+  setHeading(int8_t(((360 - normalized) % 360) * 256 / 360), 0);
+  m_headingDegrees = normalized;
+  m_validPos = true;
+  updateLast();
+  emit headingChanged(m_headingDegrees);
+  emit posChanged(x(), y(), z(), deltaX(), deltaY(), deltaZ(),
+                  m_headingDegrees);
+  updateLastChanged();
+  emit changeItem(this, tSpawnChangedPosition);
+}
+
+void Player::applyPlayerVitals(
+    bool hasHealth, int32_t healthCurrent,
+    std::optional<int32_t> healthMaximum, bool hasMana, int32_t manaCurrent,
+    std::optional<int32_t> manaMaximum, bool hasEndurance,
+    int32_t enduranceCurrent, std::optional<int32_t> enduranceMaximum)
+{
+  if (!hasHealth && !hasMana && !hasEndurance) return;
+  if (hasHealth) {
+    m_curHP = uint32_t(std::max(healthCurrent, 0));
+    if (healthMaximum)
+      m_maxHP = uint32_t(std::max(*healthMaximum, 0));
+    m_validHP = true;
+    updateLastChanged();
+  }
+  if (hasMana) {
+    m_mana = uint16_t(std::clamp(manaCurrent, 0, int32_t(UINT16_MAX)));
+    if (manaMaximum) {
+      m_maxMana = uint16_t(std::clamp(*manaMaximum, 0,
+                                      int32_t(UINT16_MAX)));
+      m_wireMaxMana = m_maxMana;
+    }
+    if (m_mana > m_observedMaxMana) m_observedMaxMana = m_mana;
+    m_validMana = true;
+  }
+  if (hasEndurance) {
+    m_enduranceCur = uint32_t(std::max(enduranceCurrent, 0));
+    if (enduranceMaximum)
+      m_enduranceMax = uint32_t(std::max(*enduranceMaximum, 0));
+  }
+  emit vitalsChanged();
+  if (showeq_params->savePlayerState) savePlayerState();
+}
+
+void Player::applyPlayerAppearance(std::optional<uint32_t> race,
+                                   std::optional<uint8_t> gender,
+                                   std::optional<uint32_t> animation)
+{
+  if (race) setRace(uint16_t(*race));
+  if (gender) setGender(*gender);
+  if (animation) setAnimation(uint8_t(*animation));
+  updateLastChanged();
+  emit levelChanged(m_level);
+  emit changeItem(this, animation ? tSpawnChangedPosition
+                                  : tSpawnChangedALL);
+}
+
+void Player::applyPlayerDeath()
+{
+  setPlayerID(0);
 }
 
 void Player::setPlayerName(const QString& name)
