@@ -10,9 +10,9 @@ together.
 ## What it does
 
 - Captures EverQuest network traffic via libpcap.
-- Reassembles the UDP session layer, decodes opcodes (via the
-  [`scry-decoder-rs`](https://github.com/scry-eq/scry-decoder-rs) sibling —
-  a hard build dependency, not optional), tracks game state (spawns, zones,
+- Reassembles the UDP session layer, decodes opcodes through the pinned
+  [`scry-decoder-rs`](https://github.com/scry-eq/scry-decoder-rs) submodule,
+  and tracks game state (spawns, zones,
   player, group, guild).
 - Serves the state to clients on a WebSocket, encoded as `seq.v1` protobuf
   messages.
@@ -28,10 +28,10 @@ together.
 
 ## Build
 
-Requires: CMake 3.20+, Qt 6 (Core, Network, Xml, WebSockets — headless, no
-Gui/Widgets), libpcap, Protobuf, zlib, pthreads, a Rust toolchain, and a
-sibling `../scry-decoder-rs` checkout (Corrosion links its `seq-bridge`
-crate as a hard build dependency — there is no C++ fallback decoder).
+Requires: CMake 3.20+, Qt 6 (Core, Network, Xml, WebSockets), libpcap,
+Protobuf, zlib, pthreads, and a Rust toolchain. Corrosion links the pinned
+`scry-decoder-rs/` submodule's `seq-bridge` crate as a hard build dependency.
+There is no C++ fallback decoder.
 
 Debian/Ubuntu:
 
@@ -55,6 +55,17 @@ git config core.hooksPath scripts/hooks   # activate the committed pre-push hook
 cmake -B build -DSEQ_TARGET=live -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build -j
 ```
+
+The recursive submodule checkout selects the decoder revision recorded by this
+repository. CI and release builds use that revision. To test another local
+decoder checkout, configure with
+`-DSEQ_DECODER_RS_DIR=/absolute/path/to/scry-decoder-rs`. This override is for
+development and does not change the pinned revision.
+
+Source packages must contain the initialized `scry-decoder-rs/` and `proto/`
+submodules. If a packaging system vendors them elsewhere, pass
+`-DSEQ_DECODER_RS_DIR=<path>` only after checking that the vendored decoder
+matches the gitlink recorded by this repository.
 
 `-DSEQ_TARGET=live|test|eql` picks the backend (default `live`); switching
 target needs a clean reconfigure. The pre-push hook (`scripts/hooks/pre-push`)
@@ -118,6 +129,7 @@ src/              # Daemon sources (extracted from showeq + new glue)
   protoencoder.*  # Pure translation functions
   ...             # Packet layer + managers, see extraction inventory
 proto/            # git submodule -> scry-proto
+scry-decoder-rs/  # pinned git submodule -> Rust decoder and C++ bridge
 conf/             # Opcode + preference TOML, read directly at runtime (no generated XML)
 docs/             # architecture.md, patch-day.md, and friends
 tests/            # tier-1 ctest suite + tier-2 replay scripts

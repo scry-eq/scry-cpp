@@ -84,10 +84,23 @@ endif()
 message(STATUS "SEQ_TARGET=${SEQ_TARGET} (structs: ${SEQ_STRUCT_DIR}, data ns: ${SEQ_DATA_NAMESPACE}, legacy ns: ${SEQ_LEGACY_DATA_NAMESPACE}, opcodes: ${_seq_conf_dir})")
 
 # --- Rust decoder bridge -----------------------------------------------------
-# scry-decoder-rs is a sibling repo. seq-bridge is a cxx staticlib exposing
+# scry-decoder-rs is a pinned submodule. seq-bridge is a cxx staticlib exposing
 # the per-opcode Rust decoders (seq::rust::decode_*) to C++. Rust is the only
-# decoder — no C++ fallback, no SEQ_USE_RUST toggle. Corrosion builds seq-bridge
-# with exactly one backend feature, matched 1:1 to SEQ_TARGET (live|test|eql).
+# decoder. There is no C++ fallback or SEQ_USE_RUST toggle. Corrosion builds
+# seq-bridge with exactly one backend feature, matched 1:1 to SEQ_TARGET
+# (live|test|eql).
+# Builds and releases use the pinned submodule by default. Developers can test a
+# different decoder checkout with -DSEQ_DECODER_RS_DIR=<path>.
+set(SEQ_DECODER_RS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/scry-decoder-rs"
+    CACHE PATH "Path to the scry-decoder-rs checkout")
+if(NOT EXISTS "${SEQ_DECODER_RS_DIR}/Cargo.toml")
+  message(FATAL_ERROR
+    "scry-decoder-rs not found at ${SEQ_DECODER_RS_DIR}.\n"
+    "Run 'git submodule update --init --recursive', or pass "
+    "-DSEQ_DECODER_RS_DIR=<path> for a developer checkout.")
+endif()
+message(STATUS "scry-decoder-rs: ${SEQ_DECODER_RS_DIR}")
+
 include(FetchContent)
 FetchContent_Declare(
   Corrosion
@@ -95,17 +108,6 @@ FetchContent_Declare(
   GIT_TAG v0.6
 )
 FetchContent_MakeAvailable(Corrosion)
-
-# Defaults to the sibling checkout; override with -DSEQ_DECODER_RS_DIR=<path>
-# (CI checks the crate out inside the workspace, not as a true sibling).
-set(SEQ_DECODER_RS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../scry-decoder-rs"
-    CACHE PATH "Path to the scry-decoder-rs checkout")
-if(NOT EXISTS "${SEQ_DECODER_RS_DIR}/Cargo.toml")
-  message(FATAL_ERROR
-    "scry-decoder-rs not found at ${SEQ_DECODER_RS_DIR}.\n"
-    "Clone github.com/scry-eq/scry-decoder-rs as a sibling of "
-    "scry-cpp, or pass -DSEQ_DECODER_RS_DIR=<path>.")
-endif()
 
 corrosion_import_crate(
   MANIFEST_PATH "${SEQ_DECODER_RS_DIR}/Cargo.toml"

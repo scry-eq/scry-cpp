@@ -89,13 +89,18 @@ backend's vendored `conf/eql/opcodes.toml` as input, not just this repo's.
 
 ## The decoder is Rust-only
 
-The daemon links `scry-decoder-rs`'s `seq-bridge` (a cxx staticlib) via
-Corrosion as a **hard build dependency** — there is no `SEQ_USE_RUST`
-toggle and no C++ fallback path. Every wire handler decodes through
+The daemon links the pinned `scry-decoder-rs/` submodule's `seq-bridge` (a cxx
+staticlib) via Corrosion as a **hard build dependency**. There is no
+`SEQ_USE_RUST` toggle and no C++ fallback path. Every wire handler decodes through
 `seq::rust::decode_*`; the old C++ parsers (`fillSpawnStruct` etc.) are
 gone. Backend is picked by `-DSEQ_TARGET=live|test|eql` → the decoder-rs
 `backend-*` Cargo feature, 1:1. eql's `EqlDispatch` calls the same
 `decode_*` names.
+
+CMake uses the submodule revision recorded by this repository. A developer can
+point a build at another checkout with
+`-DSEQ_DECODER_RS_DIR=/absolute/path/to/scry-decoder-rs`. CI and release builds
+do not use that override.
 
 To add or change an opcode: edit the parser in `scry-decoder-rs` (see its
 own `CLAUDE.md`/`docs/architecture.md`), expose it via `seq-bridge`, then
@@ -106,13 +111,15 @@ C++ by design — the *app logic* only, never the parse: `SpellShell::buff`
 `decode_spawn`).
 
 **New-opcode decode, fixed vs. variable layout:**
-- A FIXED-layout struct → add it to
-  `../scry-decoder-rs/tools/gen_eqstructs.py`'s ALLOWLIST, run
-  `gen_eqstructs.py all` (regenerates BOTH live + test bindings —
-  `seq-decode` compiles for both, so regenerating one alone breaks the
-  other's build), decode via the `crate::eqstructs::<Struct>` binding in
-  seq-decode. Keep the real struct name in the TOML payload + `wire()`, not
-  `uint8_t`.
+- For a fixed-layout struct, add it to
+  `scry-decoder-rs/tools/gen_eqstructs.py`'s ALLOWLIST. Run the generator for
+  both headers:
+  `python3 scry-decoder-rs/tools/gen_eqstructs.py live src/backend/live/everquest.h`
+  and
+  `python3 scry-decoder-rs/tools/gen_eqstructs.py test src/backend/test/everquest.h`.
+  `seq-decode` compiles for Live and Test, so regenerate both binding files.
+  Decode through the `crate::eqstructs::<Struct>` binding in seq-decode. Keep
+  the real struct name in the TOML payload and `wire()`, not `uint8_t`.
 - A VARIABLE-layout opcode (LPText / flexible array) → `uint8_t`/`none`
   payload + a hand-rolled `Cursor` walk in `seq-decode` (see
   `seq-decode/src/guild_roster.rs`).

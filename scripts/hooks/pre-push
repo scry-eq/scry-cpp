@@ -63,7 +63,7 @@ if [[ -d proto ]]; then
 fi
 
 # ── Rust bindings freshness check ────────────────────────────────────────────
-DECODER_RS="${REPO}/../scry-decoder-rs"
+DECODER_RS="${SEQ_DECODER_RS_DIR:-${REPO}/scry-decoder-rs}"
 if [[ ! -d "${DECODER_RS}" ]]; then
     exit 0
 fi
@@ -110,21 +110,31 @@ done
 cp "${BINDINGS_LIVE}" "${SAVED_LIVE}"
 cp "${BINDINGS_TEST}" "${SAVED_TEST}"
 
-# Regenerate BOTH targets into the sibling repo; compare; always restore.
-(cd "${DECODER_RS}" && python3 tools/gen_eqstructs.py all >/dev/null 2>&1)
+restore_bindings() {
+    cp "${SAVED_LIVE}" "${BINDINGS_LIVE}"
+    cp "${SAVED_TEST}" "${BINDINGS_TEST}"
+    rm -f "${SAVED_LIVE}" "${SAVED_TEST}"
+}
+trap restore_bindings EXIT
+
+# Regenerate BOTH targets into the decoder checkout; compare; always restore.
+# The generator's default sibling layout does not apply when decoder-rs is a
+# submodule, so pass both headers explicitly.
+(cd "${DECODER_RS}" && \
+    python3 tools/gen_eqstructs.py live "${REPO}/src/backend/live/everquest.h" >/dev/null 2>&1 && \
+    python3 tools/gen_eqstructs.py test "${REPO}/src/backend/test/everquest.h" >/dev/null 2>&1)
 
 diff -q "${SAVED_LIVE}" "${BINDINGS_LIVE}" >/dev/null 2>&1 || STALE=1
 diff -q "${SAVED_TEST}" "${BINDINGS_TEST}" >/dev/null 2>&1 || STALE=1
 
-cp "${SAVED_LIVE}" "${BINDINGS_LIVE}"
-cp "${SAVED_TEST}" "${BINDINGS_TEST}"
-rm -f "${SAVED_LIVE}" "${SAVED_TEST}"
+restore_bindings
+trap - EXIT
 
 if [[ "${STALE}" -eq 1 ]]; then
     echo ""
     echo "ERROR: scry-decoder-rs bindings are stale." >&2
     echo "       everquest.h changed but bindings.rs was not regenerated." >&2
-    echo "       Run: (cd ../scry-decoder-rs && python3 tools/gen_eqstructs.py all)" >&2
+    echo "       Run the generator for the Live and Test headers, then update the decoder pin." >&2
     echo "       Then commit and push scry-decoder-rs before retrying." >&2
     exit 1
 fi

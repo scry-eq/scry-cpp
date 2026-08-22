@@ -40,11 +40,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: checkout scry-decoder-rs (Corrosion hard-dep)
-        uses: actions/checkout@v5
-        with:
-          repository: scry-eq/scry-decoder-rs
-          path: scry-decoder-rs
+      - name: verify pinned decoder
+        run: test "$(git -C scry-decoder-rs rev-parse HEAD)" = "$(git rev-parse HEAD:scry-decoder-rs)"
 
       - name: install build deps (Ubuntu)
         if: matrix.os == 'ubuntu'
@@ -64,7 +61,7 @@ jobs:
             libpcap-devel protobuf-devel protobuf-compiler zlib-devel sqlite-devel
 
       - name: configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSEQ_DECODER_RS_DIR=$GITHUB_WORKSPACE/scry-decoder-rs
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: build
         run: cmake --build build -j
@@ -126,11 +123,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: checkout scry-decoder-rs (Corrosion hard-dep)
-        uses: actions/checkout@v5
-        with:
-          repository: scry-eq/scry-decoder-rs
-          path: scry-decoder-rs
+      - name: verify pinned decoder
+        run: test "$(git -C scry-decoder-rs rev-parse HEAD)" = "$(git rev-parse HEAD:scry-decoder-rs)"
 
       - name: install build deps
         run: |
@@ -141,7 +135,7 @@ jobs:
             libpcap-dev libprotobuf-dev protobuf-compiler zlib1g-dev libsqlite3-dev
 
       - name: configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSEQ_TARGET=${{ matrix.seq_target }} -DSEQ_DECODER_RS_DIR=$GITHUB_WORKSPACE/scry-decoder-rs
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSEQ_TARGET=${{ matrix.seq_target }}
 
       - name: build
         run: cmake --build build -j
