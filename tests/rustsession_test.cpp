@@ -1,0 +1,383 @@
+#include <QtTest/QtTest>
+
+#include <array>
+#include <type_traits>
+
+#include "rustsession.h"
+
+namespace {
+
+using namespace seq::shadow;
+namespace ffi = seq::rust;
+
+// The adapter moves each generated payload into its matching wrapper without a
+// field projection. These checks make that structural field preservation part
+// of the C++ test contract for every payload-bearing event.
+#define SAME_PAYLOAD(wrapper, type) \
+    static_assert(std::is_same_v<decltype(wrapper::payload), ffi::type>)
+SAME_PAYLOAD(SpawnAdded, EventSpawnInfo);
+SAME_PAYLOAD(SpawnMoved, EventSpawnMoved);
+SAME_PAYLOAD(SpawnRemoved, EventSpawnId);
+SAME_PAYLOAD(SpawnKilled, EventSpawnKilled);
+SAME_PAYLOAD(SpawnHp, EventSpawnHp);
+SAME_PAYLOAD(StatSync, EventStatSync);
+SAME_PAYLOAD(SelfPos, EventSelfPos);
+SAME_PAYLOAD(SpawnAnimation, EventSpawnAnimation);
+SAME_PAYLOAD(SpawnIllusion, EventSpawnIllusion);
+SAME_PAYLOAD(GuildsInZone, EventGuildsInZone);
+SAME_PAYLOAD(TimeOfDay, EventTimeOfDay);
+SAME_PAYLOAD(ZoneChanged, EventZoneInfo);
+SAME_PAYLOAD(PlayerProfile, EventProfileInfo);
+SAME_PAYLOAD(Stance, EventNamed);
+SAME_PAYLOAD(Invocation, EventNamed);
+SAME_PAYLOAD(InspectAnswer, EventInspectAnswer);
+SAME_PAYLOAD(GuildRoster, EventGuildRoster);
+SAME_PAYLOAD(ZoneServerInfo, EventZoneServerInfo);
+SAME_PAYLOAD(ItemSet, EventItemSet);
+SAME_PAYLOAD(ItemLearned, EventItemLearned);
+SAME_PAYLOAD(GuildMotd, EventGuildMotdPayload);
+SAME_PAYLOAD(GuildRankName, EventGuildRankName);
+SAME_PAYLOAD(LoadoutSwap, EventLoadoutSwap);
+SAME_PAYLOAD(Doors, EventDoors);
+SAME_PAYLOAD(GroundItemRemoved, EventGroundItemRemoved);
+SAME_PAYLOAD(GroundItem, EventGroundItem);
+SAME_PAYLOAD(Combat, EventCombat);
+SAME_PAYLOAD(SpawnCast, EventSpawnCast);
+SAME_PAYLOAD(Targeted, EventSpawnId);
+SAME_PAYLOAD(Considered, EventSpawnId);
+SAME_PAYLOAD(AaTable, EventAaTable);
+SAME_PAYLOAD(Exp, EventExp);
+SAME_PAYLOAD(AaExp, EventAaExp);
+SAME_PAYLOAD(Stamina, EventStaminaPayload);
+SAME_PAYLOAD(ManaUpdate, EventManaUpdate);
+SAME_PAYLOAD(SkillUpdate, EventSkillUpdatePayload);
+SAME_PAYLOAD(LootTransaction, EventLootTransactionPayload);
+SAME_PAYLOAD(LootDrops, EventLootDropsPayload);
+SAME_PAYLOAD(Money, EventMoney);
+SAME_PAYLOAD(SimpleMessage, EventSimpleMessagePayload);
+SAME_PAYLOAD(FormattedMessage, EventFormattedMessagePayload);
+SAME_PAYLOAD(SpecialMessage, EventSpecialMessagePayload);
+SAME_PAYLOAD(LootMessage, EventLootMessagePayload);
+SAME_PAYLOAD(Chat, EventChat);
+SAME_PAYLOAD(BuffList, EventBuffList);
+SAME_PAYLOAD(GroupFollow, EventGroupFollowPayload);
+SAME_PAYLOAD(GroupDisband, EventGroupDisbandPayload);
+SAME_PAYLOAD(LevelUpdate, EventLevelUpdatePayload);
+#undef SAME_PAYLOAD
+
+template <typename T>
+void addPayload(ffi::SessionDecodeBatch& batch, ::rust::Vec<T>& payloads,
+                ffi::SessionEventKind kind, T payload = {})
+{
+    ffi::SessionEventRef ref;
+    ref.kind = kind;
+    ref.payload_index = static_cast<uint32_t>(payloads.size());
+    payloads.push_back(std::move(payload));
+    batch.events.push_back(ref);
+}
+
+void addPayloadless(ffi::SessionDecodeBatch& batch,
+                    ffi::SessionEventKind kind)
+{
+    ffi::SessionEventRef ref;
+    ref.kind = kind;
+    ref.payload_index = 0;
+    batch.events.push_back(ref);
+}
+
+QString text(const ::rust::String& value)
+{
+    return QString::fromUtf8(value.data(), qsizetype(value.size()));
+}
+
+uint16_t deleteSpawnOpcode()
+{
+#if defined(SEQ_TARGET_LIVE)
+    return 0x5d39;
+#elif defined(SEQ_TARGET_TEST)
+    return 0xa183;
+#elif defined(SEQ_TARGET_EQL)
+    return 0x7ba3;
+#endif
+}
+
+ffi::SessionBackend backend()
+{
+#if defined(SEQ_TARGET_LIVE)
+    return ffi::SessionBackend::Live;
+#elif defined(SEQ_TARGET_TEST)
+    return ffi::SessionBackend::Test;
+#elif defined(SEQ_TARGET_EQL)
+    return ffi::SessionBackend::Eql;
+#endif
+}
+
+} // namespace
+
+class RustSessionTest : public QObject
+{
+    Q_OBJECT
+private slots:
+    void everyVariantTranslatesInOrder();
+    void payloadFieldsSurviveTranslation();
+    void diagnosticsAndJournalAreOrdered();
+    void sessionsAreIsolated();
+};
+
+void RustSessionTest::everyVariantTranslatesInOrder()
+{
+    ffi::SessionDecodeBatch raw;
+    raw.protocol_generation = 77;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+
+#define ADD(member, kind, type) \
+    addPayload(raw, raw.member, ffi::SessionEventKind::kind, ffi::type{})
+    ADD(spawn_added, SpawnAdded, EventSpawnInfo);
+    ADD(spawn_moved, SpawnMoved, EventSpawnMoved);
+    ADD(spawn_removed, SpawnRemoved, EventSpawnId);
+    ADD(spawn_killed, SpawnKilled, EventSpawnKilled);
+    ADD(spawn_hp, SpawnHp, EventSpawnHp);
+    ADD(stat_sync, StatSync, EventStatSync);
+    ADD(self_pos, SelfPos, EventSelfPos);
+    ADD(spawn_animation, SpawnAnimation, EventSpawnAnimation);
+    ADD(spawn_illusion, SpawnIllusion, EventSpawnIllusion);
+    ADD(guilds_in_zone, GuildsInZone, EventGuildsInZone);
+    ADD(time_of_day, TimeOfDay, EventTimeOfDay);
+    ADD(zone_changed, ZoneChanged, EventZoneInfo);
+    ADD(player_profile, PlayerProfile, EventProfileInfo);
+    ADD(named, Stance, EventNamed);
+    ADD(named, Invocation, EventNamed);
+    ADD(inspect_answer, InspectAnswer, EventInspectAnswer);
+    ADD(guild_roster, GuildRoster, EventGuildRoster);
+    ADD(zone_server_info, ZoneServerInfo, EventZoneServerInfo);
+    ADD(item_set, ItemSet, EventItemSet);
+    ADD(item_learned, ItemLearned, EventItemLearned);
+    ADD(guild_motd, GuildMotd, EventGuildMotdPayload);
+    ADD(guild_rank_name, GuildRankName, EventGuildRankName);
+    ADD(loadout_swap, LoadoutSwap, EventLoadoutSwap);
+    ADD(doors, Doors, EventDoors);
+    ADD(ground_item_removed, GroundItemRemoved, EventGroundItemRemoved);
+    ADD(ground_item, GroundItem, EventGroundItem);
+    ADD(combat, Combat, EventCombat);
+    ADD(spawn_cast, SpawnCast, EventSpawnCast);
+    ADD(spawn_id, Targeted, EventSpawnId);
+    ADD(spawn_id, Considered, EventSpawnId);
+    ADD(aa_table, AaTable, EventAaTable);
+    ADD(exp, Exp, EventExp);
+    ADD(aa_exp, AaExp, EventAaExp);
+    ADD(stamina, Stamina, EventStaminaPayload);
+    ADD(mana_update, ManaUpdate, EventManaUpdate);
+    ADD(skill_update, SkillUpdate, EventSkillUpdatePayload);
+    ADD(loot_transaction, LootTransaction, EventLootTransactionPayload);
+    ADD(loot_drops, LootDrops, EventLootDropsPayload);
+    ADD(money, Money, EventMoney);
+    ADD(simple_message, SimpleMessage, EventSimpleMessagePayload);
+    ADD(formatted_message, FormattedMessage, EventFormattedMessagePayload);
+    ADD(special_message, SpecialMessage, EventSpecialMessagePayload);
+    ADD(loot_message, LootMessage, EventLootMessagePayload);
+    ADD(chat, Chat, EventChat);
+    ADD(buff_list, BuffList, EventBuffList);
+    ADD(group_follow, GroupFollow, EventGroupFollowPayload);
+    ADD(group_disband, GroupDisband, EventGroupDisbandPayload);
+    ADD(level_update, LevelUpdate, EventLevelUpdatePayload);
+#undef ADD
+    addPayloadless(raw, ffi::SessionEventKind::EnterWorld);
+
+    Batch batch = translate(std::move(raw));
+    QCOMPARE(batch.protocolGeneration, uint64_t(77));
+    QCOMPARE(batch.disposition, Disposition::Decoded);
+    QCOMPARE(batch.events.size(), size_t(49));
+
+#define CHECK(index, type) QVERIFY(std::holds_alternative<type>(batch.events[index]))
+    CHECK(0, SpawnAdded); CHECK(1, SpawnMoved); CHECK(2, SpawnRemoved);
+    CHECK(3, SpawnKilled); CHECK(4, SpawnHp); CHECK(5, StatSync);
+    CHECK(6, SelfPos); CHECK(7, SpawnAnimation); CHECK(8, SpawnIllusion);
+    CHECK(9, GuildsInZone); CHECK(10, TimeOfDay); CHECK(11, ZoneChanged);
+    CHECK(12, PlayerProfile); CHECK(13, Stance); CHECK(14, Invocation);
+    CHECK(15, InspectAnswer); CHECK(16, GuildRoster); CHECK(17, ZoneServerInfo);
+    CHECK(18, ItemSet); CHECK(19, ItemLearned); CHECK(20, GuildMotd);
+    CHECK(21, GuildRankName); CHECK(22, LoadoutSwap); CHECK(23, Doors);
+    CHECK(24, GroundItemRemoved); CHECK(25, GroundItem); CHECK(26, Combat);
+    CHECK(27, SpawnCast); CHECK(28, Targeted); CHECK(29, Considered);
+    CHECK(30, AaTable); CHECK(31, Exp); CHECK(32, AaExp);
+    CHECK(33, Stamina); CHECK(34, ManaUpdate); CHECK(35, SkillUpdate);
+    CHECK(36, LootTransaction); CHECK(37, LootDrops); CHECK(38, Money);
+    CHECK(39, SimpleMessage); CHECK(40, FormattedMessage);
+    CHECK(41, SpecialMessage); CHECK(42, LootMessage); CHECK(43, Chat);
+    CHECK(44, BuffList); CHECK(45, GroupFollow); CHECK(46, GroupDisband);
+    CHECK(47, LevelUpdate); CHECK(48, EnterWorld);
+#undef CHECK
+}
+
+void RustSessionTest::payloadFieldsSurviveTranslation()
+{
+    ffi::SessionDecodeBatch raw;
+    raw.protocol_generation = 99;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+
+    ffi::EventSpawnInfo spawn;
+    spawn.id = 1;
+    spawn.name = ::rust::String("name");
+    spawn.last_name = ::rust::String("last");
+    spawn.race = 2; spawn.class_ = 3; spawn.deity = 4; spawn.level = 5;
+    spawn.npc = 6; spawn.cur_hp = 7; spawn.has_max_hp = true; spawn.max_hp = 8;
+    spawn.guild_id = 9; spawn.guild_server_id = 10; spawn.class_mask = 11;
+    spawn.has_pos = true;
+    spawn.pos.x = 12; spawn.pos.y = 13; spawn.pos.z = 14;
+    spawn.pos.heading_deg = 15;
+    addPayload(raw, raw.spawn_added, ffi::SessionEventKind::SpawnAdded,
+               std::move(spawn));
+
+    ffi::EventProfileInfo profile;
+    profile.name = ::rust::String("profile");
+    profile.last_name = ::rust::String("surname");
+    profile.class_ = 16; profile.level = 17; profile.race = 18;
+    profile.deity = 19; profile.cur_hp = 20; profile.mana = 21;
+    profile.aa_ids.push_back(22); profile.aa_values.push_back(23);
+    profile.aa_spent = 24; profile.skills.push_back(25); profile.class_mask = 26;
+    profile.str_ = 27; profile.sta = 28; profile.cha = 29; profile.dex = 30;
+    profile.int_ = 31; profile.agi = 32; profile.wis = 33;
+    profile.platinum = 34; profile.gold = 35; profile.silver = 36;
+    profile.copper = 37;
+    addPayload(raw, raw.player_profile, ffi::SessionEventKind::PlayerProfile,
+               std::move(profile));
+
+    ffi::EventItemTemplate item;
+    item.serial = ::rust::String("serial");
+    item.name = ::rust::String("item");
+    item.lore_name = ::rust::String("lore");
+    item.item_id = 38; item.icon = 39; item.slot_mask = 40;
+    item.container_id = 41; item.container_slot = 42; item.parent_slot = 43;
+    item.stats.push_back(-44); item.resists.push_back(-45);
+    item.hp = -46; item.mana = -47; item.endurance = -48; item.ac = -49;
+    ffi::EventItemLearned learned;
+    learned.item = std::move(item);
+    addPayload(raw, raw.item_learned, ffi::SessionEventKind::ItemLearned,
+               std::move(learned));
+
+    ffi::SelfStat self;
+    self.is_self = true; self.has_hp = true; self.hp_cur = 50; self.hp_max = 51;
+    self.has_mana = true; self.mana_cur = 52; self.mana_max = 53;
+    self.has_end = true; self.end_cur = 54; self.end_max = 55;
+    raw.self_stats.push_back(std::move(self));
+
+    ffi::LootRow loot;
+    loot.ts = 56; loot.source = ::rust::String("source");
+    loot.item_name = ::rust::String("loot"); loot.item_id = 57; loot.icon = 58;
+    loot.qty = 59; loot.mob_name = ::rust::String("mob");
+    loot.mob_norm = ::rust::String("norm"); loot.corpse_id = 60;
+    loot.zone_short = ::rust::String("short");
+    loot.zone_base = ::rust::String("base"); loot.instance = ::rust::String("inst");
+    loot.sold = true; loot.money_copper = 61;
+    loot.disposition = ::rust::String("acquired");
+    loot.looter = ::rust::String("looter"); loot.sequence = 62;
+    raw.loot_rows.push_back(std::move(loot));
+
+    Batch batch = translate(std::move(raw));
+    const auto& outSpawn = std::get<SpawnAdded>(batch.events[0]).payload;
+    QCOMPARE(outSpawn.id, uint32_t(1)); QCOMPARE(text(outSpawn.name), QString("name"));
+    QCOMPARE(text(outSpawn.last_name), QString("last")); QCOMPARE(outSpawn.race, uint32_t(2));
+    QCOMPARE(outSpawn.class_, uint32_t(3)); QCOMPARE(outSpawn.deity, uint32_t(4));
+    QCOMPARE(outSpawn.level, uint8_t(5)); QCOMPARE(outSpawn.npc, uint8_t(6));
+    QCOMPARE(outSpawn.cur_hp, uint32_t(7)); QVERIFY(outSpawn.has_max_hp);
+    QCOMPARE(outSpawn.max_hp, uint32_t(8)); QCOMPARE(outSpawn.guild_id, uint32_t(9));
+    QCOMPARE(outSpawn.guild_server_id, uint32_t(10));
+    QCOMPARE(outSpawn.class_mask, uint32_t(11)); QVERIFY(outSpawn.has_pos);
+    QCOMPARE(outSpawn.pos.x, int32_t(12)); QCOMPARE(outSpawn.pos.y, int32_t(13));
+    QCOMPARE(outSpawn.pos.z, int32_t(14)); QCOMPARE(outSpawn.pos.heading_deg, uint16_t(15));
+
+    const auto& outProfile = std::get<PlayerProfile>(batch.events[1]).payload;
+    QCOMPARE(text(outProfile.name), QString("profile"));
+    QCOMPARE(text(outProfile.last_name), QString("surname"));
+    QCOMPARE(outProfile.class_, uint32_t(16)); QCOMPARE(outProfile.level, uint8_t(17));
+    QCOMPARE(outProfile.race, uint32_t(18)); QCOMPARE(outProfile.deity, uint32_t(19));
+    QCOMPARE(outProfile.cur_hp, uint32_t(20)); QCOMPARE(outProfile.mana, uint32_t(21));
+    QCOMPARE(outProfile.aa_ids[0], uint32_t(22));
+    QCOMPARE(outProfile.aa_values[0], uint32_t(23));
+    QCOMPARE(outProfile.aa_spent, uint32_t(24)); QCOMPARE(outProfile.skills[0], uint32_t(25));
+    QCOMPARE(outProfile.class_mask, uint32_t(26)); QCOMPARE(outProfile.str_, uint32_t(27));
+    QCOMPARE(outProfile.sta, uint32_t(28)); QCOMPARE(outProfile.cha, uint32_t(29));
+    QCOMPARE(outProfile.dex, uint32_t(30)); QCOMPARE(outProfile.int_, uint32_t(31));
+    QCOMPARE(outProfile.agi, uint32_t(32)); QCOMPARE(outProfile.wis, uint32_t(33));
+    QCOMPARE(outProfile.platinum, uint32_t(34)); QCOMPARE(outProfile.gold, uint32_t(35));
+    QCOMPARE(outProfile.silver, uint32_t(36)); QCOMPARE(outProfile.copper, uint32_t(37));
+
+    const auto& outItem = std::get<ItemLearned>(batch.events[2]).payload.item;
+    QCOMPARE(text(outItem.serial), QString("serial")); QCOMPARE(text(outItem.name), QString("item"));
+    QCOMPARE(text(outItem.lore_name), QString("lore")); QCOMPARE(outItem.item_id, uint32_t(38));
+    QCOMPARE(outItem.icon, uint32_t(39)); QCOMPARE(outItem.slot_mask, uint32_t(40));
+    QCOMPARE(outItem.container_id, uint32_t(41)); QCOMPARE(outItem.container_slot, uint16_t(42));
+    QCOMPARE(outItem.parent_slot, uint16_t(43)); QCOMPARE(outItem.stats[0], int32_t(-44));
+    QCOMPARE(outItem.resists[0], int32_t(-45)); QCOMPARE(outItem.hp, int32_t(-46));
+    QCOMPARE(outItem.mana, int32_t(-47)); QCOMPARE(outItem.endurance, int32_t(-48));
+    QCOMPARE(outItem.ac, int32_t(-49));
+
+    QCOMPARE(batch.selfStats.size(), size_t(1));
+    const auto& outSelf = batch.selfStats[0];
+    QVERIFY(outSelf.is_self && outSelf.has_hp && outSelf.has_mana && outSelf.has_end);
+    QCOMPARE(outSelf.hp_cur, int64_t(50)); QCOMPARE(outSelf.hp_max, int64_t(51));
+    QCOMPARE(outSelf.mana_cur, int64_t(52)); QCOMPARE(outSelf.mana_max, int64_t(53));
+    QCOMPARE(outSelf.end_cur, int64_t(54)); QCOMPARE(outSelf.end_max, int64_t(55));
+
+    QCOMPARE(batch.lootRows.size(), size_t(1));
+    const auto& outLoot = batch.lootRows[0];
+    QCOMPARE(outLoot.ts, int64_t(56)); QCOMPARE(text(outLoot.source), QString("source"));
+    QCOMPARE(text(outLoot.item_name), QString("loot")); QCOMPARE(outLoot.item_id, uint32_t(57));
+    QCOMPARE(outLoot.icon, uint32_t(58)); QCOMPARE(outLoot.qty, uint32_t(59));
+    QCOMPARE(text(outLoot.mob_name), QString("mob")); QCOMPARE(text(outLoot.mob_norm), QString("norm"));
+    QCOMPARE(outLoot.corpse_id, uint32_t(60)); QCOMPARE(text(outLoot.zone_short), QString("short"));
+    QCOMPARE(text(outLoot.zone_base), QString("base")); QCOMPARE(text(outLoot.instance), QString("inst"));
+    QVERIFY(outLoot.sold); QCOMPARE(outLoot.money_copper, uint32_t(61));
+    QCOMPARE(text(outLoot.disposition), QString("acquired"));
+    QCOMPARE(text(outLoot.looter), QString("looter")); QCOMPARE(outLoot.sequence, uint32_t(62));
+}
+
+void RustSessionTest::diagnosticsAndJournalAreOrdered()
+{
+    ProtocolRegistry registry;
+    Session session(registry, backend(), 3);
+    const uint8_t bad[3] = {1, 2, 3};
+    const uint8_t good[4] = {1, 0, 0, 0};
+
+    const Record& unmapped = session.decode(Stream::Zone, 0,
+        Direction::ServerToClient, good, sizeof(good), 1000);
+    QCOMPARE(unmapped.batch.disposition, Disposition::Unmapped);
+    QCOMPARE(unmapped.packet->timestamp, int64_t(1000));
+
+    const Record& malformed = session.decode(Stream::Zone, deleteSpawnOpcode(),
+        Direction::ServerToClient, bad, sizeof(bad), 1001);
+    QCOMPARE(malformed.batch.disposition, Disposition::Malformed);
+
+    const Record& decoded = session.decode(Stream::Zone, deleteSpawnOpcode(),
+        Direction::ServerToClient, good, sizeof(good), 1002);
+    QCOMPARE(decoded.batch.disposition, Disposition::Decoded);
+    QVERIFY(std::holds_alternative<SpawnRemoved>(decoded.batch.events[0]));
+
+    const Record& flushed = session.flush(FlushReason::ReplayEnd);
+    QCOMPARE(flushed.sequence, uint64_t(4));
+    QCOMPARE(session.recordCount(), uint64_t(4));
+    QCOMPARE(session.droppedRecordCount(), uint64_t(1));
+    QCOMPARE(session.journal().front().sequence, uint64_t(2));
+    QCOMPARE(session.journal().back().flushReason, std::optional(FlushReason::ReplayEnd));
+}
+
+void RustSessionTest::sessionsAreIsolated()
+{
+    ProtocolRegistry registry;
+    Session first(registry, backend());
+    Session second(registry, backend());
+    const uint8_t payload[4] = {2, 0, 0, 0};
+
+    first.decode(Stream::Zone, deleteSpawnOpcode(),
+                 Direction::ServerToClient, payload, sizeof(payload), 1);
+    QCOMPARE(first.recordCount(), uint64_t(1));
+    QCOMPARE(second.recordCount(), uint64_t(0));
+    QVERIFY(second.journal().empty());
+
+    second.flush(FlushReason::Reset);
+    QCOMPARE(first.recordCount(), uint64_t(1));
+    QCOMPARE(second.recordCount(), uint64_t(1));
+}
+
+QTEST_APPLESS_MAIN(RustSessionTest)
+#include "rustsession_test.moc"

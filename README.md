@@ -127,6 +127,7 @@ src/              # Daemon sources (extracted from showeq + new glue)
   wsserver.*      # QWebSocketServer
   sessionadapter.*# Per-client adapter: QObject signals -> protobuf
   protoencoder.*  # Pure translation functions
+  rustsession.*   # Typed Rust Session shadow adapter + diagnostic journal
   ...             # Packet layer + managers, see extraction inventory
 proto/            # git submodule -> scry-proto
 scry-decoder-rs/  # pinned git submodule -> Rust decoder and C++ bridge

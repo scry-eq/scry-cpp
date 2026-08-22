@@ -38,6 +38,13 @@ PacketHandler noopHandler()
     return [](const uint8_t*, size_t, uint8_t) {};
 }
 
+class TestStream : public EQPacketStream
+{
+public:
+    using EQPacketStream::EQPacketStream;
+    using EQPacketStream::dispatchPacket;
+};
+
 } // namespace
 
 class PacketStreamDispatchTest : public QObject
@@ -52,6 +59,8 @@ private slots:
     void directionMismatchDoesNotBind();
     void firstOfMultiplePayloadsBinds();
     void unknownOpcodeDoesNotBind();
+    void applicationHookRunsBeforeLegacyHandler();
+    void applicationHookRunsWhileMuted();
 
 private:
     QTemporaryDir m_tmp;
@@ -141,6 +150,54 @@ void PacketStreamDispatchTest::unknownOpcodeDoesNotBind()
     EQPacketStream stream(zone2client, DIR_Server, 32, m_opcodeDB);
     QVERIFY(!stream.on(QStringLiteral("OP_Nonexistent"), "opCodeStruct",
                        SZC_Match, noopHandler()));
+}
+
+void PacketStreamDispatchTest::applicationHookRunsBeforeLegacyHandler()
+{
+    TestStream stream(zone2client, DIR_Server, 32, m_opcodeDB);
+    int order = 0;
+    QVERIFY(stream.on(QStringLiteral("OP_Multi"), "uint8_t", SZC_None,
+                      [&order](const uint8_t*, size_t, uint8_t) {
+                          QCOMPARE(order, 1);
+                          order = 2;
+                      }));
+
+    stream.setApplicationPacketHook(
+        [&order](EQStreamID streamId, uint8_t direction, uint16_t opcode,
+                 const uint8_t*, size_t length, int64_t timestamp) {
+            QCOMPARE(order, 0);
+            QCOMPARE(streamId, zone2client);
+            QCOMPARE(direction, uint8_t(DIR_Server));
+            QCOMPARE(opcode, uint16_t(1));
+            QCOMPARE(length, size_t(0));
+            QCOMPARE(timestamp, int64_t(1234));
+            order = 1;
+        },
+        [] { return int64_t(1234); });
+
+    const EQPacketOPCode* opcode = m_opcodeDB.find(uint16_t(1));
+    stream.dispatchPacket(nullptr, 0, 1, opcode);
+    QCOMPARE(order, 2);
+}
+
+void PacketStreamDispatchTest::applicationHookRunsWhileMuted()
+{
+    TestStream stream(zone2client, DIR_Server, 32, m_opcodeDB);
+    int hookCalls = 0;
+    int handlerCalls = 0;
+    QVERIFY(stream.on(QStringLiteral("OP_Multi"), "uint8_t", SZC_None,
+                      [&handlerCalls](const uint8_t*, size_t, uint8_t) {
+                          ++handlerCalls;
+                      }));
+    stream.setApplicationPacketHook(
+        [&hookCalls](EQStreamID, uint8_t, uint16_t, const uint8_t*, size_t,
+                     int64_t) { ++hookCalls; },
+        [] { return int64_t(0); });
+    stream.setMuted(true);
+
+    stream.dispatchPacket(nullptr, 0, 1, m_opcodeDB.find(uint16_t(1)));
+    QCOMPARE(hookCalls, 1);
+    QCOMPARE(handlerCalls, 0);
 }
 
 QTEST_APPLESS_MAIN(PacketStreamDispatchTest)

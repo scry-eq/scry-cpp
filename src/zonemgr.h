@@ -104,6 +104,9 @@ class ZoneMgr : public QObject
   void playerProfile(const charProfileStruct* player);
   void zoneChanged(const QString& shortZoneName);
   void zoneChanged(const zoneChangeStruct*, size_t, uint8_t);
+  // Backend-neutral marker for a transition whose destination is not known
+  // yet. EQL emits this from beginZoning(); Live/Test use zoneChanged.
+  void zoneTransitionStarted();
   void zoneEnd(const QString& shortZoneName, const QString& longZoneName);
   // eql-only: the authoritative current-zone name (from OP_NewZone) is now
   // known. Drives map load / filter overlay / web ZoneChanged envelope WITHOUT

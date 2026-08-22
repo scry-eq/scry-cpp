@@ -27,6 +27,7 @@
 #include <QObject>
 #include <QHash>
 #include <QSet>
+#include <functional>
 #include <map>
 #include <memory>
 #include <utility>
@@ -112,6 +113,20 @@ class EQPacketStream : public QObject
   void setMuted(bool m) { m_muted = m; }
   bool isMuted() const  { return m_muted; }
 
+  // Runs once for each reassembled application packet, before decodedPacket
+  // observers and legacy handlers. Shadow decoding uses this path so muted
+  // boxes receive the same ordered packet stream as active boxes.
+  using ApplicationPacketHook =
+      std::function<void(EQStreamID, uint8_t, uint16_t,
+                         const uint8_t*, size_t, int64_t)>;
+  using TimestampProvider = std::function<int64_t()>;
+  void setApplicationPacketHook(ApplicationPacketHook hook,
+                                TimestampProvider timestampProvider)
+  {
+    m_applicationPacketHook = std::move(hook);
+    m_timestampProvider = std::move(timestampProvider);
+  }
+
   struct StreamHandoff {
     uint32_t sessionId;
     uint32_t sessionKey;
@@ -178,6 +193,8 @@ class EQPacketStream : public QObject
   int m_packetCount;
   uint8_t m_session_tracking_enabled;
   bool m_muted = false;
+  ApplicationPacketHook m_applicationPacketHook;
+  TimestampProvider m_timestampProvider;
 
   // Payload-size-mismatch warnings, deduped on (opcode, length). A gated
   // opcode mismatches on EVERY packet, so warning per-packet buries the log
@@ -297,5 +314,4 @@ inline PacketHandler seqBind(std::shared_ptr<T> obj,
 }
 
 #endif //  _PACKETSTREAM_H_
-
 

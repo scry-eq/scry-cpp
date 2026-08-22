@@ -29,6 +29,9 @@
 #include <QSet>
 #include <QPointer>
 #include <QTimer>
+#include <memory>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include "boxregistry.h"
 #include "packetcommon.h"
@@ -62,6 +65,11 @@ class EQUDPIPPacketFormat;
 class EQPacketTypeDB;
 class EQPacketOPCodeDB;
 class EQPacketOPCode;
+namespace seq::shadow {
+class ProtocolRegistry;
+class Session;
+enum class FlushReason;
+}
 
 //----------------------------------------------------------------------
 // EQPacket
@@ -130,6 +138,14 @@ class EQPacket : public QObject
    // (world + zone). Non-zero means a mapped SZC_Match opcode still gates on
    // an inherited Live sizeof; --strict-gate-sizes turns that into a fatal.
    int undeclaredGateSizeCount(void) const { return m_undeclaredGateSizes; }
+
+   // Phase-2 Rust shadow sessions. They consume every application packet but
+   // never apply their events to daemon state. Accessors exist for diagnostics
+   // and focused integration tests.
+   const seq::shadow::Session* shadowSession(const Box* box) const;
+   void flushShadowSession(const Box* box, seq::shadow::FlushReason reason);
+   void flushCurrentShadowSession(seq::shadow::FlushReason reason);
+   void flushAllShadowSessions(seq::shadow::FlushReason reason);
 
    void exportHandoffState(const QString& configDir) const;
    bool importHandoffState(const QString& configDir);
@@ -255,6 +271,18 @@ class EQPacket : public QObject
    EQPacketTypeDB* m_packetTypeDB;
    EQPacketOPCodeDB* m_worldOPCodeDB;
    EQPacketOPCodeDB* m_zoneOPCodeDB;
+
+   // One immutable protocol registry for the process, then one stateful Rust
+   // session per Box. The adapter only journals shadow output. Legacy handlers
+   // remain the sole state mutation path.
+   std::unique_ptr<seq::shadow::ProtocolRegistry> m_shadowRegistry;
+   std::unique_ptr<seq::shadow::Session> m_unattributedShadowSession;
+   std::unordered_map<const Box*, std::unique_ptr<seq::shadow::Session>>
+       m_shadowSessions;
+   std::unordered_set<const Box*> m_shadowDisabled;
+   bool m_unattributedShadowDisabled = false;
+   bool m_currentShadowIsUnattributed = false;
+   Box* m_currentShadowBox = nullptr;
 
    // Stage 1 of multibox-sessions: observe every world-port-talking
    // client_ip on the wire. Read-only sibling of the legacy

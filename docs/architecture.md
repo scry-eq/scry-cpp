@@ -102,6 +102,25 @@ point a build at another checkout with
 `-DSEQ_DECODER_RS_DIR=/absolute/path/to/scry-decoder-rs`. CI and release builds
 do not use that override.
 
+Phase-2 shadow decoding lives in `rustsession.*`. `EQPacket` owns one protocol
+registry built from the decoder's embedded catalogs. It creates one stateful
+Rust session for each `Box`. A temporary unattributed session covers captures
+that begin mid-zone before world traffic creates the first box.
+
+`EQPacketStream` calls the shadow hook after SOE reassembly and before its
+decoded-packet observers or legacy handlers. The hook sends the stream, numeric
+opcode, direction, payload, and capture timestamp to Rust. The adapter switches
+only on `SessionEventKind` and moves the indexed typed payload into an exhaustive
+49-alternative `std::variant`. It does no opcode lookup, backend selection, or
+correlation. Each session keeps the latest 256 ordered packet and flush records,
+with monotonic record and dropped-record counts for diagnostics.
+
+Legacy opcode handlers remain the only path that changes host state. Rust
+events, self-stat correlation, and loot rows stay in the shadow journal. The
+host flushes sessions on shutdown, box eviction, replay completion, and the
+existing `ZoneMgr` transition signals, including EQL's destination-unknown
+transition marker.
+
 To add or change an opcode: edit the parser in `scry-decoder-rs` (see its
 own `CLAUDE.md`/`docs/architecture.md`), expose it via `seq-bridge`, then
 call `seq::rust::decode_X` in the handler. A handful of things stay partly

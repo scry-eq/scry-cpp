@@ -204,3 +204,21 @@ target_compile_options(rustdecode_test PRIVATE
 )
 
 add_test(NAME rustdecode_test COMMAND rustdecode_test)
+
+add_executable(rustsession_test
+  rustsession_test.cpp
+)
+
+target_link_libraries(rustsession_test PRIVATE
+  seq-daemon-core
+  Qt6::Test
+)
+
+target_compile_options(rustsession_test PRIVATE
+  -Wall
+  -Werror
+  -Wno-unused-parameter
+  -Wno-deprecated-declarations
+)
+
+add_test(NAME rustsession_test COMMAND rustsession_test)

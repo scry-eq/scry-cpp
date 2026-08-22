@@ -41,6 +41,7 @@
 #include "packetinfo.h"
 #include "player.h"
 #include "prefsbroker.h"
+#include "rustsession.h"
 #include "sessionadapter.h"
 #include "spawnmonitor.h"
 #include "spawnshell.h"
@@ -368,6 +369,27 @@ bool DaemonApp::start()
     // clear spawns like zoneBegin/zoneChanged. Never emitted on live/test.
     connect(m_zoneMgr, SIGNAL(zoneResolved(const QString&)),
             this,      SLOT(loadZoneMap(const QString&)));
+
+    // The packet hook sets the current Rust shadow Box before the legacy
+    // handler runs. These signals identify the zone boundary during that same
+    // ordered dispatch.
+    auto flushShadowZone = [this](const QString&) {
+        if (m_packet) {
+            m_packet->flushCurrentShadowSession(
+                seq::shadow::FlushReason::ZoneTransition);
+        }
+    };
+    connect(m_zoneMgr, qOverload<const QString&>(&ZoneMgr::zoneBegin),
+            this, flushShadowZone);
+    connect(m_zoneMgr, qOverload<const QString&>(&ZoneMgr::zoneChanged),
+            this, flushShadowZone);
+    connect(m_zoneMgr, &ZoneMgr::zoneTransitionStarted, this,
+            [this] {
+                if (m_packet) {
+                    m_packet->flushCurrentShadowSession(
+                        seq::shadow::FlushReason::ZoneTransition);
+                }
+            });
 
     // Same dual-signal wiring for the per-zone filter overlay. Without
     // this, FilterMgr::loadZone only fires once at startup and the

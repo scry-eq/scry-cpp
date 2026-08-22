@@ -521,6 +521,7 @@ void ZoneMgr::beginZoning()
 {
   m_zone_exp_multiplier = defaultZoneExperienceMultiplier;
   m_zoning = true;
+  emit zoneTransitionStarted();
   if (showeq_params->saveZoneState)
     saveZoneState();
 }

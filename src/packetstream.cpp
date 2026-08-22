@@ -428,6 +428,11 @@ void EQPacketStream::dispatchPacket(const uint8_t* data, size_t len,
 				    uint16_t opCode,
 				    const EQPacketOPCode* opcodeEntry)
 {
+  if (m_applicationPacketHook) {
+    const int64_t timestamp = m_timestampProvider ? m_timestampProvider() : 0;
+    m_applicationPacketHook(m_streamid, m_dir, opCode, data, len, timestamp);
+  }
+
   // Always fire the 5-arg signal so per-box observers
   // (NamePromoter, ZoneServerObserver) keep working across all
   // boxes — they don't conflict with the singleton state managers.
