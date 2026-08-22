@@ -874,6 +874,163 @@ void SpawnShell::moveSpawn(uint16_t id, int16_t x, int16_t y, int16_t z)
   emit changeItem(item, tSpawnChangedPosition);
 }
 
+namespace {
+int8_t entityHeading(uint16_t degrees)
+{
+  const uint32_t normalized = degrees % 360;
+  return int8_t(((360 - normalized) % 360) * 256 / 360);
+}
+}
+
+void SpawnShell::applyEntitySpawn(
+    uint32_t id, const QString& name, const QString& lastName, uint32_t race,
+    uint32_t classVal, uint32_t deity, uint8_t level, uint8_t npc,
+    uint32_t curHp, std::optional<uint32_t> maxHp, uint32_t guildID,
+    uint32_t guildServerID, uint32_t classMask, std::optional<int32_t> x,
+    std::optional<int32_t> y, std::optional<int32_t> z,
+    std::optional<uint16_t> headingDegrees)
+{
+  if (id > UINT16_MAX) return;
+  const int16_t px = int16_t(std::clamp(x.value_or(0),
+                                        int32_t(INT16_MIN), int32_t(INT16_MAX)));
+  const int16_t py = int16_t(std::clamp(y.value_or(0),
+                                        int32_t(INT16_MIN), int32_t(INT16_MAX)));
+  const int16_t pz = int16_t(std::clamp(z.value_or(0),
+                                        int32_t(INT16_MIN), int32_t(INT16_MAX)));
+  if (m_player && id == m_player->id()) return;
+  Item* item = m_spawns.value(int(id), nullptr);
+  auto* spawn = item ? static_cast<Spawn*>(item)
+                     : new Spawn(uint16_t(id), px, py, pz, 0, 0, 0, 0, 0, 0);
+  spawn->setName(name.toLatin1().constData());
+  spawn->setLastName(lastName.toLatin1().constData());
+  spawn->setRace(uint16_t(race));
+  spawn->setClassVal(uint8_t(classVal));
+  spawn->setDeity(uint16_t(deity));
+  spawn->setLevel(level);
+  spawn->setNPC(npc);
+  spawn->setHP(int32_t(curHp));
+  if (maxHp) spawn->setMaxHP(int32_t(*maxHp));
+  spawn->setGuildID(uint16_t(guildID));
+  spawn->setGuildServerID(uint16_t(guildServerID));
+  spawn->setClassMask(classMask);
+  spawn->setGuildTag(
+      m_guildMgr->guildIdToName(uint16_t(guildID), uint16_t(guildServerID)));
+  if (x && y && z) spawn->setPos(px, py, pz);
+  if (headingDegrees) spawn->setHeading(entityHeading(*headingDegrees), 0);
+  updateFilterFlags(spawn);
+  updateRuntimeFilterFlags(spawn);
+  spawn->updateLastChanged();
+  if (item) {
+    emit changeItem(spawn, tSpawnChangedALL);
+  } else {
+    m_spawns.insert(int(id), spawn);
+    emit addItem(spawn);
+    emit numSpawns(m_spawns.count());
+  }
+}
+
+void SpawnShell::applyEntityMove(uint32_t id, int32_t x, int32_t y,
+                                 int32_t z, uint16_t headingDegrees)
+{
+  if (id > UINT16_MAX) return;
+  Item* item = id == m_player->id()
+      ? static_cast<Item*>(m_player)
+      : m_spawns.value(int(id), nullptr);
+  if (!item) return;
+  auto* spawn = static_cast<Spawn*>(item);
+  spawn->setPos(int16_t(std::clamp(x, int32_t(INT16_MIN), int32_t(INT16_MAX))),
+                int16_t(std::clamp(y, int32_t(INT16_MIN), int32_t(INT16_MAX))),
+                int16_t(std::clamp(z, int32_t(INT16_MIN), int32_t(INT16_MAX))));
+  spawn->setHeading(entityHeading(headingDegrees), 0);
+  spawn->updateLast();
+  item->updateLastChanged();
+  emit changeItem(item, tSpawnChangedPosition);
+}
+
+void SpawnShell::applyEntityRemove(uint32_t id)
+{
+  if (id <= UINT16_MAX) deleteItem(tSpawn, int(id));
+}
+
+void SpawnShell::applyEntityRename(std::optional<uint32_t> id,
+                                   const QString& oldName,
+                                   const QString& newName)
+{
+  Spawn* spawn = nullptr;
+  if (id && *id <= UINT16_MAX)
+    spawn = spawnType(m_spawns.value(int(*id), nullptr));
+  if (!spawn)
+    spawn = findSpawnByName(oldName.toLatin1().constData());
+  if (!spawn) return;
+  spawn->setName(newName.toLatin1().constData());
+  uint32_t change = tSpawnChangedName;
+  if (updateFilterFlags(spawn)) change |= tSpawnChangedFilter;
+  if (updateRuntimeFilterFlags(spawn))
+    change |= tSpawnChangedRuntimeFilter;
+  spawn->updateLastChanged();
+  emit changeItem(spawn, change);
+}
+
+void SpawnShell::applyEntityDoors(const std::vector<EntityDoorState>& doors)
+{
+  QSet<int> retained;
+  for (const auto& value : doors) {
+    if (value.id > UINT16_MAX) continue;
+    retained.insert(int(value.id));
+    if (Item* old = m_doors.value(int(value.id), nullptr)) {
+      m_doors.remove(int(value.id));
+      delete old;
+    }
+    auto* door = new Door(value.id, value.name, value.x, value.y, value.z,
+                          value.heading, value.incline, value.size,
+                          value.openType, value.state, value.invertState,
+                          value.zonePointId);
+    updateFilterFlags(door);
+    m_doors.insert(int(value.id), door);
+    emit addItem(door);
+  }
+  const QList<int> existing = m_doors.keys();
+  for (int id : existing) {
+    if (!retained.contains(id)) deleteItem(tDoors, id);
+  }
+}
+
+void SpawnShell::applyEntityGroundItem(
+    uint32_t id, const QString& actorDefinition, float x, float y, float z,
+    std::optional<float> heading)
+{
+  if (id > UINT16_MAX) return;
+  if (Item* old = m_drops.value(int(id), nullptr)) {
+    m_drops.remove(int(id));
+    delete old;
+  }
+  auto* drop = new Drop(id, actorDefinition, x, y, z, heading);
+  updateFilterFlags(drop);
+  m_drops.insert(int(id), drop);
+  emit addItem(drop);
+}
+
+void SpawnShell::applyEntityGroundItemRemoved(uint32_t id)
+{
+  if (id <= UINT16_MAX) deleteItem(tDrop, int(id));
+}
+
+void SpawnShell::applyEntityCorpseLocation(uint32_t id, float x, float y,
+                                           float z)
+{
+  if (id > UINT16_MAX) return;
+  Item* item = m_spawns.value(int(id), nullptr);
+  if (!item) return;
+  auto* spawn = static_cast<Spawn*>(item);
+  spawn->setPos(int16_t(std::lrint(x)), int16_t(std::lrint(y)),
+                int16_t(std::lrint(z)));
+  spawn->setDeltas(0, 0, 0);
+  spawn->killSpawn();
+  spawn->updateLast();
+  item->updateLastChanged();
+  emit killSpawn(item, nullptr, 0);
+}
+
 // Neutral HP-apply primitive (eql OP_HPUpdate). Only touches spawns already
 // known (created via upsertSpawn) — the player's own spawn is not tracked here.
 void SpawnShell::updateSpawnHP(uint16_t id, int32_t curHp, int32_t maxHp)

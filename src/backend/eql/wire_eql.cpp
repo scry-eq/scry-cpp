@@ -76,6 +76,13 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
                 handler(data, len, dir);
         };
     };
+    auto entity = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet || m_packet->legacyEntitiesEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
 
     // Backend-owned adapter holding the Legends handlers (never on the core
     // managers — see eqldispatch.h). Owned by a shared_ptr the wired closures
@@ -139,7 +146,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          seqBind(eql, &EqlDispatch::enterWorld));
     wire("OP_SendZonePoints", SP_Zone, DIR_Server,
          "zonePointsStruct", SZC_None,
-         seqBind(ms.zoneMgr, &ZoneMgr::zonePoints));
+         entity(seqBind(ms.zoneMgr, &ZoneMgr::zonePoints)));
     wire("OP_DzSwitchInfo", SP_Zone, DIR_Server,
          "dzSwitchInfo", SZC_None,
          seqBind(ms.zoneMgr, &ZoneMgr::dynamicZonePoints));
@@ -212,7 +219,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // szt matches conf/eql/opcodes.toml so the handler binds directly.
     wire("OP_GroundSpawn", SP_Zone, DIR_Server,
          "makeDropStruct", SZC_None,
-         seqBind(ms.spawnShell, &SpawnShell::newGroundItem));
+         entity(seqBind(ms.spawnShell, &SpawnShell::newGroundItem)));
     // OP_ClickObject is dual-direction and BOTH sides are 12B remDropStruct
     // (confirmed 2026-08-06 on a drop/pickup capture): the S>C removal is what
     // we decode; the C>S side is the client's pickup REQUEST, carrying
@@ -224,7 +231,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // no-op — the explicit form of "ignore C>S", matching legends' S>C-only handling.
     wire("OP_ClickObject", SP_Zone, DIR_Server,
          "remDropStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::removeGroundItem));
+         entity(seqBind(ms.spawnShell, &SpawnShell::removeGroundItem)));
     wire("OP_ClickObject", SP_Zone, DIR_Client,
          "uint8_t", SZC_None,
          [](const uint8_t*, size_t, uint8_t) {});
@@ -234,7 +241,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // door_stride() — so the shared handler wires directly.
     wire("OP_SpawnDoor", SP_Zone, DIR_Server,
          "doorStruct", SZC_Modulus,
-         seqBind(ms.spawnShell, &SpawnShell::newDoorSpawns));
+         entity(seqBind(ms.spawnShell, &SpawnShell::newDoorSpawns)));
     // EQ Legends OP_ZoneEntry: one spawn per payload (name + block);
     // EqlDispatch parses the variable-length name and the fixed spawn block.
     // Stock-SEQ name: the s2c OP_ZoneEntry has been the per-spawn payload since
@@ -243,7 +250,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // record, which eql routes through EqlDispatch::spawn/upsertSpawn instead.
     wire("OP_ZoneEntry", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::spawn));
+         entity(seqBind(eql, &EqlDispatch::spawn)));
     // EQ Legends OP_LoadoutSwap: a player's multiclass loadout change.
     // Variable-size (self ~118KB w/ inventory tail, broadcast ~490B) — hand-
     // decoded via decode_loadout_swap (reuses the ZoneEntry record parser), so
@@ -257,7 +264,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // decode via the shared Rust decode_mob_update.
     wire("OP_MobUpdate", SP_Zone, DIR_Server,
          "spawnPositionUpdate", SZC_Match,
-         seqBind(eql, &EqlDispatch::mobUpdate));
+         entity(seqBind(eql, &EqlDispatch::mobUpdate)));
     // EQ Legends OP_TargetMouse: C>S target select. The Legends payload
     // is byte-identical to Live's clientTargetStruct ({u32 spawn_id}, 0 = clear),
     // so it needs NO Legends glue — wire straight to the neutral core handler,
@@ -366,10 +373,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // (OP_WearChange intentionally unwired on eql — see the note above OP_SpawnAppearance2.)
     wire("OP_DeleteSpawn", SP_Zone, DIR_Server | DIR_Client,
          "deleteSpawnStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::deleteSpawn));
+         entity(seqBind(ms.spawnShell, &SpawnShell::deleteSpawn)));
     wire("OP_SpawnRename", SP_Zone, DIR_Server,
          "spawnRenameStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::renameSpawn));
+         entity(seqBind(ms.spawnShell, &SpawnShell::renameSpawn)));
     wire("OP_Illusion", SP_Zone, DIR_Server | DIR_Client,
          "spawnIllusionStruct", SZC_Match,
          seqBind(ms.spawnShell, &SpawnShell::illusionSpawn));
@@ -396,7 +403,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          seqBind(ms.spawnShell, &SpawnShell::shroudSpawn));
     wire("OP_RemoveSpawn", SP_Zone, DIR_Server | DIR_Client,
          "removeSpawnStruct", SZC_None,
-         seqBind(ms.spawnShell, &SpawnShell::removeSpawn));
+         entity(seqBind(ms.spawnShell, &SpawnShell::removeSpawn)));
     // OP_Consider (24B both dirs): eql's considerStruct is its OWN 24B
     // struct (seq-backend-eql owns it; Live's is 32B), size-gated via the backend
     // size table (struct_size_overrides) — so SZC_Match validates the real 24B
@@ -410,7 +417,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // DIR_Server|DIR_Client duplicate double-registered the C>S handler.)
     wire("OP_NpcMoveUpdate", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.spawnShell, &SpawnShell::npcMoveUpdate));
+         entity(seqBind(ms.spawnShell, &SpawnShell::npcMoveUpdate)));
     // EQ Legends OP_ClientUpdate S>C, 24B: the position broadcast for
     // OTHER spawns. eql's playerSpawnPosStruct is 24B as of the 08/04 rotation
     // (was 28B on 07/29; 19-bit ×8 packed, x/y in the LOW bits of @4/@16 and z
@@ -422,10 +429,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // — keep here for fire order). Position re-cracked 2026-07-14; see OPCODES_LEGENDS.md.
     wire("OP_ClientUpdate", SP_Zone, DIR_Server,
          "playerSpawnPosStruct", SZC_Match,
-         seqBind(eql, &EqlDispatch::playerUpdateOther));
+         entity(seqBind(eql, &EqlDispatch::playerUpdateOther)));
     wire("OP_CorpseLocResponse", SP_Zone, DIR_Server,
          "corpseLocStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::corpseLoc));
+         entity(seqBind(ms.spawnShell, &SpawnShell::corpseLoc)));
 
     // --- MessageShell: chat / system / NPC text.
     wire("OP_CommonMessage", SP_Zone, DIR_Client | DIR_Server,

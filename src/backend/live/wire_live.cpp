@@ -77,6 +77,13 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
                 handler(data, len, dir);
         };
     };
+    auto entity = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet || m_packet->legacyEntitiesEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
 
     // --- ZoneMgr: zone transitions + player profile.
     wire("OP_ZoneEntry", SP_Zone, DIR_Client,
@@ -100,7 +107,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          lifecycle(seqBind(ms.zoneMgr, &ZoneMgr::zoneNew)));
     wire("OP_SendZonePoints", SP_Zone, DIR_Server,
          "zonePointsStruct", SZC_None,
-         seqBind(ms.zoneMgr, &ZoneMgr::zonePoints));
+         entity(seqBind(ms.zoneMgr, &ZoneMgr::zonePoints)));
     wire("OP_DzSwitchInfo", SP_Zone, DIR_Server,
          "dzSwitchInfo", SZC_None,
          seqBind(ms.zoneMgr, &ZoneMgr::dynamicZonePoints));
@@ -179,19 +186,19 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // --- SpawnShell: spawn lifecycle + positions.
     wire("OP_GroundSpawn", SP_Zone, DIR_Server,
          "makeDropStruct", SZC_None,
-         seqBind(ms.spawnShell, &SpawnShell::newGroundItem));
+         entity(seqBind(ms.spawnShell, &SpawnShell::newGroundItem)));
     wire("OP_ClickObject", SP_Zone, DIR_Server,
          "remDropStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::removeGroundItem));
+         entity(seqBind(ms.spawnShell, &SpawnShell::removeGroundItem)));
     wire("OP_SpawnDoor", SP_Zone, DIR_Server,
          "doorStruct", SZC_Modulus,
-         seqBind(ms.spawnShell, &SpawnShell::newDoorSpawns));
+         entity(seqBind(ms.spawnShell, &SpawnShell::newDoorSpawns)));
     wire("OP_ZoneEntry", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.spawnShell, &SpawnShell::zoneEntry));
+         entity(seqBind(ms.spawnShell, &SpawnShell::zoneEntry)));
     wire("OP_MobUpdate", SP_Zone, DIR_Server | DIR_Client,
          "spawnPositionUpdate", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::updateSpawns));
+         entity(seqBind(ms.spawnShell, &SpawnShell::updateSpawns)));
     wire("OP_WearChange", SP_Zone, DIR_Server,
          "wearChangeStruct", SZC_None,
          seqBind(ms.spawnShell, &SpawnShell::updateSpawnInfo));
@@ -241,10 +248,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          seqBind(ms.player, &Player::updateSpawnInfo));
     wire("OP_DeleteSpawn", SP_Zone, DIR_Server | DIR_Client,
          "deleteSpawnStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::deleteSpawn));
+         entity(seqBind(ms.spawnShell, &SpawnShell::deleteSpawn)));
     wire("OP_SpawnRename", SP_Zone, DIR_Server,
          "spawnRenameStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::renameSpawn));
+         entity(seqBind(ms.spawnShell, &SpawnShell::renameSpawn)));
     wire("OP_Illusion", SP_Zone, DIR_Server | DIR_Client,
          "spawnIllusionStruct", SZC_Match,
          seqBind(ms.spawnShell, &SpawnShell::illusionSpawn));
@@ -259,7 +266,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          seqBind(ms.spawnShell, &SpawnShell::shroudSpawn));
     wire("OP_RemoveSpawn", SP_Zone, DIR_Server | DIR_Client,
          "removeSpawnStruct", SZC_None,
-         seqBind(ms.spawnShell, &SpawnShell::removeSpawn));
+         entity(seqBind(ms.spawnShell, &SpawnShell::removeSpawn)));
     wire("OP_Consider", SP_Zone, DIR_Server | DIR_Client,
          "considerStruct", SZC_Match,
          seqBind(ms.spawnShell, &SpawnShell::consMessage));
@@ -268,13 +275,13 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          seqBind(ms.spawnShell, &SpawnShell::clientTarget));
     wire("OP_NpcMoveUpdate", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.spawnShell, &SpawnShell::npcMoveUpdate));
+         entity(seqBind(ms.spawnShell, &SpawnShell::npcMoveUpdate)));
     wire("OP_ClientUpdate", SP_Zone, DIR_Server,
          "playerSpawnPosStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::playerUpdate));
+         entity(seqBind(ms.spawnShell, &SpawnShell::playerUpdate)));
     wire("OP_CorpseLocResponse", SP_Zone, DIR_Server,
          "corpseLocStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::corpseLoc));
+         entity(seqBind(ms.spawnShell, &SpawnShell::corpseLoc)));
 
     // --- MessageShell: chat / system / NPC text.
     wire("OP_CommonMessage", SP_Zone, DIR_Client | DIR_Server,

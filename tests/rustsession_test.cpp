@@ -21,6 +21,7 @@ namespace ffi = seq::rust;
     static_assert(std::is_same_v<decltype(wrapper::payload), ffi::type>)
 SAME_PAYLOAD(SpawnAdded, EventSpawnInfo);
 SAME_PAYLOAD(SpawnMoved, EventSpawnMoved);
+SAME_PAYLOAD(SpawnRenamed, EventSpawnRenamed);
 SAME_PAYLOAD(SpawnRemoved, EventSpawnId);
 SAME_PAYLOAD(SpawnKilled, EventSpawnKilled);
 SAME_PAYLOAD(SpawnHp, EventSpawnHp);
@@ -48,6 +49,8 @@ SAME_PAYLOAD(LoadoutSwap, EventLoadoutSwap);
 SAME_PAYLOAD(Doors, EventDoors);
 SAME_PAYLOAD(GroundItemRemoved, EventGroundItemRemoved);
 SAME_PAYLOAD(GroundItem, EventGroundItem);
+SAME_PAYLOAD(CorpseLocated, EventCorpseLocated);
+SAME_PAYLOAD(ZonePoints, EventZonePoints);
 SAME_PAYLOAD(Combat, EventCombat);
 SAME_PAYLOAD(SpawnCast, EventSpawnCast);
 SAME_PAYLOAD(Targeted, EventSpawnId);
@@ -136,6 +139,7 @@ private slots:
     void lifecycleOrderAndProjectionMatchLegacy();
     void malformedLifecycleDoesNotReset();
     void lifecycleSelectorIsImmutablePerSession();
+    void entityAdapterPreservesOptionalFieldsAndProjectionOrder();
     void resetPrecedesProfileAndUsesProductionProjection();
     void publicTimeContractNormalizesWireHourOnce();
     void reconnectResetsBeforeEachEnterWorld();
@@ -153,6 +157,7 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     addPayload(raw, raw.member, ffi::SessionEventKind::kind, ffi::type{})
     ADD(spawn_added, SpawnAdded, EventSpawnInfo);
     ADD(spawn_moved, SpawnMoved, EventSpawnMoved);
+    ADD(spawn_renamed, SpawnRenamed, EventSpawnRenamed);
     ADD(spawn_removed, SpawnRemoved, EventSpawnId);
     ADD(spawn_killed, SpawnKilled, EventSpawnKilled);
     ADD(spawn_hp, SpawnHp, EventSpawnHp);
@@ -177,6 +182,8 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     ADD(doors, Doors, EventDoors);
     ADD(ground_item_removed, GroundItemRemoved, EventGroundItemRemoved);
     ADD(ground_item, GroundItem, EventGroundItem);
+    ADD(corpse_located, CorpseLocated, EventCorpseLocated);
+    ADD(zone_points, ZonePoints, EventZonePoints);
     ADD(combat, Combat, EventCombat);
     ADD(spawn_cast, SpawnCast, EventSpawnCast);
     ADD(spawn_id, Targeted, EventSpawnId);
@@ -208,28 +215,29 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     Batch batch = translate(std::move(raw));
     QCOMPARE(batch.protocolGeneration, uint64_t(77));
     QCOMPARE(batch.disposition, Disposition::Decoded);
-    QCOMPARE(batch.events.size(), size_t(52));
+    QCOMPARE(batch.events.size(), size_t(55));
 
 #define CHECK(index, type) QVERIFY(std::holds_alternative<type>(batch.events[index]))
-    CHECK(0, SpawnAdded); CHECK(1, SpawnMoved); CHECK(2, SpawnRemoved);
-    CHECK(3, SpawnKilled); CHECK(4, SpawnHp); CHECK(5, StatSync);
-    CHECK(6, SelfPos); CHECK(7, SpawnAnimation); CHECK(8, SpawnIllusion);
-    CHECK(9, GuildsInZone); CHECK(10, TimeOfDay); CHECK(11, ZoneChanged);
-    CHECK(12, PlayerProfile); CHECK(13, Stance); CHECK(14, Invocation);
-    CHECK(15, InspectAnswer); CHECK(16, GuildRoster); CHECK(17, ZoneServerInfo);
-    CHECK(18, ItemSet); CHECK(19, ItemLearned); CHECK(20, GuildMotd);
-    CHECK(21, GuildRankName); CHECK(22, LoadoutSwap); CHECK(23, Doors);
-    CHECK(24, GroundItemRemoved); CHECK(25, GroundItem); CHECK(26, Combat);
-    CHECK(27, SpawnCast); CHECK(28, Targeted); CHECK(29, Considered);
-    CHECK(30, AaTable); CHECK(31, Exp); CHECK(32, AaExp);
-    CHECK(33, Stamina); CHECK(34, ManaUpdate); CHECK(35, SkillUpdate);
-    CHECK(36, LootTransaction); CHECK(37, LootDrops); CHECK(38, Money);
-    CHECK(39, SimpleMessage); CHECK(40, FormattedMessage);
-    CHECK(41, SpecialMessage); CHECK(42, LootMessage); CHECK(43, Chat);
-    CHECK(44, BuffList); CHECK(45, GroupFollow); CHECK(46, GroupDisband);
-    CHECK(47, LevelUpdate); CHECK(48, EnterWorld);
-    CHECK(49, SessionReset); CHECK(50, ZoneTransition);
-    CHECK(51, ZoneEnvironmentChanged);
+    CHECK(0, SpawnAdded); CHECK(1, SpawnMoved); CHECK(2, SpawnRenamed);
+    CHECK(3, SpawnRemoved); CHECK(4, SpawnKilled); CHECK(5, SpawnHp);
+    CHECK(6, StatSync); CHECK(7, SelfPos); CHECK(8, SpawnAnimation);
+    CHECK(9, SpawnIllusion); CHECK(10, GuildsInZone); CHECK(11, TimeOfDay);
+    CHECK(12, ZoneChanged); CHECK(13, PlayerProfile); CHECK(14, Stance);
+    CHECK(15, Invocation); CHECK(16, InspectAnswer); CHECK(17, GuildRoster);
+    CHECK(18, ZoneServerInfo); CHECK(19, ItemSet); CHECK(20, ItemLearned);
+    CHECK(21, GuildMotd); CHECK(22, GuildRankName); CHECK(23, LoadoutSwap);
+    CHECK(24, Doors); CHECK(25, GroundItemRemoved); CHECK(26, GroundItem);
+    CHECK(27, CorpseLocated); CHECK(28, ZonePoints); CHECK(29, Combat);
+    CHECK(30, SpawnCast); CHECK(31, Targeted); CHECK(32, Considered);
+    CHECK(33, AaTable); CHECK(34, Exp); CHECK(35, AaExp);
+    CHECK(36, Stamina); CHECK(37, ManaUpdate); CHECK(38, SkillUpdate);
+    CHECK(39, LootTransaction); CHECK(40, LootDrops); CHECK(41, Money);
+    CHECK(42, SimpleMessage); CHECK(43, FormattedMessage);
+    CHECK(44, SpecialMessage); CHECK(45, LootMessage); CHECK(46, Chat);
+    CHECK(47, BuffList); CHECK(48, GroupFollow); CHECK(49, GroupDisband);
+    CHECK(50, LevelUpdate); CHECK(51, EnterWorld);
+    CHECK(52, SessionReset); CHECK(53, ZoneTransition);
+    CHECK(54, ZoneEnvironmentChanged);
 #undef CHECK
 }
 
@@ -536,6 +544,141 @@ void RustSessionTest::lifecycleSelectorIsImmutablePerSession()
     QVERIFY(shadow.comparesLifecycle());
     QVERIFY(!rust.runsLegacyLifecycle());
     QVERIFY(rust.appliesRustLifecycle());
+
+    Session entityLegacy(registry, backend(), 256, 4 * 1024 * 1024,
+                         LifecycleSelector::Shadow,
+                         EntitySelector::Legacy);
+    Session entityShadow(registry, backend(), 256, 4 * 1024 * 1024,
+                         LifecycleSelector::Shadow,
+                         EntitySelector::Shadow);
+    Session entityRust(registry, backend(), 256, 4 * 1024 * 1024,
+                       LifecycleSelector::Shadow,
+                       EntitySelector::Rust);
+    QCOMPARE(entityLegacy.entitySelector(), EntitySelector::Legacy);
+    QCOMPARE(entityShadow.entitySelector(), EntitySelector::Shadow);
+    QCOMPARE(entityRust.entitySelector(), EntitySelector::Rust);
+    QVERIFY(entityLegacy.runsLegacyEntities());
+    QVERIFY(entityShadow.comparesEntities());
+    QVERIFY(!entityRust.runsLegacyEntities());
+    QVERIFY(entityRust.appliesRustEntities());
+}
+
+void RustSessionTest::entityAdapterPreservesOptionalFieldsAndProjectionOrder()
+{
+    ffi::SessionDecodeBatch raw;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+
+    ffi::EventSpawnRenamed rename;
+    rename.has_id = true;
+    rename.id = 17;
+    rename.old_name = ::rust::String("old");
+    rename.new_name = ::rust::String("new");
+    addPayload(raw, raw.spawn_renamed,
+               ffi::SessionEventKind::SpawnRenamed, std::move(rename));
+
+    ffi::EventDoorInfo door;
+    door.id = 18;
+    door.name = ::rust::String("POKTELE500");
+    door.position.x = 1.25f;
+    door.position.y = -2.5f;
+    door.position.z = 3.75f;
+    door.heading = 90.5f;
+    door.incline = 4;
+    door.size = 5;
+    door.open_type = 6;
+    door.state = 7;
+    door.invert_state = 8;
+    door.has_zone_point_id = false;
+    ffi::EventDoors doors;
+    doors.doors.push_back(std::move(door));
+    addPayload(raw, raw.doors, ffi::SessionEventKind::Doors,
+               std::move(doors));
+
+    ffi::EventGroundItem ground;
+    ground.id = 19;
+    ground.actor_definition = ::rust::String("IT63_ACTORDEF");
+    ground.position.x = 10.5f;
+    ground.position.y = 11.5f;
+    ground.position.z = 12.5f;
+    ground.has_heading = false;
+    addPayload(raw, raw.ground_item, ffi::SessionEventKind::GroundItem,
+               std::move(ground));
+
+    ffi::EventCorpseLocated corpse;
+    corpse.id = 20;
+    corpse.position.x = 20.25f;
+    corpse.position.y = 21.25f;
+    corpse.position.z = 22.25f;
+    addPayload(raw, raw.corpse_located,
+               ffi::SessionEventKind::CorpseLocated, std::move(corpse));
+
+    ffi::EventZonePointInfo point;
+    point.has_trigger_id = false;
+    point.has_actor_definition = true;
+    point.actor_definition = ::rust::String("OBJ_SWITCH");
+    point.position.x = 30.5f;
+    point.position.y = 31.5f;
+    point.position.z = 32.5f;
+    point.heading = 180.25f;
+    point.has_destination_zone_id = true;
+    point.destination_zone_id = 202;
+    point.has_destination_instance_id = false;
+    ffi::EventZonePoints points;
+    points.points.push_back(std::move(point));
+    addPayload(raw, raw.zone_points, ffi::SessionEventKind::ZonePoints,
+               std::move(points));
+
+    const Batch batch = translate(std::move(raw));
+    QCOMPARE(batch.events.size(), size_t(5));
+    const auto& outRename = std::get<SpawnRenamed>(batch.events[0]).payload;
+    QVERIFY(outRename.has_id);
+    QCOMPARE(outRename.id, uint32_t(17));
+    QCOMPARE(text(outRename.old_name), QStringLiteral("old"));
+    QCOMPARE(text(outRename.new_name), QStringLiteral("new"));
+    const auto& outDoor = std::get<Doors>(batch.events[1]).payload.doors[0];
+    QVERIFY(!outDoor.has_zone_point_id);
+    QCOMPARE(outDoor.position.x, 1.25f);
+    QCOMPARE(outDoor.heading, 90.5f);
+    const auto& outGround =
+        std::get<GroundItem>(batch.events[2]).payload;
+    QVERIFY(!outGround.has_heading);
+    QCOMPARE(outGround.position.z, 12.5f);
+    const auto& outPoint =
+        std::get<ZonePoints>(batch.events[4]).payload.points[0];
+    QVERIFY(!outPoint.has_trigger_id);
+    QVERIFY(outPoint.has_actor_definition);
+    QVERIFY(outPoint.has_destination_zone_id);
+    QVERIFY(!outPoint.has_destination_instance_id);
+    QCOMPARE(outPoint.destination_zone_id, uint16_t(202));
+
+    const auto observations = entityObservations(batch);
+    QCOMPARE(observations.size(), size_t(5));
+    QCOMPARE(observations[0].kind, EntityKind::SpawnRenamed);
+    QCOMPARE(observations[1].kind, EntityKind::Doors);
+    QCOMPARE(observations[2].kind, EntityKind::GroundItem);
+    QCOMPARE(observations[3].kind, EntityKind::CorpseLocated);
+    QCOMPARE(observations[4].kind, EntityKind::ZonePoints);
+
+    const auto projections = projectEntities(batch);
+    QCOMPARE(projections.size(), size_t(4));
+    QVERIFY(projections[0].has_spawn_updated());
+    QCOMPARE(projections[0].spawn_updated().id(), uint32_t(17));
+    QCOMPARE(QString::fromStdString(projections[0].spawn_updated().name()),
+             QStringLiteral("new"));
+    QVERIFY(projections[1].has_spawn_added());
+    QCOMPARE(projections[1].spawn_added().spawn().type(), seq::v1::DOOR);
+    QVERIFY(projections[2].has_spawn_added());
+    QCOMPARE(projections[2].spawn_added().spawn().type(), seq::v1::DROP);
+    QVERIFY(projections[3].has_spawn_killed());
+    QCOMPARE(projections[3].spawn_killed().deceased_id(), uint32_t(20));
+
+    const EntityComparison equal =
+        compareEntities(batch, observations, projections);
+    QVERIFY(equal.orderedEventsEqual);
+    QVERIFY(equal.projectionsEqual);
+    auto wrong = projections;
+    wrong[0].mutable_spawn_updated()->set_name("different");
+    QVERIFY(!compareEntities(batch, observations, wrong).projectionsEqual);
 }
 
 void RustSessionTest::resetPrecedesProfileAndUsesProductionProjection()

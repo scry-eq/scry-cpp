@@ -219,6 +219,10 @@ Batch translate(rust::SessionDecodeBatch batch)
         case rust::SessionEventKind::SpawnMoved:
             out.events.emplace_back(SpawnMoved{takePayload(batch.spawn_moved, index)});
             break;
+        case rust::SessionEventKind::SpawnRenamed:
+            out.events.emplace_back(SpawnRenamed{
+                takePayload(batch.spawn_renamed, index)});
+            break;
         case rust::SessionEventKind::SpawnRemoved:
             out.events.emplace_back(SpawnRemoved{takePayload(batch.spawn_removed, index)});
             break;
@@ -310,6 +314,14 @@ Batch translate(rust::SessionDecodeBatch batch)
             break;
         case rust::SessionEventKind::GroundItem:
             out.events.emplace_back(GroundItem{takePayload(batch.ground_item, index)});
+            break;
+        case rust::SessionEventKind::CorpseLocated:
+            out.events.emplace_back(CorpseLocated{
+                takePayload(batch.corpse_located, index)});
+            break;
+        case rust::SessionEventKind::ZonePoints:
+            out.events.emplace_back(ZonePoints{
+                takePayload(batch.zone_points, index)});
             break;
         case rust::SessionEventKind::Combat:
             out.events.emplace_back(Combat{takePayload(batch.combat, index)});
@@ -467,6 +479,268 @@ bool isLifecycleEvent(const Event& event)
     }, event);
 }
 
+bool isEntityEvent(const Event& event)
+{
+    return std::visit([](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        return std::is_same_v<T, SpawnAdded> ||
+               std::is_same_v<T, SpawnMoved> ||
+               std::is_same_v<T, SpawnRemoved> ||
+               std::is_same_v<T, SpawnRenamed> ||
+               std::is_same_v<T, Doors> ||
+               std::is_same_v<T, GroundItemRemoved> ||
+               std::is_same_v<T, GroundItem> ||
+               std::is_same_v<T, CorpseLocated> ||
+               std::is_same_v<T, ZonePoints>;
+    }, event);
+}
+
+std::vector<EntityObservation> entityObservations(const Batch& batch)
+{
+    std::vector<EntityObservation> out;
+    auto pushPoint = [](std::vector<uint8_t>& bytes,
+                        const rust::EventPoint3& point) {
+        appendScalar(bytes, point.x);
+        appendScalar(bytes, point.y);
+        appendScalar(bytes, point.z);
+    };
+    auto pushPos = [](std::vector<uint8_t>& bytes,
+                      const rust::EventPos& pos) {
+        appendScalar(bytes, pos.x);
+        appendScalar(bytes, pos.y);
+        appendScalar(bytes, pos.z);
+        appendScalar(bytes, pos.heading_deg);
+    };
+
+    for (const Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, SpawnAdded>) {
+                EntityObservation observation{EntityKind::SpawnAdded, {}};
+                appendScalar(observation.payload, p.id);
+                appendString(observation.payload, p.name);
+                appendString(observation.payload, p.last_name);
+                appendScalar(observation.payload, p.race);
+                appendScalar(observation.payload, p.class_);
+                appendScalar(observation.payload, p.deity);
+                appendScalar(observation.payload, p.level);
+                appendScalar(observation.payload, p.npc);
+                appendScalar(observation.payload, p.cur_hp);
+                appendScalar(observation.payload, p.has_max_hp);
+                if (p.has_max_hp) appendScalar(observation.payload, p.max_hp);
+                appendScalar(observation.payload, p.guild_id);
+                appendScalar(observation.payload, p.guild_server_id);
+                appendScalar(observation.payload, p.class_mask);
+                appendScalar(observation.payload, p.has_pos);
+                if (p.has_pos) pushPos(observation.payload, p.pos);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, SpawnMoved>) {
+                EntityObservation observation{EntityKind::SpawnMoved, {}};
+                appendScalar(observation.payload, p.id);
+                pushPos(observation.payload, p.pos);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, SpawnRemoved>) {
+                EntityObservation observation{EntityKind::SpawnRemoved, {}};
+                appendScalar(observation.payload, p.id);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, SpawnRenamed>) {
+                EntityObservation observation{EntityKind::SpawnRenamed, {}};
+                appendScalar(observation.payload, p.has_id);
+                if (p.has_id) appendScalar(observation.payload, p.id);
+                appendString(observation.payload, p.old_name);
+                appendString(observation.payload, p.new_name);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, Doors>) {
+                for (const auto& door : p.doors) {
+                    EntityObservation observation{EntityKind::Doors, {}};
+                    appendScalar(observation.payload, door.id);
+                    appendString(observation.payload, door.name);
+                    pushPoint(observation.payload, door.position);
+                    appendScalar(observation.payload, door.heading);
+                    appendScalar(observation.payload, door.incline);
+                    appendScalar(observation.payload, door.size);
+                    appendScalar(observation.payload, door.open_type);
+                    appendScalar(observation.payload, door.state);
+                    appendScalar(observation.payload, door.invert_state);
+                    appendScalar(observation.payload, door.has_zone_point_id);
+                    if (door.has_zone_point_id)
+                        appendScalar(observation.payload, door.zone_point_id);
+                    out.push_back(std::move(observation));
+                }
+            } else if constexpr (std::is_same_v<T, GroundItemRemoved>) {
+                EntityObservation observation{EntityKind::GroundItemRemoved, {}};
+                appendScalar(observation.payload, p.drop_id);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, GroundItem>) {
+                EntityObservation observation{EntityKind::GroundItem, {}};
+                appendScalar(observation.payload, p.id);
+                appendString(observation.payload, p.actor_definition);
+                pushPoint(observation.payload, p.position);
+                appendScalar(observation.payload, p.has_heading);
+                if (p.has_heading) appendScalar(observation.payload, p.heading);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, CorpseLocated>) {
+                EntityObservation observation{EntityKind::CorpseLocated, {}};
+                appendScalar(observation.payload, p.id);
+                pushPoint(observation.payload, p.position);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, ZonePoints>) {
+                EntityObservation observation{EntityKind::ZonePoints, {}};
+                appendScalar(observation.payload, uint64_t(p.points.size()));
+                for (const auto& point : p.points) {
+                    appendScalar(observation.payload, point.has_trigger_id);
+                    if (point.has_trigger_id)
+                        appendScalar(observation.payload, point.trigger_id);
+                    appendScalar(observation.payload,
+                                 point.has_actor_definition);
+                    if (point.has_actor_definition)
+                        appendString(observation.payload,
+                                     point.actor_definition);
+                    pushPoint(observation.payload, point.position);
+                    appendScalar(observation.payload, point.heading);
+                    appendScalar(observation.payload,
+                                 point.has_destination_zone_id);
+                    if (point.has_destination_zone_id)
+                        appendScalar(observation.payload,
+                                     point.destination_zone_id);
+                    appendScalar(observation.payload,
+                                 point.has_destination_instance_id);
+                    if (point.has_destination_instance_id)
+                        appendScalar(observation.payload,
+                                     point.destination_instance_id);
+                }
+                out.push_back(std::move(observation));
+            }
+        }, event);
+    }
+    return out;
+}
+
+std::vector<seq::v1::Envelope> projectEntities(const Batch& batch)
+{
+    std::vector<seq::v1::Envelope> out;
+    auto position = [](seq::v1::Pos* target, int32_t x, int32_t y,
+                       int32_t z, uint32_t heading) {
+        target->set_x(-x);
+        target->set_y(-y);
+        target->set_z(z);
+        target->set_heading(int32_t(heading));
+    };
+    for (const Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, SpawnAdded>) {
+                seq::v1::Envelope envelope;
+                auto* spawn = envelope.mutable_spawn_added()->mutable_spawn();
+                spawn->set_id(p.id);
+                spawn->set_name(seq::encode::compatibilitySpawnName(
+                    QString::fromUtf8(p.name.data(), int(p.name.size())))
+                    .toStdString());
+                spawn->set_last_name(std::string(p.last_name));
+                spawn->set_race(p.race);
+                spawn->set_class_(p.class_);
+                spawn->set_deity(p.deity);
+                spawn->set_level(p.level);
+                spawn->set_hp_cur(p.cur_hp);
+                spawn->set_hp_max(p.has_max_hp ? p.max_hp : 100);
+                spawn->set_guild_id(p.guild_id);
+                spawn->set_guild_server_id(p.guild_server_id);
+                spawn->set_class_mask(p.class_mask);
+                switch (p.npc) {
+                case 0: spawn->set_type(seq::v1::PC); break;
+                case 2: spawn->set_type(seq::v1::CORPSE_PC); break;
+                case 3: spawn->set_type(seq::v1::CORPSE_NPC); break;
+                default: spawn->set_type(seq::v1::NPC); break;
+                }
+                if (p.has_pos)
+                    position(spawn->mutable_pos(), p.pos.x, p.pos.y,
+                             p.pos.z, p.pos.heading_deg);
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, SpawnMoved>) {
+                seq::v1::Envelope envelope;
+                auto* update = envelope.mutable_spawn_updated();
+                update->set_id(p.id);
+                position(update->mutable_pos(), p.pos.x, p.pos.y, p.pos.z,
+                         p.pos.heading_deg);
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, SpawnRemoved>) {
+                seq::v1::Envelope envelope;
+                envelope.mutable_spawn_removed()->set_id(p.id);
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, SpawnRenamed>) {
+                if (!p.has_id) return;
+                seq::v1::Envelope envelope;
+                auto* update = envelope.mutable_spawn_updated();
+                update->set_id(p.id);
+                update->set_name(std::string(p.new_name));
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, Doors>) {
+                for (const auto& door : p.doors) {
+                    seq::v1::Envelope envelope;
+                    auto* spawn = envelope.mutable_spawn_added()->mutable_spawn();
+                    spawn->set_id(door.id);
+                    spawn->set_name(seq::encode::compatibilityDoorName(
+                        QString::fromUtf8(door.name.data(),
+                                          int(door.name.size())),
+                        door.id).toStdString());
+                    spawn->set_type(seq::v1::DOOR);
+                    position(spawn->mutable_pos(), int32_t(door.position.x),
+                             int32_t(door.position.y),
+                             int32_t(door.position.z * 10.0f),
+                             0);
+                    out.push_back(std::move(envelope));
+                }
+            } else if constexpr (std::is_same_v<T, GroundItemRemoved>) {
+                seq::v1::Envelope envelope;
+                envelope.mutable_spawn_removed()->set_id(p.drop_id);
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, GroundItem>) {
+                seq::v1::Envelope envelope;
+                auto* spawn = envelope.mutable_spawn_added()->mutable_spawn();
+                spawn->set_id(p.id);
+                spawn->set_name(seq::encode::compatibilityGroundItemName(
+                    QString::fromUtf8(p.actor_definition.data(),
+                                      int(p.actor_definition.size())))
+                    .toStdString());
+                spawn->set_type(seq::v1::DROP);
+                position(spawn->mutable_pos(), int32_t(p.position.x),
+                         int32_t(p.position.y), int32_t(p.position.z),
+                         0);
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, CorpseLocated>) {
+                seq::v1::Envelope envelope;
+                auto* killed = envelope.mutable_spawn_killed();
+                killed->set_deceased_id(p.id);
+                killed->set_killer_id(0);
+                out.push_back(std::move(envelope));
+            }
+        }, event);
+    }
+    return out;
+}
+
+EntityComparison compareEntities(
+    const Batch& rustBatch,
+    const std::vector<EntityObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections)
+{
+    EntityComparison comparison;
+    const auto rustEvents = entityObservations(rustBatch);
+    const auto rustProjections = projectEntities(rustBatch);
+    comparison.rustEventCount = rustEvents.size();
+    comparison.legacyEventCount = legacyEvents.size();
+    comparison.rustProjectionCount = rustProjections.size();
+    comparison.legacyProjectionCount = legacyProjections.size();
+    comparison.orderedEventsEqual = rustEvents == legacyEvents;
+    comparison.projectionsEqual =
+        rustProjections.size() == legacyProjections.size() &&
+        std::equal(rustProjections.begin(), rustProjections.end(),
+                   legacyProjections.begin(), sameEnvelope);
+    return comparison;
+}
+
 std::vector<seq::v1::Envelope> projectLifecycle(const Batch& batch)
 {
     std::vector<seq::v1::Envelope> projections;
@@ -543,11 +817,13 @@ std::string ProtocolRegistry::contentHash(rust::SessionBackend backend) const
 Session::Session(const ProtocolRegistry& registry,
                  rust::SessionBackend backend, size_t journalLimit,
                  size_t journalByteLimit,
-                 LifecycleSelector lifecycleSelector)
+                 LifecycleSelector lifecycleSelector,
+                 EntitySelector entitySelector)
     : m_session(rust::session_new(registry.rustRegistry(), backend))
     , m_journalLimit(std::max<size_t>(journalLimit, 1))
     , m_journalByteLimit(std::max<size_t>(journalByteLimit, sizeof(Record)))
     , m_lifecycleSelector(lifecycleSelector)
+    , m_entitySelector(entitySelector)
 {
 }
 

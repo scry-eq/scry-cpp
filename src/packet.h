@@ -92,6 +92,7 @@ class EQPacket : public QObject
 	    int m_playbackPackets,
 	    int8_t m_playbackSpeed, 
 	    seq::shadow::LifecycleSelector lifecycleSelector,
+	    seq::shadow::EntitySelector entitySelector,
 	    QObject *parent,
             const char *name);
    ~EQPacket();           
@@ -146,6 +147,7 @@ class EQPacket : public QObject
    void flushAllShadowSessions(seq::shadow::FlushReason reason);
    using LifecycleEventHandler =
        std::function<void(const Box*, const seq::shadow::Event&)>;
+   using EntityEventHandler = LifecycleEventHandler;
    using LifecycleProjectionEnricher =
        std::function<void(const Box*, bool,
                           std::vector<seq::shadow::LifecycleObservation>&,
@@ -154,6 +156,8 @@ class EQPacket : public QObject
        std::function<bool(const Box*)>;
    void setLifecycleEventHandler(LifecycleEventHandler handler)
    { m_lifecycleEventHandler = std::move(handler); }
+   void setEntityEventHandler(EntityEventHandler handler)
+   { m_entityEventHandler = std::move(handler); }
    void setLifecycleProjectionEnricher(LifecycleProjectionEnricher enricher)
    { m_lifecycleProjectionEnricher = std::move(enricher); }
    void setLifecycleGlobalOwnershipPredicate(
@@ -162,8 +166,12 @@ class EQPacket : public QObject
    bool legacyLifecycleEnabledForCurrentPacket() const;
    bool rustLifecycleAcceptedForCurrentPacket(
        seq::shadow::LifecycleKind kind) const;
+   bool legacyEntitiesEnabledForCurrentPacket() const;
+   bool rustEntityAcceptedForCurrentPacket(seq::shadow::EntityKind kind) const;
    void observeLegacyLifecycle(seq::shadow::LifecycleObservation observation);
    void observeLegacyLifecycleProjection(seq::v1::Envelope envelope);
+   void observeLegacyEntity(seq::shadow::EntityObservation observation);
+   void observeLegacyEntityProjection(seq::v1::Envelope envelope);
    void applyValidatedZoneServerInfo(Box* box, uint16_t port);
 
    void exportHandoffState(const QString& configDir) const;
@@ -281,6 +289,7 @@ class EQPacket : public QObject
    int m_playbackPackets;
    int8_t m_playbackSpeed; // Should be signed since -1 is pause
    const seq::shadow::LifecycleSelector m_lifecycleSelector;
+   const seq::shadow::EntitySelector m_entitySelector;
 
    EQPacketStream* m_client2WorldStream;
    EQPacketStream* m_world2ClientStream;
@@ -317,9 +326,20 @@ class EQPacket : public QObject
        bool expectsHostZoneProjection = false;
    };
    std::optional<PendingLifecycleComparison> m_pendingLifecycle;
+   struct PendingEntityComparison {
+       seq::shadow::Session* session = nullptr;
+       const Box* box = nullptr;
+       std::vector<seq::shadow::EntityObservation> rustEvents;
+       std::vector<seq::v1::Envelope> rustProjections;
+       std::vector<seq::shadow::EntityObservation> legacyEvents;
+       std::vector<seq::v1::Envelope> legacyProjections;
+   };
+   std::optional<PendingEntityComparison> m_pendingEntity;
    seq::shadow::Session* m_currentLifecycleSession = nullptr;
    std::vector<seq::shadow::LifecycleKind> m_currentRustLifecycleKinds;
+   std::vector<seq::shadow::EntityKind> m_currentRustEntityKinds;
    LifecycleEventHandler m_lifecycleEventHandler;
+   EntityEventHandler m_entityEventHandler;
    LifecycleProjectionEnricher m_lifecycleProjectionEnricher;
    LifecycleGlobalOwnershipPredicate m_lifecycleGlobalOwnershipPredicate;
    bool m_lifecycleFatal = false;

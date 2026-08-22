@@ -702,6 +702,7 @@ void ZoneMgr::zonePoints(const uint8_t* data, size_t len, uint8_t)
     m_zonePoints[i].zoneId       = out.zone_id;
     m_zonePoints[i].zoneInstance = out.zone_instance;
   }
+  emit entityZonePointsChanged();
 }
 
 void ZoneMgr::dynamicZonePoints(const uint8_t *data, size_t len, uint8_t)

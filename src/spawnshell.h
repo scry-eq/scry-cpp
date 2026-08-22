@@ -41,6 +41,8 @@
 #endif
 #include <cstdio>
 #include <cmath>
+#include <optional>
+#include <vector>
 
 #include <QHash>
 #include <QTimer>
@@ -72,6 +74,21 @@ const int MAX_DEAD_SPAWNIDS = 50;
 typedef QHash<int, Item*> ItemMap;
 typedef QHashIterator<int, Item*> ItemIterator;
 typedef QHashIterator<int, Item*> ItemConstIterator;
+
+struct EntityDoorState {
+   uint32_t id = 0;
+   QString name;
+   float x = 0;
+   float y = 0;
+   float z = 0;
+   float heading = 0;
+   uint32_t incline = 0;
+   uint32_t size = 0;
+   uint8_t openType = 0;
+   uint8_t state = 0;
+   uint8_t invertState = 0;
+   std::optional<uint32_t> zonePointId;
+};
 
 //----------------------------------------------------------------------
 // SpawnShell
@@ -116,6 +133,27 @@ public:
                     uint16_t guildID, uint16_t guildServerID, uint8_t npc,
                     uint32_t classMask = 0);
    void moveSpawn(uint16_t id, int16_t x, int16_t y, int16_t z);
+   void applyEntitySpawn(uint32_t id, const QString& name,
+                         const QString& lastName, uint32_t race,
+                         uint32_t classVal, uint32_t deity, uint8_t level,
+                         uint8_t npc, uint32_t curHp,
+                         std::optional<uint32_t> maxHp, uint32_t guildID,
+                         uint32_t guildServerID, uint32_t classMask,
+                         std::optional<int32_t> x,
+                         std::optional<int32_t> y,
+                         std::optional<int32_t> z,
+                         std::optional<uint16_t> headingDegrees);
+   void applyEntityMove(uint32_t id, int32_t x, int32_t y, int32_t z,
+                        uint16_t headingDegrees);
+   void applyEntityRemove(uint32_t id);
+   void applyEntityRename(std::optional<uint32_t> id,
+                          const QString& oldName, const QString& newName);
+   void applyEntityDoors(const std::vector<EntityDoorState>& doors);
+   void applyEntityGroundItem(uint32_t id, const QString& actorDefinition,
+                              float x, float y, float z,
+                              std::optional<float> heading);
+   void applyEntityGroundItemRemoved(uint32_t id);
+   void applyEntityCorpseLocation(uint32_t id, float x, float y, float z);
    void updateSpawnHP(uint16_t id, int32_t curHp, int32_t maxHp);
    void updateSpawnIdentity(uint16_t id, uint8_t level, uint8_t classVal);
    // Stand/sit/duck pose only, for backends that broadcast it independently of

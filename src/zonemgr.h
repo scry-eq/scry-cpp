@@ -30,6 +30,9 @@
 
 #include <QObject>
 #include <functional>
+#include <optional>
+#include <utility>
+#include <vector>
 #include <QString>
 
 #include "point.h"
@@ -44,6 +47,17 @@ struct newZoneStruct;
 struct zonePointsStruct;
 struct zonePointStruct;
 struct dzSwitchInfo;
+
+struct EntityZonePointState {
+  std::optional<uint32_t> triggerId;
+  std::optional<QString> actorDefinition;
+  float x = 0;
+  float y = 0;
+  float z = 0;
+  float heading = 0;
+  std::optional<uint16_t> destinationZoneId;
+  std::optional<uint16_t> destinationInstanceId;
+};
 
 class ZoneMgr : public QObject
 {
@@ -79,6 +93,10 @@ class ZoneMgr : public QObject
   // spawns and reset the just-set identity. zoneResolved drives only the map /
   // filter / web, never the clear/reset slots. See eqldispatch.cpp.
   void setZoneByName(const QString& shortName, const QString& longName);
+  void applyEntityZonePoints(std::vector<EntityZonePointState> points)
+  { m_entityZonePoints = std::move(points); emit entityZonePointsChanged(); }
+  const std::vector<EntityZonePointState>& entityZonePoints() const
+  { return m_entityZonePoints; }
   // Raise the zoning flag without decoding a zone-change struct. For backends
   // whose zone-change packet carries no zone id (eql's is a client-only
   // position request), so only the flag is knowable here; names resolve at
@@ -134,6 +152,7 @@ class ZoneMgr : public QObject
   // the spawn-clear + player-reset that ride on zoneChanged. Never emitted on
   // live/test.
   void zoneResolved(const QString& shortZoneName);
+  void entityZonePointsChanged();
   
  private:
   void adoptLiveZoneNames(const QString& shortName, const QString& longName);
@@ -142,6 +161,7 @@ class ZoneMgr : public QObject
   QString m_longZoneName;
   QString m_shortZoneName;
   bool m_zoning;
+  std::vector<EntityZonePointState> m_entityZonePoints;
   Point3D<int16_t>  m_safePoint;
   float m_zone_exp_multiplier;
   QString m_zoneFile;

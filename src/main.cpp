@@ -217,6 +217,11 @@ int main(int argc, char** argv)
         "Immutable lifecycle owner for each session: legacy, shadow, or rust. "
         "The default is shadow. Changing it requires a session restart.",
         "mode", "shadow");
+    QCommandLineOption entityDecoderOpt(QStringList{"entity-decoder"},
+        "Immutable entity and spatial owner for each session: legacy, shadow, "
+        "or rust. The default remains legacy until capture soak completes. "
+        "Changing it requires a session restart.",
+        "mode", "legacy");
     parser.addOption(deviceOpt);
     parser.addOption(ipOpt);
     parser.addOption(listenOpt);
@@ -239,6 +244,7 @@ int main(int argc, char** argv)
     parser.addOption(waitForClientOpt);
     parser.addOption(boxIdleTtlOpt);
     parser.addOption(lifecycleDecoderOpt);
+    parser.addOption(entityDecoderOpt);
     parser.process(app);
 
     DaemonApp::Config cfg;
@@ -288,6 +294,13 @@ int main(int argc, char** argv)
         cfg.lifecycleDecoder != QLatin1String("shadow") &&
         cfg.lifecycleDecoder != QLatin1String("rust")) {
         qCritical("--lifecycle-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.entityDecoder = parser.value(entityDecoderOpt).toLower();
+    if (cfg.entityDecoder != QLatin1String("legacy") &&
+        cfg.entityDecoder != QLatin1String("shadow") &&
+        cfg.entityDecoder != QLatin1String("rust")) {
+        qCritical("--entity-decoder must be legacy, shadow, or rust");
         return 2;
     }
     if (parser.isSet(boxIdleTtlOpt)) {

@@ -1,6 +1,7 @@
 #include "protoencoder.h"
 
 #include <QPoint>
+#include <QRegularExpression>
 
 #include "category.h"
 #include "everquest.h"
@@ -16,7 +17,46 @@
 #include "spawnmonitor.h"
 #include "spellshell.h"
 
+QString print_item(uint16_t item);
+
 namespace seq::encode {
+
+QString compatibilityDoorName(const QString& semanticName, uint32_t id)
+{
+    return QStringLiteral("Door: %1 (%2) ").arg(semanticName).arg(id);
+}
+
+QString compatibilityGroundItemName(const QString& actorDefinition)
+{
+    QString itemCode = actorDefinition;
+    if (itemCode.startsWith(QStringLiteral("IT")))
+        itemCode = itemCode.mid(2).section(
+            '_', 0, 0, QString::SectionCaseInsensitiveSeps);
+    const int itemId = itemCode.toInt();
+    return QStringLiteral("Drop: ") +
+        (itemId > 0 ? print_item(uint16_t(itemId)) : actorDefinition);
+}
+
+QString compatibilitySpawnName(const QString& semanticName)
+{
+    QString value = semanticName;
+    value.remove(QRegularExpression(QStringLiteral("[0-9]")));
+    value.replace('_', ' ');
+    QString article;
+    if (value.startsWith(QStringLiteral("a "))) {
+        value = value.mid(2);
+        article = QStringLiteral("a");
+    } else if (value.startsWith(QStringLiteral("an "))) {
+        value = value.mid(3);
+        article = QStringLiteral("an");
+    } else if (value.startsWith(QStringLiteral("the "))) {
+        value = value.mid(4);
+        article = QStringLiteral("the");
+    }
+    if (!article.isEmpty())
+        value += QStringLiteral(", ") + article;
+    return value;
+}
 
 seq::v1::Envelope zoneChanged(const QString& shortName,
                               const QString& longName,
@@ -158,11 +198,22 @@ void fillSpawn(seq::v1::Spawn* out, const Item& it,
         // convention so the raw Item::name is fine to send.
         // X/Y negation per the screen-convention contract documented in
         // fillPos above.
-        out->set_name(it.name().toStdString());
+        if (const auto* door = dynamic_cast<const Door*>(&it))
+            out->set_name(door->compatibilityName().toStdString());
+        else if (const auto* drop = dynamic_cast<const Drop*>(&it))
+            out->set_name(drop->compatibilityName().toStdString());
+        else
+            out->set_name(it.name().toStdString());
         auto* pos = out->mutable_pos();
-        pos->set_x(-it.x());
-        pos->set_y(-it.y());
-        pos->set_z(it.z());
+        if (const auto* door = dynamic_cast<const Door*>(&it)) {
+            pos->set_x(-int32_t(door->semanticX()));
+            pos->set_y(-int32_t(door->semanticY()));
+            pos->set_z(int32_t(door->semanticZ() * 10.0f));
+        } else {
+            pos->set_x(-it.x());
+            pos->set_y(-it.y());
+            pos->set_z(it.z());
+        }
     }
 
     if (categories) {

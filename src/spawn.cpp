@@ -41,6 +41,7 @@
 #include <QRegularExpression>
 
 #include "spawnshell.h"
+#include "protoencoder.h"
 #include "fixpt.h"
 #include "util.h"
 
@@ -1147,6 +1148,28 @@ Door::Door(const doorStruct* d)
   update(d);
 }
 
+Door::Door(uint32_t id, const QString& name, float x, float y, float z,
+           float heading, uint32_t incline, uint32_t size, uint8_t openType,
+           uint8_t state, uint8_t invertState,
+           std::optional<uint32_t> zonePointId)
+  : Item(tDoors, id)
+  , m_zonePoint(zonePointId)
+  , m_incline(incline)
+  , m_size(size)
+  , m_openType(openType)
+  , m_state(state)
+  , m_invertState(invertState)
+{
+  m_NPC = SPAWN_DOOR;
+  m_name = name;
+  m_semanticX = x;
+  m_semanticY = y;
+  m_semanticZ = z;
+  setPos(int16_t(x), int16_t(y), int16_t(z));
+  setHeading(int8_t(std::lrint(heading)));
+  updateLast();
+}
+
 Door::~Door()
 {
 }
@@ -1154,12 +1177,21 @@ Door::~Door()
 void Door::update(const doorStruct* d)
 {
   QString temp;
+  m_semanticX = d->x;
+  m_semanticY = d->y;
+  m_semanticZ = d->z;
   setPos((int16_t)(d->x), 
 	 (int16_t)(d->y), 
 	 (int16_t)(d->z * 10.0));
   setHeading((int8_t)lrintf(d->heading));
-  m_name = QString::asprintf("Door: %s (%d) ", d->name, d->doorId);
+  m_name = QString::fromLatin1(d->name,
+      int(qstrnlen(d->name, sizeof(d->name))));
   setZonePoint(d->zonePoint);
+  m_incline = d->incline;
+  m_size = d->size;
+  m_openType = d->opentype;
+  m_state = d->spawnstate;
+  m_invertState = d->invertstate;
   updateLast();
 }
 
@@ -1173,6 +1205,11 @@ QString Door::classString() const
   return "Thing";
 }
 
+QString Door::compatibilityName() const
+{
+  return seq::encode::compatibilityDoorName(m_name, id());
+}
+
 //----------------------------------------------------------------------
 // Drop
 Drop::Drop(const makeDropStruct* d, const QString& name)
@@ -1181,6 +1218,20 @@ Drop::Drop(const makeDropStruct* d, const QString& name)
   m_NPC = SPAWN_DROP;
 
   update(d, name);
+}
+
+Drop::Drop(uint32_t id, const QString& actorDefinition, float x, float y,
+           float z, std::optional<float> heading)
+  : Item(tDrop, id)
+{
+  m_NPC = SPAWN_DROP;
+  m_name = actorDefinition;
+  m_idFile = actorDefinition;
+  m_compatibilityName =
+      seq::encode::compatibilityGroundItemName(actorDefinition);
+  setPos(int16_t(x), int16_t(y), int16_t(z));
+  if (heading) setHeading(int8_t(std::lrint(*heading)));
+  updateLast();
 }
 
 Drop::~Drop()
@@ -1225,10 +1276,17 @@ void Drop::update(const makeDropStruct* d, const QString& name)
   else
     buff = QString("Drop: '") + name + "'";
   
-  // set the name 
-  setName(buff);
+  // Keep the semantic actor definition in state. seq.v1 compatibility naming
+  // belongs to the projector.
+  m_name = m_idFile;
+  m_compatibilityName = buff;
 
   updateLast();
+}
+
+QString Drop::compatibilityName() const
+{
+  return m_compatibilityName.isEmpty() ? m_name : m_compatibilityName;
 }
 
 QString Drop::raceString() const

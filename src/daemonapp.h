@@ -139,6 +139,9 @@ public:
         // host lifecycle handlers, "shadow" compares them, and "rust" lets
         // only the typed Rust lifecycle path mutate state.
         QString      lifecycleDecoder = QStringLiteral("shadow");
+        // Immutable entity-family owner. Legacy remains the default until
+        // capture-derived Phase 5 soak fixtures are available for both hosts.
+        QString      entityDecoder = QStringLiteral("legacy");
         // --replay --wait-for-client: pause the .vpk playback until
         // the first WebSocket client attaches a SessionAdapter (so
         // early envelopes aren't dropped), and don't quit at EOF so
@@ -251,7 +254,9 @@ private:
     // reverse of onBoxCreated). No-op for the primary box.
     void onBoxAboutToBeRemoved(Box* box);
     void applyRustLifecycle(const Box* box, const seq::shadow::Event& event);
+    void applyRustEntity(const Box* box, const seq::shadow::Event& event);
     void connectLifecycleObservers();
+    void connectEntityObservers();
 
     // --only-session helpers -------------------------------------------------
     // Parsed index form of Config::onlySession: N for "N"/"first"(=1),

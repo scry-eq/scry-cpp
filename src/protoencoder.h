@@ -126,5 +126,8 @@ seq::v1::Envelope zoneChanged(const QString& shortName,
                               const MapData* map);
 seq::v1::Envelope eqTimeSync(const QDateTime& dateTime);
 seq::v1::Envelope zoneServer(const QString& host, quint16 port);
+QString compatibilityDoorName(const QString& semanticName, uint32_t id);
+QString compatibilityGroundItemName(const QString& actorDefinition);
+QString compatibilitySpawnName(const QString& semanticName);
 
 } // namespace seq::encode

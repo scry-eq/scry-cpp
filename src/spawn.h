@@ -40,6 +40,7 @@
 #endif
 #include <cmath>
 #include <ctime>
+#include <optional>
 
 #include <QList>
 #include <QDateTime>
@@ -416,13 +417,23 @@ class Door : public Item
 {
  public:
   Door(const doorStruct* d);
+  Door(uint32_t id, const QString& name, float x, float y, float z,
+       float heading, uint32_t incline, uint32_t size, uint8_t openType,
+       uint8_t state, uint8_t invertState,
+       std::optional<uint32_t> zonePointId);
   virtual ~Door();
 
   // virtual get method overloads
   virtual QString raceString() const;
   virtual QString classString() const;
+  QString compatibilityName() const;
+  float semanticX() const { return m_semanticX; }
+  float semanticY() const { return m_semanticY; }
+  float semanticZ() const { return m_semanticZ; }
 
-  uint32_t zonePoint() const { return m_zonePoint; }
+  uint32_t zonePoint() const { return m_zonePoint.value_or(0); }
+  const std::optional<uint32_t>& semanticZonePoint() const
+  { return m_zonePoint; }
   
   // update methods
   void update(const doorStruct* d);
@@ -430,7 +441,15 @@ class Door : public Item
   void setZonePoint(uint32_t zonePoint) { m_zonePoint = zonePoint; }
     
  protected:
-  uint32_t m_zonePoint;
+  std::optional<uint32_t> m_zonePoint;
+  uint32_t m_incline = 0;
+  uint32_t m_size = 0;
+  uint8_t m_openType = 0;
+  uint8_t m_state = 0;
+  uint8_t m_invertState = 0;
+  float m_semanticX = 0;
+  float m_semanticY = 0;
+  float m_semanticZ = 0;
 };
 
 //----------------------------------------------------------------------
@@ -440,6 +459,8 @@ class Drop : public Item
  public:
   // constructor/destructor
   Drop(const makeDropStruct* d, const QString& name);
+  Drop(uint32_t id, const QString& actorDefinition, float x, float y,
+       float z, std::optional<float> heading);
   virtual ~Drop();
 
   // drop specific get methods
@@ -449,6 +470,7 @@ class Drop : public Item
   // virtual get method overloads
   virtual QString raceString() const;
   virtual QString classString() const;
+  QString compatibilityName() const;
   
   // update methods
   void update(const makeDropStruct* d, const QString& name);
@@ -463,6 +485,7 @@ class Drop : public Item
   // drop specific data
   uint32_t m_itemNr;
   QString m_idFile;
+  QString m_compatibilityName;
 };
 
 //----------------------------------------------------------------------
@@ -525,4 +548,3 @@ inline Drop* dropType(Item* item)
 }
 
 #endif // _SPAWN_H_
-

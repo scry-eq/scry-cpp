@@ -488,6 +488,10 @@ bool DaemonApp::start()
             [this](const Box* box, const seq::shadow::Event& event) {
                 applyRustLifecycle(box, event);
             });
+        m_packet->setEntityEventHandler(
+            [this](const Box* box, const seq::shadow::Event& event) {
+                applyRustEntity(box, event);
+            });
         m_packet->setLifecycleProjectionEnricher(
             [this](const Box* box, bool addHostZoneProjection,
                    std::vector<seq::shadow::LifecycleObservation>& events,
@@ -530,6 +534,7 @@ bool DaemonApp::start()
                 return !box || box == active;
             });
         connectLifecycleObservers();
+        connectEntityObservers();
 
         // Tap decoded packets BEFORE the regular wiring so the logger
         // sees every dispatch (it doesn't matter for correctness — the
@@ -791,6 +796,90 @@ void DaemonApp::applyRustLifecycle(const Box* box,
     }, event);
 }
 
+void DaemonApp::applyRustEntity(const Box* box,
+                                const seq::shadow::Event& event)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+    if (!managers->spawnShell || !managers->zoneMgr) return;
+
+    std::visit([&](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        const auto& p = value.payload;
+        if constexpr (std::is_same_v<T, seq::shadow::SpawnAdded>) {
+            managers->spawnShell->applyEntitySpawn(
+                p.id, qString(p.name), qString(p.last_name), p.race,
+                p.class_, p.deity, p.level, p.npc, p.cur_hp,
+                p.has_max_hp ? std::optional<uint32_t>(p.max_hp) : std::nullopt,
+                p.guild_id, p.guild_server_id, p.class_mask,
+                p.has_pos ? std::optional<int32_t>(p.pos.x) : std::nullopt,
+                p.has_pos ? std::optional<int32_t>(p.pos.y) : std::nullopt,
+                p.has_pos ? std::optional<int32_t>(p.pos.z) : std::nullopt,
+                p.has_pos ? std::optional<uint16_t>(p.pos.heading_deg)
+                          : std::nullopt);
+        } else if constexpr (std::is_same_v<T, seq::shadow::SpawnMoved>) {
+            managers->spawnShell->applyEntityMove(
+                p.id, p.pos.x, p.pos.y, p.pos.z, p.pos.heading_deg);
+        } else if constexpr (std::is_same_v<T, seq::shadow::SpawnRemoved>) {
+            managers->spawnShell->applyEntityRemove(p.id);
+        } else if constexpr (std::is_same_v<T, seq::shadow::SpawnRenamed>) {
+            managers->spawnShell->applyEntityRename(
+                p.has_id ? std::optional<uint32_t>(p.id) : std::nullopt,
+                qString(p.old_name), qString(p.new_name));
+        } else if constexpr (std::is_same_v<T, seq::shadow::Doors>) {
+            std::vector<EntityDoorState> doors;
+            doors.reserve(p.doors.size());
+            for (const auto& door : p.doors) {
+                doors.push_back(EntityDoorState{
+                    door.id, qString(door.name), door.position.x,
+                    door.position.y, door.position.z, door.heading,
+                    door.incline, door.size, door.open_type, door.state,
+                    door.invert_state,
+                    door.has_zone_point_id
+                        ? std::optional<uint32_t>(door.zone_point_id)
+                        : std::nullopt});
+            }
+            managers->spawnShell->applyEntityDoors(doors);
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::GroundItemRemoved>) {
+            managers->spawnShell->applyEntityGroundItemRemoved(p.drop_id);
+        } else if constexpr (std::is_same_v<T, seq::shadow::GroundItem>) {
+            managers->spawnShell->applyEntityGroundItem(
+                p.id, qString(p.actor_definition), p.position.x,
+                p.position.y, p.position.z,
+                p.has_heading ? std::optional<float>(p.heading) : std::nullopt);
+        } else if constexpr (std::is_same_v<T, seq::shadow::CorpseLocated>) {
+            managers->spawnShell->applyEntityCorpseLocation(
+                p.id, p.position.x, p.position.y, p.position.z);
+        } else if constexpr (std::is_same_v<T, seq::shadow::ZonePoints>) {
+            std::vector<EntityZonePointState> points;
+            points.reserve(p.points.size());
+            for (const auto& point : p.points) {
+                points.push_back(EntityZonePointState{
+                    point.has_trigger_id
+                        ? std::optional<uint32_t>(point.trigger_id)
+                        : std::nullopt,
+                    point.has_actor_definition
+                        ? std::optional<QString>(qString(point.actor_definition))
+                        : std::nullopt,
+                    point.position.x, point.position.y, point.position.z,
+                    point.heading,
+                    point.has_destination_zone_id
+                        ? std::optional<uint16_t>(point.destination_zone_id)
+                        : std::nullopt,
+                    point.has_destination_instance_id
+                        ? std::optional<uint16_t>(point.destination_instance_id)
+                        : std::nullopt});
+            }
+            managers->zoneMgr->applyEntityZonePoints(std::move(points));
+        }
+    }, event);
+}
+
 void DaemonApp::connectLifecycleObservers()
 {
     if (!m_packet) return;
@@ -862,6 +951,95 @@ void DaemonApp::connectLifecycleObservers()
     });
 }
 
+void DaemonApp::connectEntityObservers()
+{
+    if (!m_packet || !m_spawnShell || !m_zoneMgr) return;
+    auto record = [this](seq::shadow::EntityKind kind,
+                         seq::v1::Envelope envelope) {
+        m_packet->observeLegacyEntity({kind, {}});
+        m_packet->observeLegacyEntityProjection(std::move(envelope));
+    };
+    connect(m_spawnShell, &SpawnShell::addItem, this,
+            [this, record](const Item* item) {
+        if (!item) return;
+        seq::shadow::EntityKind kind;
+        if (item->type() == tDoors) {
+            kind = seq::shadow::EntityKind::Doors;
+        } else if (item->type() == tDrop) {
+            kind = seq::shadow::EntityKind::GroundItem;
+        } else {
+            kind = seq::shadow::EntityKind::SpawnAdded;
+        }
+        if (!m_packet->rustEntityAcceptedForCurrentPacket(kind)) return;
+        seq::v1::Envelope envelope;
+        seq::encode::fillSpawn(envelope.mutable_spawn_added()->mutable_spawn(),
+                               *item, m_categoryMgr, m_filterMgr);
+        record(kind, std::move(envelope));
+    });
+    connect(m_spawnShell, &SpawnShell::delItem, this,
+            [this, record](const Item* item) {
+        if (!item) return;
+        const auto kind = item->type() == tDrop
+            ? seq::shadow::EntityKind::GroundItemRemoved
+            : seq::shadow::EntityKind::SpawnRemoved;
+        if (!m_packet->rustEntityAcceptedForCurrentPacket(kind)) return;
+        seq::v1::Envelope envelope;
+        envelope.mutable_spawn_removed()->set_id(item->id());
+        record(kind, std::move(envelope));
+    });
+    connect(m_spawnShell, &SpawnShell::changeItem, this,
+            [this, record](const Item* item, uint32_t changeType) {
+        if (!item) return;
+        const bool renamed =
+            m_packet->rustEntityAcceptedForCurrentPacket(
+                seq::shadow::EntityKind::SpawnRenamed);
+        const bool moved =
+            m_packet->rustEntityAcceptedForCurrentPacket(
+                seq::shadow::EntityKind::SpawnMoved);
+        if (!renamed && !moved) return;
+        const auto kind = renamed ? seq::shadow::EntityKind::SpawnRenamed
+                                  : seq::shadow::EntityKind::SpawnMoved;
+        seq::v1::Envelope envelope;
+        const bool filterChanged =
+            (changeType & (tSpawnChangedFilter |
+                           tSpawnChangedRuntimeFilter)) != 0;
+        if ((changeType & tSpawnChangedALL) == tSpawnChangedALL ||
+            filterChanged) {
+            seq::encode::fillSpawn(
+                envelope.mutable_spawn_added()->mutable_spawn(), *item,
+                m_categoryMgr, m_filterMgr);
+        } else {
+            auto* update = envelope.mutable_spawn_updated();
+            update->set_id(item->id());
+            if (const auto* spawn = dynamic_cast<const Spawn*>(item)) {
+                if (changeType & tSpawnChangedPosition)
+                    seq::encode::fillPos(update->mutable_pos(), *spawn);
+                if (changeType & tSpawnChangedName)
+                    update->set_name(spawn->name().toStdString());
+            }
+        }
+        record(kind, std::move(envelope));
+    });
+    connect(m_spawnShell,
+            qOverload<const Item*, const Item*, uint16_t>(
+                &SpawnShell::killSpawn),
+            this, [this, record](const Item* deceased, const Item*, uint16_t) {
+        const auto kind = seq::shadow::EntityKind::CorpseLocated;
+        if (!deceased ||
+            !m_packet->rustEntityAcceptedForCurrentPacket(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* killed = envelope.mutable_spawn_killed();
+        killed->set_deceased_id(deceased->id());
+        killed->set_killer_id(0);
+        record(kind, std::move(envelope));
+    });
+    connect(m_zoneMgr, &ZoneMgr::entityZonePointsChanged, this, [this] {
+        const auto kind = seq::shadow::EntityKind::ZonePoints;
+        if (m_packet->rustEntityAcceptedForCurrentPacket(kind))
+            m_packet->observeLegacyEntity({kind, {}});
+    });
+}
+
 bool DaemonApp::startServer()
 {
     if (!m_ws->listen(m_cfg.listenHost, m_cfg.listenPort)) {
@@ -928,9 +1106,10 @@ bool DaemonApp::startCapture()
                 : PLAYBACK_OFF,
             /*playbackSpeed*/ 0,
             lifecycleSelector(m_cfg.lifecycleDecoder),
+            lifecycleSelector(m_cfg.entityDecoder),
             this, "packet");
     } catch (const std::exception& error) {
-        qCritical("Rust lifecycle setup failed: %s", error.what());
+        qCritical("Rust decoder setup failed: %s", error.what());
         return false;
     }
     if (m_cfg.strictGateSizes && m_packet->undeclaredGateSizeCount() > 0) {

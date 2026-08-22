@@ -19,6 +19,7 @@ enum class Direction { ServerToClient, ClientToServer };
 enum class FlushReason { Shutdown, ZoneTransition, ReplayEnd, Reset };
 enum class Disposition { Decoded, Ignored, Unhandled, Malformed, Unmapped };
 enum class LifecycleSelector { Legacy, Shadow, Rust };
+using EntitySelector = LifecycleSelector;
 enum class LifecycleKind {
     SessionReset,
     EnterWorld,
@@ -29,9 +30,21 @@ enum class LifecycleKind {
     ZoneEnvironmentChanged,
     TimeOfDay,
 };
+enum class EntityKind {
+    SpawnAdded,
+    SpawnMoved,
+    SpawnRemoved,
+    SpawnRenamed,
+    Doors,
+    GroundItemRemoved,
+    GroundItem,
+    CorpseLocated,
+    ZonePoints,
+};
 
 struct SpawnAdded { rust::EventSpawnInfo payload; };
 struct SpawnMoved { rust::EventSpawnMoved payload; };
+struct SpawnRenamed { rust::EventSpawnRenamed payload; };
 struct SpawnRemoved { rust::EventSpawnId payload; };
 struct SpawnKilled { rust::EventSpawnKilled payload; };
 struct SpawnHp { rust::EventSpawnHp payload; };
@@ -59,6 +72,8 @@ struct LoadoutSwap { rust::EventLoadoutSwap payload; };
 struct Doors { rust::EventDoors payload; };
 struct GroundItemRemoved { rust::EventGroundItemRemoved payload; };
 struct GroundItem { rust::EventGroundItem payload; };
+struct CorpseLocated { rust::EventCorpseLocated payload; };
+struct ZonePoints { rust::EventZonePoints payload; };
 struct Combat { rust::EventCombat payload; };
 struct SpawnCast { rust::EventSpawnCast payload; };
 struct Targeted { rust::EventSpawnId payload; };
@@ -84,18 +99,19 @@ struct LevelUpdate { rust::EventLevelUpdatePayload payload; };
 struct EnterWorld { rust::EventEnterWorld payload; };
 
 using Event = std::variant<
-    SpawnAdded, SpawnMoved, SpawnRemoved, SpawnKilled, SpawnHp, StatSync,
+    SpawnAdded, SpawnMoved, SpawnRenamed, SpawnRemoved, SpawnKilled, SpawnHp, StatSync,
     SelfPos, SpawnAnimation, SpawnIllusion, GuildsInZone, TimeOfDay,
     ZoneChanged, PlayerProfile, Stance, Invocation, InspectAnswer, GuildRoster,
     ZoneServerInfo, ItemSet, ItemLearned, GuildMotd, GuildRankName, LoadoutSwap,
-    Doors, GroundItemRemoved, GroundItem, Combat, SpawnCast, Targeted,
+    Doors, GroundItemRemoved, GroundItem, CorpseLocated, ZonePoints,
+    Combat, SpawnCast, Targeted,
     Considered, AaTable, Exp, AaExp, Stamina, ManaUpdate, SkillUpdate,
     LootTransaction, LootDrops, Money, SimpleMessage, FormattedMessage,
     SpecialMessage, LootMessage, Chat, BuffList, GroupFollow, GroupDisband,
     LevelUpdate, EnterWorld, SessionReset, ZoneTransition,
     ZoneEnvironmentChanged>;
 
-static_assert(std::variant_size_v<Event> == 52,
+static_assert(std::variant_size_v<Event> == 55,
               "the C++ shadow event model must cover every Rust event kind");
 
 // A copyable, deterministic representation used by shadow comparison. The
@@ -119,6 +135,18 @@ struct LifecycleComparison {
     size_t rustProjectionCount = 0;
     size_t legacyProjectionCount = 0;
 };
+
+struct EntityObservation {
+    EntityKind kind = EntityKind::SpawnAdded;
+    std::vector<uint8_t> payload;
+
+    bool operator==(const EntityObservation& other) const
+    {
+        return kind == other.kind && payload == other.payload;
+    }
+};
+
+using EntityComparison = LifecycleComparison;
 
 struct LifecycleProfile {
     std::string name;
@@ -178,6 +206,12 @@ struct Record {
 Batch translate(rust::SessionDecodeBatch batch);
 std::vector<LifecycleObservation> lifecycleObservations(const Batch& batch);
 std::vector<seq::v1::Envelope> projectLifecycle(const Batch& batch);
+std::vector<EntityObservation> entityObservations(const Batch& batch);
+std::vector<seq::v1::Envelope> projectEntities(const Batch& batch);
+EntityComparison compareEntities(
+    const Batch& rustBatch,
+    const std::vector<EntityObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections);
 LifecycleObservation observeSessionReset(rust::EventSessionResetReason reason);
 LifecycleObservation observeEnterWorld(const std::string& characterName);
 LifecycleObservation observeZoneServer(const std::string& host, uint16_t port);
@@ -203,6 +237,7 @@ LifecycleComparison compareLifecycle(
     const std::vector<LifecycleObservation>& legacyEvents,
     const std::vector<seq::v1::Envelope>& legacyProjections);
 bool isLifecycleEvent(const Event& event);
+bool isEntityEvent(const Event& event);
 
 class ProtocolRegistry {
 public:
@@ -223,7 +258,8 @@ public:
     Session(const ProtocolRegistry& registry, rust::SessionBackend backend,
             size_t journalLimit = 256,
             size_t journalByteLimit = 4 * 1024 * 1024,
-            LifecycleSelector lifecycleSelector = LifecycleSelector::Shadow);
+            LifecycleSelector lifecycleSelector = LifecycleSelector::Shadow,
+            EntitySelector entitySelector = EntitySelector::Legacy);
 
     const Record& decode(Stream stream, uint16_t opcode, Direction direction,
                          const uint8_t* payload, size_t payloadSize,
@@ -240,10 +276,21 @@ public:
     { return m_lifecycleSelector == LifecycleSelector::Shadow; }
     bool appliesRustLifecycle() const
     { return m_lifecycleSelector == LifecycleSelector::Rust; }
+    EntitySelector entitySelector() const { return m_entitySelector; }
+    bool runsLegacyEntities() const
+    { return m_entitySelector != EntitySelector::Rust; }
+    bool comparesEntities() const
+    { return m_entitySelector == EntitySelector::Shadow; }
+    bool appliesRustEntities() const
+    { return m_entitySelector == EntitySelector::Rust; }
     const std::optional<LifecycleComparison>& lastLifecycleComparison() const
     { return m_lastLifecycleComparison; }
     void recordLifecycleComparison(LifecycleComparison comparison)
     { m_lastLifecycleComparison = std::move(comparison); }
+    const std::optional<EntityComparison>& lastEntityComparison() const
+    { return m_lastEntityComparison; }
+    void recordEntityComparison(EntityComparison comparison)
+    { m_lastEntityComparison = std::move(comparison); }
 
 private:
     const Record& append(Record record);
@@ -253,10 +300,12 @@ private:
     size_t m_journalByteLimit;
     size_t m_journalBytes = 0;
     const LifecycleSelector m_lifecycleSelector;
+    const EntitySelector m_entitySelector;
     uint64_t m_recordCount = 0;
     uint64_t m_droppedRecordCount = 0;
     std::deque<Record> m_journal;
     std::optional<LifecycleComparison> m_lastLifecycleComparison;
+    std::optional<EntityComparison> m_lastEntityComparison;
 };
 
 } // namespace seq::shadow
