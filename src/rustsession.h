@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "seq-bridge-cxx/lib.h"
+#include "seq/v1/events.pb.h"
 
 namespace seq::shadow {
 
@@ -17,6 +18,17 @@ enum class Stream { World, Zone };
 enum class Direction { ServerToClient, ClientToServer };
 enum class FlushReason { Shutdown, ZoneTransition, ReplayEnd, Reset };
 enum class Disposition { Decoded, Ignored, Unhandled, Malformed, Unmapped };
+enum class LifecycleSelector { Legacy, Shadow, Rust };
+enum class LifecycleKind {
+    SessionReset,
+    EnterWorld,
+    ZoneServerInfo,
+    PlayerProfile,
+    ZoneTransition,
+    ZoneChanged,
+    ZoneEnvironmentChanged,
+    TimeOfDay,
+};
 
 struct SpawnAdded { rust::EventSpawnInfo payload; };
 struct SpawnMoved { rust::EventSpawnMoved payload; };
@@ -30,6 +42,9 @@ struct SpawnIllusion { rust::EventSpawnIllusion payload; };
 struct GuildsInZone { rust::EventGuildsInZone payload; };
 struct TimeOfDay { rust::EventTimeOfDay payload; };
 struct ZoneChanged { rust::EventZoneInfo payload; };
+struct SessionReset { rust::EventSessionReset payload; };
+struct ZoneTransition { rust::EventZoneTransition payload; };
+struct ZoneEnvironmentChanged { rust::EventZoneEnvironment payload; };
 struct PlayerProfile { rust::EventProfileInfo payload; };
 struct Stance { rust::EventNamed payload; };
 struct Invocation { rust::EventNamed payload; };
@@ -66,7 +81,7 @@ struct BuffList { rust::EventBuffList payload; };
 struct GroupFollow { rust::EventGroupFollowPayload payload; };
 struct GroupDisband { rust::EventGroupDisbandPayload payload; };
 struct LevelUpdate { rust::EventLevelUpdatePayload payload; };
-struct EnterWorld {};
+struct EnterWorld { rust::EventEnterWorld payload; };
 
 using Event = std::variant<
     SpawnAdded, SpawnMoved, SpawnRemoved, SpawnKilled, SpawnHp, StatSync,
@@ -77,10 +92,33 @@ using Event = std::variant<
     Considered, AaTable, Exp, AaExp, Stamina, ManaUpdate, SkillUpdate,
     LootTransaction, LootDrops, Money, SimpleMessage, FormattedMessage,
     SpecialMessage, LootMessage, Chat, BuffList, GroupFollow, GroupDisband,
-    LevelUpdate, EnterWorld>;
+    LevelUpdate, EnterWorld, SessionReset, ZoneTransition,
+    ZoneEnvironmentChanged>;
 
-static_assert(std::variant_size_v<Event> == 49,
+static_assert(std::variant_size_v<Event> == 52,
               "the C++ shadow event model must cover every Rust event kind");
+
+// A copyable, deterministic representation used by shadow comparison. The
+// payload is a length-prefixed binary encoding of every field in the selected
+// lifecycle event. It avoids retaining references into the bounded journal.
+struct LifecycleObservation {
+    LifecycleKind kind = LifecycleKind::SessionReset;
+    std::vector<uint8_t> payload;
+
+    bool operator==(const LifecycleObservation& other) const
+    {
+        return kind == other.kind && payload == other.payload;
+    }
+};
+
+struct LifecycleComparison {
+    bool orderedEventsEqual = false;
+    bool projectionsEqual = false;
+    size_t rustEventCount = 0;
+    size_t legacyEventCount = 0;
+    size_t rustProjectionCount = 0;
+    size_t legacyProjectionCount = 0;
+};
 
 struct Batch {
     uint64_t protocolGeneration = 0;
@@ -111,6 +149,12 @@ struct Record {
 // function only checks the tag and payload index. It does not look up opcodes,
 // select a backend, correlate packets, or change daemon state.
 Batch translate(rust::SessionDecodeBatch batch);
+std::vector<LifecycleObservation> lifecycleObservations(const Batch& batch);
+std::vector<seq::v1::Envelope> projectLifecycle(const Batch& batch);
+LifecycleComparison compareLifecycle(
+    const Batch& rustBatch,
+    const std::vector<LifecycleObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections);
 
 class ProtocolRegistry {
 public:
@@ -130,21 +174,18 @@ public:
     // sequence so consumers can detect records dropped from the front.
     Session(const ProtocolRegistry& registry, rust::SessionBackend backend,
             size_t journalLimit = 256,
-            size_t journalByteLimit = 4 * 1024 * 1024);
+            size_t journalByteLimit = 4 * 1024 * 1024,
+            LifecycleSelector lifecycleSelector = LifecycleSelector::Shadow);
 
     const Record& decode(Stream stream, uint16_t opcode, Direction direction,
                          const uint8_t* payload, size_t payloadSize,
                          int64_t timestamp);
     const Record& flush(FlushReason reason);
-    // Returns true only when this call opened and flushed a new boundary.
-    // Repeated start signals within one transition are ignored until complete.
-    bool beginZoneTransition();
-    void completeZoneTransition() { m_zoneTransitionOpen = false; }
-
     const std::deque<Record>& journal() const { return m_journal; }
     uint64_t recordCount() const { return m_recordCount; }
     uint64_t droppedRecordCount() const { return m_droppedRecordCount; }
     size_t journalBytes() const { return m_journalBytes; }
+    LifecycleSelector lifecycleSelector() const { return m_lifecycleSelector; }
 
 private:
     const Record& append(Record record);
@@ -153,7 +194,7 @@ private:
     size_t m_journalLimit;
     size_t m_journalByteLimit;
     size_t m_journalBytes = 0;
-    bool m_zoneTransitionOpen = false;
+    const LifecycleSelector m_lifecycleSelector;
     uint64_t m_recordCount = 0;
     uint64_t m_droppedRecordCount = 0;
     std::deque<Record> m_journal;

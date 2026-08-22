@@ -370,28 +370,9 @@ bool DaemonApp::start()
     connect(m_zoneMgr, SIGNAL(zoneResolved(const QString&)),
             this,      SLOT(loadZoneMap(const QString&)));
 
-    // The packet hook sets the current Rust shadow Box before the legacy
-    // handler runs. Start signals flush once before new-zone profile state;
-    // completion signals only close the dedupe window.
-    auto beginShadowZone = [this] {
-        if (m_packet) {
-            m_packet->beginCurrentShadowZoneTransition();
-        }
-    };
-    auto completeShadowZone = [this](const QString&) {
-        if (m_packet)
-            m_packet->completeCurrentShadowZoneTransition();
-    };
-    connect(m_zoneMgr, qOverload<>(&ZoneMgr::zoneBegin),
-            this, beginShadowZone);
-    connect(m_zoneMgr, qOverload<const QString&>(&ZoneMgr::zoneChanged),
-            this, [beginShadowZone](const QString&) { beginShadowZone(); });
-    connect(m_zoneMgr, &ZoneMgr::zoneTransitionStarted,
-            this, beginShadowZone);
-    connect(m_zoneMgr, qOverload<const QString&>(&ZoneMgr::zoneBegin),
-            this, completeShadowZone);
-    connect(m_zoneMgr, &ZoneMgr::zoneResolved,
-            this, completeShadowZone);
+    // The stateful Rust decoder recognizes and resets lifecycle boundaries
+    // from the packet that caused them. Host-side ZoneMgr signals must not
+    // flush it again after the packet has already been decoded.
 
     // Same dual-signal wiring for the per-zone filter overlay. Without
     // this, FilterMgr::loadZone only fires once at startup and the

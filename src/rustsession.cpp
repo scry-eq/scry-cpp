@@ -1,7 +1,9 @@
 #include "rustsession.h"
 
 #include <algorithm>
+#include <cstring>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 namespace seq::shadow {
@@ -69,6 +71,51 @@ std::vector<T> takeVector(::rust::Vec<T>& values)
     return out;
 }
 
+template <typename T>
+void appendScalar(std::vector<uint8_t>& out, T value)
+{
+    static_assert(std::is_arithmetic_v<T> || std::is_enum_v<T>);
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+    out.insert(out.end(), bytes, bytes + sizeof(value));
+}
+
+void appendString(std::vector<uint8_t>& out, const ::rust::String& value)
+{
+    appendScalar(out, uint64_t(value.size()));
+    out.insert(out.end(), value.data(), value.data() + value.size());
+}
+
+template <typename T>
+void appendVector(std::vector<uint8_t>& out, const ::rust::Vec<T>& values)
+{
+    appendScalar(out, uint64_t(values.size()));
+    for (const T& value : values)
+        appendScalar(out, value);
+}
+
+void appendProfile(std::vector<uint8_t>& out, const rust::EventProfileInfo& p)
+{
+    appendString(out, p.name); appendString(out, p.last_name);
+    appendScalar(out, p.class_); appendScalar(out, p.level);
+    appendScalar(out, p.race); appendScalar(out, p.deity);
+    appendScalar(out, p.cur_hp); appendScalar(out, p.mana);
+    appendVector(out, p.aa_ids); appendVector(out, p.aa_values);
+    appendScalar(out, p.aa_spent); appendVector(out, p.skills);
+    appendScalar(out, p.class_mask);
+    appendScalar(out, p.str_); appendScalar(out, p.sta);
+    appendScalar(out, p.cha); appendScalar(out, p.dex);
+    appendScalar(out, p.int_); appendScalar(out, p.agi);
+    appendScalar(out, p.wis); appendScalar(out, p.platinum);
+    appendScalar(out, p.gold); appendScalar(out, p.silver);
+    appendScalar(out, p.copper);
+}
+
+bool sameEnvelope(const seq::v1::Envelope& lhs,
+                  const seq::v1::Envelope& rhs)
+{
+    return lhs.SerializeAsString() == rhs.SerializeAsString();
+}
+
 } // namespace
 
 Batch translate(rust::SessionDecodeBatch batch)
@@ -119,6 +166,18 @@ Batch translate(rust::SessionDecodeBatch batch)
             break;
         case rust::SessionEventKind::ZoneChanged:
             out.events.emplace_back(ZoneChanged{takePayload(batch.zone_changed, index)});
+            break;
+        case rust::SessionEventKind::SessionReset:
+            out.events.emplace_back(SessionReset{
+                takePayload(batch.session_reset, index)});
+            break;
+        case rust::SessionEventKind::ZoneTransition:
+            out.events.emplace_back(ZoneTransition{
+                takePayload(batch.zone_transition, index)});
+            break;
+        case rust::SessionEventKind::ZoneEnvironmentChanged:
+            out.events.emplace_back(ZoneEnvironmentChanged{
+                takePayload(batch.zone_environment_changed, index)});
             break;
         case rust::SessionEventKind::PlayerProfile:
             out.events.emplace_back(PlayerProfile{
@@ -239,9 +298,8 @@ Batch translate(rust::SessionDecodeBatch batch)
             out.events.emplace_back(LevelUpdate{takePayload(batch.level_update, index)});
             break;
         case rust::SessionEventKind::EnterWorld:
-            if (index != 0)
-                throw std::out_of_range("EnterWorld payload index must be zero");
-            out.events.emplace_back(EnterWorld{});
+            out.events.emplace_back(EnterWorld{
+                takePayload(batch.enter_world, index)});
             break;
         }
     }
@@ -249,6 +307,114 @@ Batch translate(rust::SessionDecodeBatch batch)
     out.selfStats = takeVector(batch.self_stats);
     out.lootRows = takeVector(batch.loot_rows);
     return out;
+}
+
+std::vector<LifecycleObservation> lifecycleObservations(const Batch& batch)
+{
+    std::vector<LifecycleObservation> observations;
+    for (const Event& event : batch.events) {
+        LifecycleObservation observation;
+        bool lifecycle = true;
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, SessionReset>) {
+                observation.kind = LifecycleKind::SessionReset;
+                appendScalar(observation.payload, p.reason);
+            } else if constexpr (std::is_same_v<T, EnterWorld>) {
+                observation.kind = LifecycleKind::EnterWorld;
+                appendString(observation.payload, p.character_name);
+            } else if constexpr (std::is_same_v<T, ZoneServerInfo>) {
+                observation.kind = LifecycleKind::ZoneServerInfo;
+                appendString(observation.payload, p.host);
+                appendScalar(observation.payload, p.port);
+            } else if constexpr (std::is_same_v<T, PlayerProfile>) {
+                observation.kind = LifecycleKind::PlayerProfile;
+                appendProfile(observation.payload, p);
+            } else if constexpr (std::is_same_v<T, ZoneTransition>) {
+                observation.kind = LifecycleKind::ZoneTransition;
+                appendString(observation.payload, p.character_name);
+                appendScalar(observation.payload, p.has_zone_id);
+                appendScalar(observation.payload, p.zone_id);
+                appendScalar(observation.payload, p.has_instance_id);
+                appendScalar(observation.payload, p.instance_id);
+                appendScalar(observation.payload, p.confirmed);
+            } else if constexpr (std::is_same_v<T, ZoneChanged>) {
+                observation.kind = LifecycleKind::ZoneChanged;
+                appendString(observation.payload, p.short_name);
+                appendString(observation.payload, p.long_name);
+            } else if constexpr (std::is_same_v<T, ZoneEnvironmentChanged>) {
+                observation.kind = LifecycleKind::ZoneEnvironmentChanged;
+                appendString(observation.payload, p.zone_file);
+                appendScalar(observation.payload, p.experience_multiplier);
+                appendScalar(observation.payload, p.safe_x);
+                appendScalar(observation.payload, p.safe_y);
+                appendScalar(observation.payload, p.safe_z);
+            } else if constexpr (std::is_same_v<T, TimeOfDay>) {
+                observation.kind = LifecycleKind::TimeOfDay;
+                appendScalar(observation.payload, p.year);
+                appendScalar(observation.payload, p.month);
+                appendScalar(observation.payload, p.day);
+                appendScalar(observation.payload, p.hour);
+                appendScalar(observation.payload, p.minute);
+            } else {
+                lifecycle = false;
+            }
+        }, event);
+        if (lifecycle)
+            observations.push_back(std::move(observation));
+    }
+    return observations;
+}
+
+std::vector<seq::v1::Envelope> projectLifecycle(const Batch& batch)
+{
+    std::vector<seq::v1::Envelope> projections;
+    for (const Event& event : batch.events) {
+        if (const auto* value = std::get_if<ZoneChanged>(&event)) {
+            seq::v1::Envelope envelope;
+            auto* zone = envelope.mutable_zone_changed();
+            zone->set_zone_short(std::string(value->payload.short_name));
+            zone->set_zone_long(std::string(value->payload.long_name));
+            projections.push_back(std::move(envelope));
+        } else if (const auto* value = std::get_if<TimeOfDay>(&event)) {
+            seq::v1::Envelope envelope;
+            auto* time = envelope.mutable_eq_time_sync();
+            time->set_year(value->payload.year);
+            time->set_month(value->payload.month);
+            time->set_day(value->payload.day);
+            time->set_hour(value->payload.hour == 0 ? 0 : value->payload.hour - 1);
+            time->set_minute(value->payload.minute);
+            projections.push_back(std::move(envelope));
+        } else if (const auto* value = std::get_if<ZoneServerInfo>(&event)) {
+            seq::v1::Envelope envelope;
+            auto* server = envelope.mutable_zone_server();
+            server->set_host(std::string(value->payload.host));
+            server->set_port(value->payload.port);
+            projections.push_back(std::move(envelope));
+        }
+    }
+    return projections;
+}
+
+LifecycleComparison compareLifecycle(
+    const Batch& rustBatch,
+    const std::vector<LifecycleObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections)
+{
+    const auto rustEvents = lifecycleObservations(rustBatch);
+    const auto rustProjections = projectLifecycle(rustBatch);
+    LifecycleComparison comparison;
+    comparison.rustEventCount = rustEvents.size();
+    comparison.legacyEventCount = legacyEvents.size();
+    comparison.rustProjectionCount = rustProjections.size();
+    comparison.legacyProjectionCount = legacyProjections.size();
+    comparison.orderedEventsEqual = rustEvents == legacyEvents;
+    comparison.projectionsEqual =
+        rustProjections.size() == legacyProjections.size() &&
+        std::equal(rustProjections.begin(), rustProjections.end(),
+                   legacyProjections.begin(), sameEnvelope);
+    return comparison;
 }
 
 ProtocolRegistry::ProtocolRegistry(const std::string& protocolDir)
@@ -263,10 +429,12 @@ std::string ProtocolRegistry::contentHash(rust::SessionBackend backend) const
 
 Session::Session(const ProtocolRegistry& registry,
                  rust::SessionBackend backend, size_t journalLimit,
-                 size_t journalByteLimit)
+                 size_t journalByteLimit,
+                 LifecycleSelector lifecycleSelector)
     : m_session(rust::session_new(registry.rustRegistry(), backend))
     , m_journalLimit(std::max<size_t>(journalLimit, 1))
     , m_journalByteLimit(std::max<size_t>(journalByteLimit, sizeof(Record)))
+    , m_lifecycleSelector(lifecycleSelector)
 {
 }
 
@@ -289,18 +457,7 @@ const Record& Session::flush(FlushReason reason)
     record.flushReason = reason;
     record.batch = translate(m_session->flush(toRust(reason)));
     const Record& appended = append(std::move(record));
-    if (reason != FlushReason::ZoneTransition)
-        m_zoneTransitionOpen = false;
     return appended;
-}
-
-bool Session::beginZoneTransition()
-{
-    if (m_zoneTransitionOpen)
-        return false;
-    flush(FlushReason::ZoneTransition);
-    m_zoneTransitionOpen = true;
-    return true;
 }
 
 const Record& Session::append(Record record)

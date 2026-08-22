@@ -31,7 +31,6 @@
 #include <QTimer>
 #include <memory>
 #include <map>
-#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -147,10 +146,7 @@ class EQPacket : public QObject
    // and focused integration tests.
    const seq::shadow::Session* shadowSession(const Box* box) const;
    void flushShadowSession(const Box* box, seq::shadow::FlushReason reason);
-   void flushCurrentShadowSession(seq::shadow::FlushReason reason);
    void flushAllShadowSessions(seq::shadow::FlushReason reason);
-   void beginCurrentShadowZoneTransition();
-   void completeCurrentShadowZoneTransition();
 
    void exportHandoffState(const QString& configDir) const;
    bool importHandoffState(const QString& configDir);
@@ -292,8 +288,6 @@ class EQPacket : public QObject
    std::map<EQPacketFlowKey, TemporaryShadowSession> m_temporaryShadowSessions;
    quint64 m_temporaryShadowClock = 0;
    static constexpr size_t kMaxTemporaryShadowSessions = 16;
-   std::optional<EQPacketFlowKey> m_currentTemporaryShadowFlow;
-   Box* m_currentShadowBox = nullptr;
 
    // Stage 1 of multibox-sessions: observe every world-port-talking
    // client_ip on the wire. Read-only sibling of the legacy

@@ -27,6 +27,9 @@ SAME_PAYLOAD(SpawnIllusion, EventSpawnIllusion);
 SAME_PAYLOAD(GuildsInZone, EventGuildsInZone);
 SAME_PAYLOAD(TimeOfDay, EventTimeOfDay);
 SAME_PAYLOAD(ZoneChanged, EventZoneInfo);
+SAME_PAYLOAD(SessionReset, EventSessionReset);
+SAME_PAYLOAD(ZoneTransition, EventZoneTransition);
+SAME_PAYLOAD(ZoneEnvironmentChanged, EventZoneEnvironment);
 SAME_PAYLOAD(PlayerProfile, EventProfileInfo);
 SAME_PAYLOAD(Stance, EventNamed);
 SAME_PAYLOAD(Invocation, EventNamed);
@@ -63,6 +66,7 @@ SAME_PAYLOAD(BuffList, EventBuffList);
 SAME_PAYLOAD(GroupFollow, EventGroupFollowPayload);
 SAME_PAYLOAD(GroupDisband, EventGroupDisbandPayload);
 SAME_PAYLOAD(LevelUpdate, EventLevelUpdatePayload);
+SAME_PAYLOAD(EnterWorld, EventEnterWorld);
 #undef SAME_PAYLOAD
 
 template <typename T>
@@ -73,15 +77,6 @@ void addPayload(ffi::SessionDecodeBatch& batch, ::rust::Vec<T>& payloads,
     ref.kind = kind;
     ref.payload_index = static_cast<uint32_t>(payloads.size());
     payloads.push_back(std::move(payload));
-    batch.events.push_back(ref);
-}
-
-void addPayloadless(ffi::SessionDecodeBatch& batch,
-                    ffi::SessionEventKind kind)
-{
-    ffi::SessionEventRef ref;
-    ref.kind = kind;
-    ref.payload_index = 0;
     batch.events.push_back(ref);
 }
 
@@ -98,6 +93,17 @@ uint16_t deleteSpawnOpcode()
     return 0xa183;
 #elif defined(SEQ_TARGET_EQL)
     return 0x7ba3;
+#endif
+}
+
+uint16_t enterWorldOpcode()
+{
+#if defined(SEQ_TARGET_LIVE)
+    return 0x5a59;
+#elif defined(SEQ_TARGET_TEST)
+    return 0xf31f;
+#elif defined(SEQ_TARGET_EQL)
+    return 0x0935;
 #endif
 }
 
@@ -122,7 +128,10 @@ private slots:
     void payloadFieldsSurviveTranslation();
     void diagnosticsAndJournalAreOrdered();
     void sessionsAreIsolated();
-    void zoneTransitionFlushesOncePerBoundary();
+    void enterWorldLifecycleIsOrdered();
+    void lifecycleOrderAndProjectionMatchLegacy();
+    void malformedLifecycleDoesNotReset();
+    void lifecycleSelectorIsImmutablePerSession();
     void journalHonorsByteBudget();
 };
 
@@ -182,13 +191,16 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     ADD(group_follow, GroupFollow, EventGroupFollowPayload);
     ADD(group_disband, GroupDisband, EventGroupDisbandPayload);
     ADD(level_update, LevelUpdate, EventLevelUpdatePayload);
+    ADD(enter_world, EnterWorld, EventEnterWorld);
+    ADD(session_reset, SessionReset, EventSessionReset);
+    ADD(zone_transition, ZoneTransition, EventZoneTransition);
+    ADD(zone_environment_changed, ZoneEnvironmentChanged, EventZoneEnvironment);
 #undef ADD
-    addPayloadless(raw, ffi::SessionEventKind::EnterWorld);
 
     Batch batch = translate(std::move(raw));
     QCOMPARE(batch.protocolGeneration, uint64_t(77));
     QCOMPARE(batch.disposition, Disposition::Decoded);
-    QCOMPARE(batch.events.size(), size_t(49));
+    QCOMPARE(batch.events.size(), size_t(52));
 
 #define CHECK(index, type) QVERIFY(std::holds_alternative<type>(batch.events[index]))
     CHECK(0, SpawnAdded); CHECK(1, SpawnMoved); CHECK(2, SpawnRemoved);
@@ -208,6 +220,8 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     CHECK(41, SpecialMessage); CHECK(42, LootMessage); CHECK(43, Chat);
     CHECK(44, BuffList); CHECK(45, GroupFollow); CHECK(46, GroupDisband);
     CHECK(47, LevelUpdate); CHECK(48, EnterWorld);
+    CHECK(49, SessionReset); CHECK(50, ZoneTransition);
+    CHECK(51, ZoneEnvironmentChanged);
 #undef CHECK
 }
 
@@ -381,26 +395,133 @@ void RustSessionTest::sessionsAreIsolated()
     QCOMPARE(second.recordCount(), uint64_t(1));
 }
 
-void RustSessionTest::zoneTransitionFlushesOncePerBoundary()
+void RustSessionTest::enterWorldLifecycleIsOrdered()
 {
     ProtocolRegistry registry;
     Session session(registry, backend());
+    std::array<uint8_t, 72> payload{};
+    const QByteArray name("Firona");
+    std::copy(name.begin(), name.end(), payload.begin());
 
-    QVERIFY(session.beginZoneTransition());
+    const Record& record = session.decode(
+        Stream::World, enterWorldOpcode(), Direction::ClientToServer,
+        payload.data(), payload.size(), 1000);
+    QCOMPARE(record.batch.disposition, Disposition::Decoded);
+    QCOMPARE(record.batch.events.size(), size_t(2));
+    QVERIFY(std::holds_alternative<SessionReset>(record.batch.events[0]));
+    QVERIFY(std::holds_alternative<EnterWorld>(record.batch.events[1]));
+    const auto& entered = std::get<EnterWorld>(record.batch.events[1]);
+    QCOMPARE(text(entered.payload.character_name), QStringLiteral("Firona"));
     QCOMPARE(session.recordCount(), uint64_t(1));
-    QCOMPARE(session.journal().back().flushReason,
-             std::optional(FlushReason::ZoneTransition));
+}
 
-    QVERIFY(!session.beginZoneTransition());
+void RustSessionTest::lifecycleOrderAndProjectionMatchLegacy()
+{
+    ffi::SessionDecodeBatch raw;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+
+    ffi::EventSessionReset reset;
+    reset.reason = ffi::EventSessionResetReason::ZoneTransition;
+    addPayload(raw, raw.session_reset, ffi::SessionEventKind::SessionReset,
+               std::move(reset));
+
+    ffi::EventZoneTransition transition;
+    transition.character_name = ::rust::String("Firona");
+    transition.has_zone_id = true; transition.zone_id = 57;
+    transition.has_instance_id = true; transition.instance_id = 3;
+    transition.confirmed = true;
+    addPayload(raw, raw.zone_transition, ffi::SessionEventKind::ZoneTransition,
+               std::move(transition));
+
+    ffi::EventZoneInfo zone;
+    zone.short_name = ::rust::String("qeynos");
+    zone.long_name = ::rust::String("South Qeynos");
+    addPayload(raw, raw.zone_changed, ffi::SessionEventKind::ZoneChanged,
+               std::move(zone));
+
+    ffi::EventZoneEnvironment environment;
+    environment.zone_file = ::rust::String("qeynos.eqg");
+    environment.experience_multiplier = 1.25f;
+    environment.safe_x = 10.25f; environment.safe_y = 20.5f;
+    environment.safe_z = 30.75f;
+    addPayload(raw, raw.zone_environment_changed,
+               ffi::SessionEventKind::ZoneEnvironmentChanged,
+               std::move(environment));
+
+    ffi::EventTimeOfDay clock;
+    clock.year = 3789; clock.month = 11; clock.day = 27;
+    clock.hour = 13; clock.minute = 42;
+    addPayload(raw, raw.time_of_day, ffi::SessionEventKind::TimeOfDay,
+               std::move(clock));
+
+    ffi::EventZoneServerInfo server;
+    server.host = ::rust::String("zone.example.test"); server.port = 9000;
+    addPayload(raw, raw.zone_server_info,
+               ffi::SessionEventKind::ZoneServerInfo, std::move(server));
+
+    Batch batch = translate(std::move(raw));
+    const auto expectedOrder = lifecycleObservations(batch);
+    QCOMPARE(expectedOrder.size(), size_t(6));
+    QCOMPARE(expectedOrder[0].kind, LifecycleKind::SessionReset);
+    QCOMPARE(expectedOrder[1].kind, LifecycleKind::ZoneTransition);
+    QCOMPARE(expectedOrder[2].kind, LifecycleKind::ZoneChanged);
+    QCOMPARE(expectedOrder[3].kind, LifecycleKind::ZoneEnvironmentChanged);
+    QCOMPARE(expectedOrder[4].kind, LifecycleKind::TimeOfDay);
+    QCOMPARE(expectedOrder[5].kind, LifecycleKind::ZoneServerInfo);
+
+    std::vector<seq::v1::Envelope> legacy;
+    seq::v1::Envelope zoneEnvelope;
+    zoneEnvelope.mutable_zone_changed()->set_zone_short("qeynos");
+    zoneEnvelope.mutable_zone_changed()->set_zone_long("South Qeynos");
+    legacy.push_back(std::move(zoneEnvelope));
+    seq::v1::Envelope timeEnvelope;
+    auto* legacyTime = timeEnvelope.mutable_eq_time_sync();
+    legacyTime->set_year(3789); legacyTime->set_month(11);
+    legacyTime->set_day(27); legacyTime->set_hour(12);
+    legacyTime->set_minute(42);
+    legacy.push_back(std::move(timeEnvelope));
+    seq::v1::Envelope serverEnvelope;
+    serverEnvelope.mutable_zone_server()->set_host("zone.example.test");
+    serverEnvelope.mutable_zone_server()->set_port(9000);
+    legacy.push_back(std::move(serverEnvelope));
+
+    const LifecycleComparison equal =
+        compareLifecycle(batch, expectedOrder, legacy);
+    QVERIFY(equal.orderedEventsEqual);
+    QVERIFY(equal.projectionsEqual);
+
+    auto wrongOrder = expectedOrder;
+    std::swap(wrongOrder[0], wrongOrder[1]);
+    QVERIFY(!compareLifecycle(batch, wrongOrder, legacy).orderedEventsEqual);
+    legacy[0].mutable_zone_changed()->set_zone_long("North Qeynos");
+    QVERIFY(!compareLifecycle(batch, expectedOrder, legacy).projectionsEqual);
+}
+
+void RustSessionTest::malformedLifecycleDoesNotReset()
+{
+    ProtocolRegistry registry;
+    Session session(registry, backend());
+    const uint8_t malformed[3] = {1, 2, 3};
+    const Record& record = session.decode(
+        Stream::World, enterWorldOpcode(), Direction::ClientToServer,
+        malformed, sizeof(malformed), 1000);
+    QCOMPARE(record.batch.disposition, Disposition::Malformed);
+    QVERIFY(lifecycleObservations(record.batch).empty());
     QCOMPARE(session.recordCount(), uint64_t(1));
+}
 
-    session.completeZoneTransition();
-    QVERIFY(session.beginZoneTransition());
-    QCOMPARE(session.recordCount(), uint64_t(2));
-
-    session.flush(FlushReason::Reset);
-    QVERIFY(session.beginZoneTransition());
-    QCOMPARE(session.recordCount(), uint64_t(4));
+void RustSessionTest::lifecycleSelectorIsImmutablePerSession()
+{
+    ProtocolRegistry registry;
+    Session legacy(registry, backend(), 256, 4 * 1024 * 1024,
+                   LifecycleSelector::Legacy);
+    Session shadow(registry, backend(), 256, 4 * 1024 * 1024,
+                   LifecycleSelector::Shadow);
+    Session rust(registry, backend(), 256, 4 * 1024 * 1024,
+                 LifecycleSelector::Rust);
+    QCOMPARE(legacy.lifecycleSelector(), LifecycleSelector::Legacy);
+    QCOMPARE(shadow.lifecycleSelector(), LifecycleSelector::Shadow);
+    QCOMPARE(rust.lifecycleSelector(), LifecycleSelector::Rust);
 }
 
 void RustSessionTest::journalHonorsByteBudget()

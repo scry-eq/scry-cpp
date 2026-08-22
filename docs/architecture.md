@@ -114,7 +114,7 @@ state machines without replay, so the temporary side is finalized instead.
 decoded-packet observers or legacy handlers. The hook sends the stream, numeric
 opcode, direction, payload, and capture timestamp to Rust. The adapter switches
 only on `SessionEventKind` and moves the indexed typed payload into an exhaustive
-49-alternative `std::variant`. It does no opcode lookup, backend selection, or
+52-alternative `std::variant`. It does no opcode lookup, backend selection, or
 correlation. Capture timestamps and attribution follow cached, nested, and
 fragmented protocol packets instead of being sampled when a cache drains. Each
 session keeps at most 256 ordered packet and flush records under a 4 MiB source
@@ -123,10 +123,13 @@ Oversized individual records retain only their disposition and metadata.
 
 Legacy opcode handlers remain the only path that changes host state. Rust
 events, self-stat correlation, and loot rows stay in the shadow journal. The
-host flushes sessions on shutdown, box eviction, replay completion, and once at
-the start of each `ZoneMgr` transition. Live's later profile/zone-begin signal
-and EQL's zone-resolved signal close the transition window without a second
-flush.
+host flushes sessions on shutdown, box eviction, and replay completion. Rust
+owns lifecycle resets, so host `ZoneMgr` signals never flush the Rust session.
+The C++ adapter exposes an immutable legacy, shadow, or Rust lifecycle selector
+for each session. The daemon still constructs shadow sessions while the host
+event applier is incomplete. Shadow comparison preserves lifecycle order and
+checks the directly representable `seq.v1` zone, time, and zone-server
+envelopes. Composite profile snapshots still require the host reducer.
 
 To add or change an opcode: edit the parser in `scry-decoder-rs` (see its
 own `CLAUDE.md`/`docs/architecture.md`), expose it via `seq-bridge`, then

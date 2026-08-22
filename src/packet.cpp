@@ -320,7 +320,8 @@ EQPacket::EQPacket(const QString& opcodesToml,
     if (m_shadowRegistry) {
       try {
         auto session = std::make_unique<seq::shadow::Session>(
-            *m_shadowRegistry, shadowBackend());
+            *m_shadowRegistry, shadowBackend(), 256, 4 * 1024 * 1024,
+            seq::shadow::LifecycleSelector::Shadow);
         m_shadowSessions.emplace(&box, std::move(session));
         for (EQPacketStream* stream : {box.world_c2s, box.world_s2c,
                                        box.zone_c2s, box.zone_s2c})
@@ -754,7 +755,8 @@ seq::shadow::Session* EQPacket::temporaryShadowSession(EQPacketFlowKey flowKey)
   try {
     TemporaryShadowSession temporary;
     temporary.session = std::make_unique<seq::shadow::Session>(
-        *m_shadowRegistry, shadowBackend());
+        *m_shadowRegistry, shadowBackend(), 256, 4 * 1024 * 1024,
+        seq::shadow::LifecycleSelector::Shadow);
     temporary.lastUsed = ++m_temporaryShadowClock;
     auto [it, inserted] =
         m_temporaryShadowSessions.emplace(flowKey, std::move(temporary));
@@ -780,8 +782,6 @@ void EQPacket::evictOldestTemporaryShadowSession()
       seqWarn("Temporary Rust shadow eviction flush failed: %s", error.what());
     }
   }
-  if (m_currentTemporaryShadowFlow == oldest->first)
-    m_currentTemporaryShadowFlow.reset();
   m_temporaryShadowSessions.erase(oldest);
 }
 
@@ -793,9 +793,6 @@ void EQPacket::decodeShadowApplication(
   const bool world = stream == client2world || stream == world2client;
   Box* box = reinterpret_cast<Box*>(attributionToken);
   seq::shadow::Session* session = nullptr;
-
-  m_currentShadowBox = nullptr;
-  m_currentTemporaryShadowFlow.reset();
 
   if (box) {
     auto attributed = m_shadowSessions.find(box);
@@ -828,10 +825,8 @@ void EQPacket::decodeShadowApplication(
       m_temporaryShadowSessions.erase(temporary);
       attributed = m_shadowSessions.find(box);
     }
-    m_currentShadowBox = box;
     session = attributed->second.get();
   } else {
-    m_currentTemporaryShadowFlow = flowKey;
     session = temporaryShadowSession(flowKey);
   }
 
@@ -880,25 +875,6 @@ void EQPacket::flushShadowSession(const Box* box,
   }
 }
 
-void EQPacket::flushCurrentShadowSession(seq::shadow::FlushReason reason)
-{
-  if (m_currentTemporaryShadowFlow) {
-    auto temporary = m_temporaryShadowSessions.find(*m_currentTemporaryShadowFlow);
-    if (temporary == m_temporaryShadowSessions.end() ||
-        temporary->second.disabled || !temporary->second.session)
-      return;
-    try {
-      temporary->second.session->flush(reason);
-    } catch (const std::exception& error) {
-      temporary->second.disabled = true;
-      seqWarn("Temporary Rust shadow disabled after flush error: %s",
-              error.what());
-    }
-    return;
-  }
-  flushShadowSession(m_currentShadowBox, reason);
-}
-
 void EQPacket::flushAllShadowSessions(seq::shadow::FlushReason reason)
 {
   for (auto& entry : m_temporaryShadowSessions) {
@@ -913,48 +889,6 @@ void EQPacket::flushAllShadowSessions(seq::shadow::FlushReason reason)
   }
   for (const auto& entry : m_shadowSessions)
     flushShadowSession(entry.first, reason);
-}
-
-void EQPacket::beginCurrentShadowZoneTransition()
-{
-  if (m_currentTemporaryShadowFlow) {
-    auto it = m_temporaryShadowSessions.find(*m_currentTemporaryShadowFlow);
-    if (it != m_temporaryShadowSessions.end() && !it->second.disabled &&
-        it->second.session) {
-      try {
-        it->second.session->beginZoneTransition();
-      } catch (const std::exception& error) {
-        it->second.disabled = true;
-        seqWarn("Temporary Rust shadow disabled after zone flush error: %s",
-                error.what());
-      }
-    }
-    return;
-  }
-  if (!m_currentShadowBox || m_shadowDisabled.count(m_currentShadowBox) != 0)
-    return;
-  auto it = m_shadowSessions.find(m_currentShadowBox);
-  if (it == m_shadowSessions.end()) return;
-  try {
-    it->second->beginZoneTransition();
-  } catch (const std::exception& error) {
-    m_shadowDisabled.insert(m_currentShadowBox);
-    seqWarn("Rust shadow disabled for box %s after zone flush error: %s",
-            qUtf8Printable(m_currentShadowBox->box_id), error.what());
-  }
-}
-
-void EQPacket::completeCurrentShadowZoneTransition()
-{
-  if (m_currentTemporaryShadowFlow) {
-    auto it = m_temporaryShadowSessions.find(*m_currentTemporaryShadowFlow);
-    if (it != m_temporaryShadowSessions.end() && it->second.session)
-      it->second.session->completeZoneTransition();
-    return;
-  }
-  auto it = m_shadowSessions.find(m_currentShadowBox);
-  if (it != m_shadowSessions.end())
-    it->second->completeZoneTransition();
 }
 
 /////////////////////////////////////////////////////////
@@ -1413,9 +1347,6 @@ void EQPacket::onBoxAboutToBeRemoved(Box* box)
   flushShadowSession(box, seq::shadow::FlushReason::Shutdown);
   m_shadowSessions.erase(box);
   m_shadowDisabled.erase(box);
-  if (m_currentShadowBox == box) {
-    m_currentShadowBox = nullptr;
-  }
 
   // Drop the stream pointers first. The registry frees the Box right after
   // this returns; nulling here means a stray lookup before the deleteLater
