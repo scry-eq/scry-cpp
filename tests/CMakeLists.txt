@@ -186,6 +186,21 @@ target_compile_options(packetstream_dispatch_test PRIVATE
 
 add_test(NAME packetstream_dispatch_test COMMAND packetstream_dispatch_test)
 
+add_executable(provisionalflow_test
+  provisionalflow_test.cpp
+)
+
+target_link_libraries(provisionalflow_test PRIVATE
+  seq-daemon-core
+  Qt6::Test
+)
+
+target_compile_options(provisionalflow_test PRIVATE
+  -Wall
+)
+
+add_test(NAME provisionalflow_test COMMAND provisionalflow_test)
+
 # FFI smoke test for the Rust decoder bridge (seq::rust::decode_*). seq-daemon-core
 # links seq-bridge-cxx PUBLIC, so it propagates the generated cxx header here.
 add_executable(rustdecode_test

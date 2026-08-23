@@ -120,7 +120,7 @@ class EQPacketStream : public QObject
   using ApplicationPacketHook =
       std::function<bool(EQStreamID, uint8_t, uint16_t,
                          const uint8_t*, size_t, int64_t,
-                         EQPacketFlowKey, uintptr_t)>;
+                         EQPacketFlowKey, bool, uintptr_t)>;
   using ApplicationPacketCompleteHook = std::function<void(bool)>;
   using TimestampProvider = std::function<int64_t()>;
   void setApplicationPacketHook(ApplicationPacketHook hook,
@@ -188,7 +188,7 @@ class EQPacketStream : public QObject
   void dispatchPacketAt(const uint8_t* data, size_t len,
 			        uint16_t opCode, const EQPacketOPCode* opcodeEntry,
                         int64_t captureTimeMs, EQPacketFlowKey flowKey,
-                        uintptr_t attributionToken);
+                        bool sourceIsLow, uintptr_t attributionToken);
   // Lookup for on(): resolve opcode+payload+szt to its
   // (lazily created) dispatcher, or nullptr with a diagnostic on miss.
   EQPacketDispatch* dispatchFor(const QString& opcodeName,

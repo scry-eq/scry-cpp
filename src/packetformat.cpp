@@ -44,6 +44,7 @@ EQProtocolPacket::EQProtocolPacket(EQProtocolPacket& packet, bool copy)
   m_bDecoded = packet.m_bDecoded;
   m_captureTimeMs = packet.m_captureTimeMs;
   m_flowKey = packet.m_flowKey;
+  m_sourceIsLow = packet.m_sourceIsLow;
   m_attributionToken = packet.m_attributionToken;
 
   if (!copy)
@@ -107,6 +108,7 @@ EQProtocolPacket& EQProtocolPacket::operator=(const EQProtocolPacket& packet)
   init(packet.m_packet, packet.m_length, m_ownCopy, packet.m_subpacket);
   m_captureTimeMs = packet.m_captureTimeMs;
   m_flowKey = packet.m_flowKey;
+  m_sourceIsLow = packet.m_sourceIsLow;
   m_attributionToken = packet.m_attributionToken;
 
   return *this;
@@ -117,6 +119,7 @@ void EQProtocolPacket::init(uint8_t* packet, uint32_t length,
 {
   m_captureTimeMs = 0;
   m_flowKey = {};
+  m_sourceIsLow = false;
   m_attributionToken = 0;
   m_subpacket = subpacket;
 

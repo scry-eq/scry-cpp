@@ -429,7 +429,7 @@ void EQPacketStream::dispatchPacket(const uint8_t* data, size_t len,
 				    const EQPacketOPCode* opcodeEntry)
 {
   const int64_t timestamp = m_timestampProvider ? m_timestampProvider() : 0;
-  dispatchPacketAt(data, len, opCode, opcodeEntry, timestamp, {}, 0);
+  dispatchPacketAt(data, len, opCode, opcodeEntry, timestamp, {}, false, 0);
 }
 
 void EQPacketStream::dispatchPacketAt(const uint8_t* data, size_t len,
@@ -437,11 +437,13 @@ void EQPacketStream::dispatchPacketAt(const uint8_t* data, size_t len,
 				      const EQPacketOPCode* opcodeEntry,
                                       int64_t captureTimeMs,
                                       EQPacketFlowKey flowKey,
+                                      bool sourceIsLow,
                                       uintptr_t attributionToken)
 {
   if (m_applicationPacketHook) {
     if (!m_applicationPacketHook(m_streamid, m_dir, opCode, data, len,
-                                 captureTimeMs, flowKey, attributionToken)) {
+                                 captureTimeMs, flowKey, sourceIsLow,
+                                 attributionToken)) {
       if (m_applicationPacketCompleteHook)
         m_applicationPacketCompleteHook(false);
       return;
@@ -669,7 +671,8 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
                                              uint16_t opcode,
                                              const EQPacketOPCode* entry) {
     dispatchPacketAt(data, len, opcode, entry, packet.captureTimeMs(),
-                     packet.flowKey(), packet.attributionToken());
+                     packet.flowKey(), packet.sourceIsLow(),
+                     packet.attributionToken());
   };
 #if defined(PACKET_PROCESS_DIAG) && (PACKET_PROCESS_DIAG > 2)
   seqDebug("-->EQPacketStream::processPacket, subpacket=%s on stream %s (%d)",
@@ -746,6 +749,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
           EQProtocolPacket spacket(subpacket, subpacketLength, false, true);
           spacket.setCaptureTimeMs(packet.captureTimeMs());
           spacket.setFlowKey(packet.flowKey());
+          spacket.setSourceIsLow(packet.sourceIsLow());
           spacket.setAttributionToken(packet.attributionToken());
 
           processPacket(spacket, true);
@@ -897,6 +901,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
             packet.payloadLength(), false, true);
           spacket.setCaptureTimeMs(packet.captureTimeMs());
           spacket.setFlowKey(packet.flowKey());
+          spacket.setSourceIsLow(packet.sourceIsLow());
           spacket.setAttributionToken(packet.attributionToken());
 
           processPacket(spacket, true);
@@ -986,6 +991,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
              EQProtocolPacket spacket(m_fragment.data(), m_fragment.size(), false, true);
              spacket.setCaptureTimeMs(packet.captureTimeMs());
              spacket.setFlowKey(packet.flowKey());
+             spacket.setSourceIsLow(packet.sourceIsLow());
              spacket.setAttributionToken(packet.attributionToken());
              processPacket(spacket, true);
           }

@@ -231,7 +231,7 @@ void PacketStreamDispatchTest::applicationHookRunsBeforeLegacyHandler()
     stream.setApplicationPacketHook(
         [&order](EQStreamID streamId, uint8_t direction, uint16_t opcode,
                  const uint8_t*, size_t length, int64_t timestamp,
-                 EQPacketFlowKey, uintptr_t) -> bool {
+                 EQPacketFlowKey, bool, uintptr_t) -> bool {
             Q_ASSERT(order == 0);
             Q_ASSERT(streamId == zone2client);
             Q_ASSERT(direction == uint8_t(DIR_Server));
@@ -259,7 +259,7 @@ void PacketStreamDispatchTest::applicationHookRunsWhileMuted()
                       }));
     stream.setApplicationPacketHook(
         [&hookCalls](EQStreamID, uint8_t, uint16_t, const uint8_t*, size_t,
-                     int64_t, EQPacketFlowKey, uintptr_t) -> bool {
+                     int64_t, EQPacketFlowKey, bool, uintptr_t) -> bool {
             ++hookCalls;
             return true;
         },
@@ -281,7 +281,7 @@ void PacketStreamDispatchTest::completionHookRunsAfterLegacyOrMutedDispatch()
                       }));
     stream.setApplicationPacketHook(
         [&order](EQStreamID, uint8_t, uint16_t, const uint8_t*, size_t,
-                 int64_t, EQPacketFlowKey, uintptr_t) -> bool {
+                 int64_t, EQPacketFlowKey, bool, uintptr_t) -> bool {
             order.push_back(QStringLiteral("rust"));
             return true;
         },
@@ -321,7 +321,7 @@ void PacketStreamDispatchTest::rejectedApplicationStopsObserversAndLegacy()
             });
     stream.setApplicationPacketHook(
         [](EQStreamID, uint8_t, uint16_t, const uint8_t*, size_t, int64_t,
-           EQPacketFlowKey, uintptr_t) { return false; },
+           EQPacketFlowKey, bool, uintptr_t) { return false; },
         [] { return int64_t(0); },
         [&completedAsDispatched](bool dispatched) {
             completedAsDispatched = dispatched;
@@ -347,6 +347,7 @@ void PacketStreamDispatchTest::cachedApplicationKeepsOriginalMetadata()
     packet.setCaptureTimeMs(12345);
     const EQPacketFlowKey flow{11, 22};
     packet.setFlowKey(flow);
+    packet.setSourceIsLow(true);
     packet.setAttributionToken(77);
     const uint16_t crc = stream.calculateCRC(packet);
     bytes[7] = char(crc >> 8);
@@ -356,11 +357,13 @@ void PacketStreamDispatchTest::cachedApplicationKeepsOriginalMetadata()
     stream.setApplicationPacketHook(
         [&calls, flow](EQStreamID, uint8_t, uint16_t opcode,
                        const uint8_t*, size_t, int64_t timestamp,
-                       EQPacketFlowKey actualFlow, uintptr_t token) -> bool {
+                       EQPacketFlowKey actualFlow, bool sourceIsLow,
+                       uintptr_t token) -> bool {
             ++calls;
             Q_ASSERT(opcode == uint16_t(1));
             Q_ASSERT(timestamp == int64_t(12345));
             Q_ASSERT(actualFlow == flow);
+            Q_ASSERT(sourceIsLow);
             Q_ASSERT(token == uintptr_t(77));
             return true;
         },
@@ -386,7 +389,7 @@ void PacketStreamDispatchTest::arqTimestampRegressionDisablesOnlyTrace()
         [&session, &calls](EQStreamID, uint8_t, uint16_t opcode,
                            const uint8_t* payload, size_t size,
                            int64_t timestamp, EQPacketFlowKey,
-                           uintptr_t) -> bool {
+                           bool, uintptr_t) -> bool {
             ++calls;
             session.decode(seq::shadow::Stream::Zone, opcode,
                            seq::shadow::Direction::ServerToClient,
@@ -436,7 +439,7 @@ void PacketStreamDispatchTest::crossStreamTimestampRegressionDisablesOnlyTrace()
     auto hook = [&session, &calls](EQStreamID streamId, uint8_t,
                                    uint16_t opcode, const uint8_t* payload,
                                    size_t size, int64_t timestamp,
-                                   EQPacketFlowKey, uintptr_t) -> bool {
+                                   EQPacketFlowKey, bool, uintptr_t) -> bool {
         ++calls;
         session.decode(streamId == world2client
                            ? seq::shadow::Stream::World
@@ -448,8 +451,8 @@ void PacketStreamDispatchTest::crossStreamTimestampRegressionDisablesOnlyTrace()
     world.setApplicationPacketHook(hook, {});
     zone.setApplicationPacketHook(hook, {});
 
-    world.dispatchPacketAt(nullptr, 0, 0xffff, nullptr, 200, {}, 0);
-    zone.dispatchPacketAt(nullptr, 0, 0xffff, nullptr, 100, {}, 0);
+    world.dispatchPacketAt(nullptr, 0, 0xffff, nullptr, 200, {}, false, 0);
+    zone.dispatchPacketAt(nullptr, 0, 0xffff, nullptr, 100, {}, false, 0);
 
     QCOMPARE(calls, 2);
     QCOMPARE(session.recordCount(), uint64_t(2));

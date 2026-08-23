@@ -822,10 +822,11 @@ void EQPacket::installShadowHook(EQPacketStream* stream)
   stream->setApplicationPacketHook(
       [this](EQStreamID streamId, uint8_t direction, uint16_t opcode,
              const uint8_t* payload, size_t payloadSize, int64_t timestamp,
-             EQPacketFlowKey flowKey, uintptr_t attributionToken) {
+             EQPacketFlowKey flowKey, bool sourceIsLow,
+             uintptr_t attributionToken) {
         return decodeShadowApplication(streamId, direction, opcode, payload,
                                        payloadSize, timestamp, flowKey,
-                                       attributionToken);
+                                       sourceIsLow, attributionToken);
       },
       [this] { return int64_t(nowMs()); },
       [this](bool legacyDispatched) {
@@ -845,97 +846,205 @@ EQPacket::makeApplicationTraceWriter()
       /*synthetic*/ false);
 }
 
-seq::shadow::Session* EQPacket::temporaryShadowSession(EQPacketFlowKey flowKey)
+bool EQPacket::rustOwnsAnyFamily() const
+{
+  return m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust ||
+         m_entitySelector == seq::shadow::EntitySelector::Rust ||
+         m_playerSelector == seq::shadow::PlayerSelector::Rust ||
+         m_progressionSelector == seq::shadow::ProgressionSelector::Rust ||
+         m_lootSelector == seq::shadow::LootSelector::Rust ||
+         m_combatSelector == seq::shadow::CombatSelector::Rust ||
+         m_communicationSelector ==
+             seq::shadow::CommunicationSelector::Rust;
+}
+
+seq::shadow::Session* EQPacket::provisionalShadowSession(
+    EQPacketFlowKey flowKey)
 {
   if (!m_shadowRegistry || !flowKey.isValid()) return nullptr;
-  auto found = m_temporaryShadowSessions.find(flowKey);
-  if (found != m_temporaryShadowSessions.end()) {
-    found->second.lastUsed = ++m_temporaryShadowClock;
+  auto found = m_provisionalShadowSessions.find(flowKey);
+  if (found != m_provisionalShadowSessions.end())
     return found->second.disabled ? nullptr : found->second.session.get();
-  }
-
-  if (m_temporaryShadowSessions.size() >= kMaxTemporaryShadowSessions)
-    evictOldestTemporaryShadowSession();
 
   try {
-    TemporaryShadowSession temporary;
-    temporary.session = std::make_unique<seq::shadow::Session>(
+    ProvisionalShadowSession provisional;
+    provisional.session = std::make_unique<seq::shadow::Session>(
         *m_shadowRegistry, shadowBackend(), 256, 4 * 1024 * 1024,
         m_lifecycleSelector, m_entitySelector, m_playerSelector,
         m_progressionSelector, m_lootSelector, m_combatSelector,
         m_communicationSelector);
-    temporary.session->setTraceWriter(makeApplicationTraceWriter());
-    temporary.lastUsed = ++m_temporaryShadowClock;
     auto [it, inserted] =
-        m_temporaryShadowSessions.emplace(flowKey, std::move(temporary));
+        m_provisionalShadowSessions.emplace(flowKey, std::move(provisional));
     return inserted ? it->second.session.get() : nullptr;
   } catch (const std::exception& error) {
-    if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust ||
-        m_entitySelector == seq::shadow::EntitySelector::Rust ||
-        m_playerSelector == seq::shadow::PlayerSelector::Rust ||
-        m_progressionSelector == seq::shadow::ProgressionSelector::Rust ||
-        m_lootSelector == seq::shadow::LootSelector::Rust ||
-        m_combatSelector == seq::shadow::CombatSelector::Rust ||
-        m_communicationSelector ==
-            seq::shadow::CommunicationSelector::Rust ||
+    if (rustOwnsAnyFamily() ||
         !m_applicationTracePrefix.isEmpty()) {
       m_lifecycleFatal = true;
-      qCritical("Temporary Rust-owned lifecycle session creation failed: %s",
+      qCritical("Provisional Rust session creation failed: %s",
                 error.what());
       QCoreApplication::exit(EXIT_FAILURE);
       return nullptr;
     }
-    seqWarn("Temporary Rust shadow session creation failed: %s", error.what());
+    seqWarn("Provisional Rust shadow session creation failed: %s", error.what());
     return nullptr;
   }
 }
 
-void EQPacket::evictOldestTemporaryShadowSession()
+void EQPacket::writeProvisionalTrace(
+    const seq::shadow::ProvisionalPacketFlow& flow)
 {
-  if (m_temporaryShadowSessions.empty()) return;
-  auto oldest = std::min_element(
-      m_temporaryShadowSessions.begin(), m_temporaryShadowSessions.end(),
-      [](const auto& lhs, const auto& rhs) {
-        return lhs.second.lastUsed < rhs.second.lastUsed;
-      });
-  if (!oldest->second.disabled && oldest->second.session) {
-    try {
-      const auto& flushed = oldest->second.session->flush(
-          seq::shadow::FlushReason::Shutdown);
-      if (oldest->second.session->appliesRustCommunication() &&
-          !seq::shadow::communicationObservations(flushed.batch).empty())
+  if (m_applicationTracePrefix.isEmpty() || flow.packets.empty()) return;
+  if (!flow.complete)
+    throw std::runtime_error("incomplete provisional packet trace");
+  auto writer = makeApplicationTraceWriter();
+  std::optional<int64_t> traceTimestamp;
+  for (const auto& packet : flow.packets) {
+    if (traceTimestamp && packet.timestamp < *traceTimestamp)
+      writer->finalize();
+    traceTimestamp = packet.timestamp;
+    const bool world = packet.stream == client2world ||
+                       packet.stream == world2client;
+    writer->push(
+        world ? seq::shadow::Stream::World : seq::shadow::Stream::Zone,
+        packet.opcode,
+        packet.direction == DIR_Server
+            ? seq::shadow::Direction::ServerToClient
+            : seq::shadow::Direction::ClientToServer,
+        reinterpret_cast<const uint8_t*>(packet.payload.constData()),
+        size_t(packet.payload.size()), packet.timestamp);
+  }
+  writer->finalize();
+}
+
+void EQPacket::finalizeProvisionalFlow(
+    EQPacketFlowKey flowKey, seq::shadow::ProvisionalPacketFlow flow,
+    seq::shadow::FlushReason reason)
+{
+  auto preview = m_provisionalShadowSessions.find(flowKey);
+  try {
+    if (!flow.complete &&
+        (rustOwnsAnyFamily() || !m_applicationTracePrefix.isEmpty()))
+      throw std::runtime_error(
+          "bounded provisional packet history is incomplete");
+
+    if (preview != m_provisionalShadowSessions.end() &&
+        !preview->second.disabled && preview->second.session) {
+      const auto& flushed = preview->second.session->flush(reason);
+      const bool ownedOutput =
+          (preview->second.session->appliesRustLifecycle() &&
+           !seq::shadow::lifecycleObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustEntities() &&
+           !seq::shadow::entityObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustPlayers() &&
+           !seq::shadow::playerObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustProgression() &&
+           !seq::shadow::progressionObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustLoot() &&
+           !seq::shadow::lootObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustCombat() &&
+           !seq::shadow::combatObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustCommunication() &&
+           !seq::shadow::communicationObservations(flushed.batch).empty());
+      if (ownedOutput)
         throw std::runtime_error(
-            "unattributed Rust communication cannot mutate host state on "
-            "eviction");
-    } catch (const std::exception& error) {
-      if (oldest->second.session->appliesRustLifecycle() ||
-          oldest->second.session->appliesRustEntities() ||
-          oldest->second.session->appliesRustPlayers() ||
-          oldest->second.session->appliesRustProgression() ||
-          oldest->second.session->appliesRustLoot() ||
-          oldest->second.session->appliesRustCombat() ||
-          oldest->second.session->appliesRustCommunication() ||
-          oldest->second.session->traceEnabled()) {
-        m_lifecycleFatal = true;
-        qCritical("Temporary Rust-owned lifecycle eviction flush failed: %s",
-                  error.what());
-        QCoreApplication::exit(EXIT_FAILURE);
-        return;
-      }
-      seqWarn("Temporary Rust shadow eviction flush failed: %s", error.what());
+            "unattributed Rust-owned output cannot mutate host state");
+    }
+    writeProvisionalTrace(flow);
+  } catch (const std::exception& error) {
+    if (rustOwnsAnyFamily() || !m_applicationTracePrefix.isEmpty()) {
+      m_lifecycleFatal = true;
+      qCritical("Provisional Rust flow finalization failed: %s", error.what());
+      QCoreApplication::exit(EXIT_FAILURE);
+    } else {
+      seqWarn("Provisional Rust shadow finalization failed: %s", error.what());
     }
   }
-  m_temporaryShadowSessions.erase(oldest);
+  if (preview != m_provisionalShadowSessions.end())
+    m_provisionalShadowSessions.erase(preview);
+}
+
+void EQPacket::finalizeAllProvisionalFlows(
+    seq::shadow::FlushReason reason)
+{
+  for (auto& evicted : m_provisionalPackets.takeAll())
+    finalizeProvisionalFlow(evicted.key, std::move(evicted.flow), reason);
+  m_provisionalShadowSessions.clear();
+}
+
+bool EQPacket::replayProvisionalFlow(
+    EQPacketFlowKey flowKey, Box* box,
+    seq::shadow::ProvisionalPacketFlow flow)
+{
+  if (!flow.complete) {
+    if (rustOwnsAnyFamily() || !m_applicationTracePrefix.isEmpty()) {
+      m_lifecycleFatal = true;
+      qCritical("Cannot adopt incomplete provisional Rust flow");
+      QCoreApplication::exit(EXIT_FAILURE);
+      return false;
+    }
+    seqWarn("Discarding incomplete provisional Rust shadow flow");
+    return true;
+  }
+
+  auto attributed = m_shadowSessions.find(box);
+  if (attributed == m_shadowSessions.end() ||
+      m_shadowDisabled.count(box) != 0)
+    return !m_lifecycleFatal;
+
+  if (!flow.packets.empty()) attributed->second->finalizeTrace();
+  std::optional<int64_t> replayTimestamp;
+  for (const auto& packet : flow.packets) {
+    if (replayTimestamp && packet.timestamp < *replayTimestamp)
+      attributed->second->finalizeTrace();
+    replayTimestamp = packet.timestamp;
+    uint8_t direction = packet.direction;
+    const bool world = packet.stream == client2world ||
+                       packet.stream == world2client;
+    if (!world) {
+      const uint64_t source = packet.sourceIsLow
+          ? flowKey.endpointLow : flowKey.endpointHigh;
+      direction = in_addr_t(source >> 16) == box->client_ip
+          ? DIR_Client : DIR_Server;
+    }
+    if (!decodeShadowApplication(
+            EQStreamID(packet.stream), direction, packet.opcode,
+            reinterpret_cast<const uint8_t*>(packet.payload.constData()),
+            size_t(packet.payload.size()), packet.timestamp, flowKey,
+            packet.sourceIsLow, reinterpret_cast<uintptr_t>(box)))
+      return false;
+    completeShadowApplication(false);
+  }
+  seqInfo("Rust session replayed %zu pre-attribution packets for box %s",
+          flow.packets.size(), qUtf8Printable(box->box_id));
+  return !m_lifecycleFatal;
+}
+
+bool EQPacket::bindShadowFlow(EQPacketFlowKey flowKey, Box* box)
+{
+  if (!m_shadowRegistry) return true;
+  if (!flowKey.isValid() || !box) return !m_lifecycleFatal;
+  m_flowOwners[flowKey] = box;
+  auto flow = m_provisionalPackets.take(flowKey);
+  if (!flow) return !m_lifecycleFatal;
+  m_provisionalShadowSessions.erase(flowKey);
+  return replayProvisionalFlow(flowKey, box, std::move(*flow));
 }
 
 bool EQPacket::decodeShadowApplication(
     EQStreamID stream, uint8_t direction, uint16_t opcode,
     const uint8_t* payload, size_t payloadSize, int64_t timestamp,
-    EQPacketFlowKey flowKey, uintptr_t attributionToken)
+    EQPacketFlowKey flowKey, bool sourceIsLow, uintptr_t attributionToken)
 {
   const bool world = stream == client2world || stream == world2client;
   Box* box = reinterpret_cast<Box*>(attributionToken);
   seq::shadow::Session* session = nullptr;
+
+  auto owner = m_flowOwners.find(flowKey);
+  if (owner != m_flowOwners.end()) {
+    box = owner->second;
+  } else if (box && !bindShadowFlow(flowKey, box)) {
+    return false;
+  }
 
   if (box) {
     auto attributed = m_shadowSessions.find(box);
@@ -943,74 +1052,36 @@ bool EQPacket::decodeShadowApplication(
         m_shadowDisabled.count(box) != 0)
       return !m_lifecycleFatal;
 
-    // A mid-zone flow can precede the world handshake that creates its Box.
-    // Adopt that state only while the Box session is still cold. Once it has
-    // decoded an application packet, merging two state machines would require
-    // replaying one side, so finalize the temporary state instead.
-    auto temporary = m_temporaryShadowSessions.find(flowKey);
-    if (temporary != m_temporaryShadowSessions.end()) {
-      if (!temporary->second.disabled && temporary->second.session &&
-          attributed->second->recordCount() == 0) {
-        attributed->second = std::move(temporary->second.session);
-        seqInfo("Rust shadow adopted pre-attribution flow for box %s",
-                qUtf8Printable(box->box_id));
-      } else if (!temporary->second.disabled && temporary->second.session) {
-        try {
-          const auto& flushed = temporary->second.session->flush(
-              seq::shadow::FlushReason::Reset);
-          if (temporary->second.session->appliesRustLoot() &&
-              !seq::shadow::lootObservations(flushed.batch).empty()) {
-            if (!m_lootBatchHandler)
-              throw std::runtime_error(
-                  "Rust loot reset has no attributed host applier");
-            m_lootBatchHandler(box, flushed.batch);
-          }
-          if (temporary->second.session->appliesRustCombat() &&
-              !seq::shadow::combatObservations(flushed.batch).empty()) {
-            if (!m_combatBatchHandler)
-              throw std::runtime_error(
-                  "Rust combat reset has no attributed host applier");
-            m_combatBatchHandler(box, flushed.batch);
-          }
-          if (temporary->second.session->appliesRustCommunication() &&
-              !seq::shadow::communicationObservations(
-                   flushed.batch).empty()) {
-            if (!m_communicationEventHandler)
-              throw std::runtime_error(
-                  "Rust communication reset has no attributed host applier");
-            for (const auto& event : flushed.batch.events)
-              if (seq::shadow::isCommunicationEvent(event))
-                m_communicationEventHandler(box, event);
-          }
-        } catch (const std::exception& error) {
-          if (temporary->second.session->appliesRustLifecycle() ||
-              temporary->second.session->appliesRustEntities() ||
-              temporary->second.session->appliesRustPlayers() ||
-              temporary->second.session->appliesRustProgression() ||
-              temporary->second.session->appliesRustLoot() ||
-              temporary->second.session->appliesRustCombat() ||
-              temporary->second.session->appliesRustCommunication() ||
-              temporary->second.session->traceEnabled()) {
-            m_lifecycleFatal = true;
-            qCritical("Temporary Rust-owned lifecycle attribution flush "
-                      "failed: %s", error.what());
-            QCoreApplication::exit(EXIT_FAILURE);
-            m_currentLifecycleSession = nullptr;
-            return false;
-          }
-          seqWarn("Temporary Rust shadow reset failed during attribution: %s",
-                  error.what());
-        }
-        seqWarn("Rust shadow could not merge pre-attribution flow into warm box %s; "
-                "temporary correlation was finalized",
-                qUtf8Printable(box->box_id));
-      }
-      m_temporaryShadowSessions.erase(temporary);
-      attributed = m_shadowSessions.find(box);
-    }
     session = attributed->second.get();
   } else {
-    session = temporaryShadowSession(flowKey);
+    seq::shadow::BufferedApplicationPacket packet;
+    packet.order = ++m_applicationDispatchOrder;
+    packet.stream = uint8_t(stream);
+    packet.direction = direction;
+    packet.sourceIsLow = sourceIsLow;
+    packet.opcode = opcode;
+    packet.payload = QByteArray(reinterpret_cast<const char*>(payload),
+                                qsizetype(payloadSize));
+    packet.timestamp = timestamp;
+    auto appended = m_provisionalPackets.append(flowKey, std::move(packet));
+    for (auto& evicted : appended.evicted) {
+      finalizeProvisionalFlow(evicted.key, std::move(evicted.flow),
+                              seq::shadow::FlushReason::Shutdown);
+      if (m_lifecycleFatal) return false;
+    }
+    if (appended.flowInvalidated) {
+      m_provisionalShadowSessions.erase(flowKey);
+      if (rustOwnsAnyFamily() || !m_applicationTracePrefix.isEmpty()) {
+        m_lifecycleFatal = true;
+        qCritical("Provisional Rust flow exceeded bounded replay history");
+        QCoreApplication::exit(EXIT_FAILURE);
+        return false;
+      }
+      seqWarn("Provisional Rust shadow disabled after replay history overflow");
+      return true;
+    }
+    if (!appended.stored) return !m_lifecycleFatal;
+    session = provisionalShadowSession(flowKey);
   }
 
   if (!session) return !m_lifecycleFatal;
@@ -1104,19 +1175,19 @@ bool EQPacket::decodeShadowApplication(
         session->appliesRustCommunication();
     if (orderedLifecycleCommunication &&
         (!rustEvents.empty() || !rustCommunicationEvents.empty())) {
-      if (!box || !m_lifecycleEventHandler ||
-          !m_communicationEventHandler)
-        throw std::runtime_error(
-            "Rust lifecycle/communication event has no attributed host "
-            "applier");
-      // Reset batches deliberately put communication clears before the
-      // lifecycle transition. Dispatch the two owned families in their shared
-      // event order so group/guild projections cannot trail ZoneChanged.
-      for (const seq::shadow::Event& event : record.batch.events) {
-        if (seq::shadow::isCommunicationEvent(event))
-          m_communicationEventHandler(box, event);
-        else if (seq::shadow::isLifecycleEvent(event))
-          m_lifecycleEventHandler(box, event);
+      if (box) {
+        if (!m_lifecycleEventHandler || !m_communicationEventHandler)
+          throw std::runtime_error(
+              "Rust lifecycle/communication event has no host applier");
+        // Reset batches deliberately put communication clears before the
+        // lifecycle transition. Dispatch the two owned families in their shared
+        // event order so group/guild projections cannot trail ZoneChanged.
+        for (const seq::shadow::Event& event : record.batch.events) {
+          if (seq::shadow::isCommunicationEvent(event))
+            m_communicationEventHandler(box, event);
+          else if (seq::shadow::isLifecycleEvent(event))
+            m_lifecycleEventHandler(box, event);
+        }
       }
     }
     if (session->comparesLifecycle()) {
@@ -1150,14 +1221,16 @@ bool EQPacket::decodeShadowApplication(
         m_pendingLifecycle = std::move(pending);
     } else if (!rustEvents.empty() && session->appliesRustLifecycle() &&
                !orderedLifecycleCommunication) {
-        if (!box || !m_lifecycleEventHandler) {
+      if (box) {
+        if (!m_lifecycleEventHandler) {
           throw std::runtime_error(
-              "Rust lifecycle event has no attributed host applier");
+              "Rust lifecycle event has no host applier");
         }
         for (const seq::shadow::Event& event : record.batch.events) {
           if (seq::shadow::isLifecycleEvent(event))
             m_lifecycleEventHandler(box, event);
         }
+      }
     }
     if (session->comparesEntities()) {
       PendingEntityComparison pending;
@@ -1167,12 +1240,13 @@ bool EQPacket::decodeShadowApplication(
       pending.rustProjections = seq::shadow::projectEntities(record.batch);
       m_pendingEntity = std::move(pending);
     } else if (!rustEntityEvents.empty() && session->appliesRustEntities()) {
-      if (!box || !m_entityEventHandler)
-        throw std::runtime_error(
-            "Rust entity event has no attributed host applier");
-      for (const seq::shadow::Event& event : record.batch.events) {
-        if (seq::shadow::isEntityEvent(event))
-          m_entityEventHandler(box, event);
+      if (box) {
+        if (!m_entityEventHandler)
+          throw std::runtime_error("Rust entity event has no host applier");
+        for (const seq::shadow::Event& event : record.batch.events) {
+          if (seq::shadow::isEntityEvent(event))
+            m_entityEventHandler(box, event);
+        }
       }
     }
     if (session->comparesPlayers()) {
@@ -1183,12 +1257,13 @@ bool EQPacket::decodeShadowApplication(
       pending.rustProjections = seq::shadow::projectPlayers(record.batch);
       m_pendingPlayer = std::move(pending);
     } else if (!rustPlayerEvents.empty() && session->appliesRustPlayers()) {
-      if (!box || !m_playerEventHandler)
-        throw std::runtime_error(
-            "Rust player event has no attributed host applier");
-      for (const seq::shadow::Event& event : record.batch.events) {
-        if (seq::shadow::isPlayerEvent(event))
-          m_playerEventHandler(box, event);
+      if (box) {
+        if (!m_playerEventHandler)
+          throw std::runtime_error("Rust player event has no host applier");
+        for (const seq::shadow::Event& event : record.batch.events) {
+          if (seq::shadow::isPlayerEvent(event))
+            m_playerEventHandler(box, event);
+        }
       }
     }
     if (session->comparesProgression()) {
@@ -1200,10 +1275,12 @@ bool EQPacket::decodeShadowApplication(
       m_pendingProgression = std::move(pending);
     } else if (!rustProgressionEvents.empty() &&
                session->appliesRustProgression()) {
-      if (!box || !m_progressionBatchHandler)
-        throw std::runtime_error(
-            "Rust progression event has no attributed host applier");
-      m_progressionBatchHandler(box, record.batch);
+      if (box) {
+        if (!m_progressionBatchHandler)
+          throw std::runtime_error(
+              "Rust progression event has no host applier");
+        m_progressionBatchHandler(box, record.batch);
+      }
     }
     if (session->comparesLoot()) {
       PendingLootComparison pending;
@@ -1213,13 +1290,14 @@ bool EQPacket::decodeShadowApplication(
       pending.rustProjections = seq::shadow::projectLoot(record.batch);
       m_pendingLoot = std::move(pending);
     } else if (!rustLootEvents.empty() && session->appliesRustLoot()) {
-      if (!box || !m_lootBatchHandler)
-        throw std::runtime_error(
-            "Rust loot event has no attributed host applier");
-      // Legacy loot confirmations adjust the Player money total even when
-      // Rust owns correlation. Publish the semantic loot event after that
-      // handler runs so seq.v1 ordering stays PlayerStats then transaction.
-      m_pendingRustLoot = PendingRustLootApplication{box, &record.batch};
+      if (box) {
+        if (!m_lootBatchHandler)
+          throw std::runtime_error("Rust loot event has no host applier");
+        // Legacy loot confirmations adjust the Player money total even when
+        // Rust owns correlation. Publish the semantic loot event after that
+        // handler runs so seq.v1 ordering stays PlayerStats then transaction.
+        m_pendingRustLoot = PendingRustLootApplication{box, &record.batch};
+      }
     }
     if (session->comparesCombat()) {
       PendingCombatComparison pending;
@@ -1229,10 +1307,11 @@ bool EQPacket::decodeShadowApplication(
       pending.rustProjections = seq::shadow::projectCombat(record.batch);
       m_pendingCombat = std::move(pending);
     } else if (!rustCombatEvents.empty() && session->appliesRustCombat()) {
-      if (!box || !m_combatBatchHandler)
-        throw std::runtime_error(
-            "Rust combat event has no attributed host applier");
-      m_combatBatchHandler(box, record.batch);
+      if (box) {
+        if (!m_combatBatchHandler)
+          throw std::runtime_error("Rust combat event has no host applier");
+        m_combatBatchHandler(box, record.batch);
+      }
     }
     if (session->comparesCommunication()) {
       PendingCommunicationComparison pending;
@@ -1249,12 +1328,14 @@ bool EQPacket::decodeShadowApplication(
     } else if (!rustCommunicationEvents.empty() &&
                session->appliesRustCommunication() &&
                !orderedLifecycleCommunication) {
-      if (!box || !m_communicationEventHandler)
-        throw std::runtime_error(
-            "Rust communication event has no attributed host applier");
-      for (const seq::shadow::Event& event : record.batch.events)
-        if (seq::shadow::isCommunicationEvent(event))
-          m_communicationEventHandler(box, event);
+      if (box) {
+        if (!m_communicationEventHandler)
+          throw std::runtime_error(
+              "Rust communication event has no host applier");
+        for (const seq::shadow::Event& event : record.batch.events)
+          if (seq::shadow::isCommunicationEvent(event))
+            m_communicationEventHandler(box, event);
+      }
     }
   } catch (const std::exception& error) {
     m_pendingLifecycle.reset();
@@ -1265,15 +1346,8 @@ bool EQPacket::decodeShadowApplication(
     m_pendingCombat.reset();
     m_pendingCommunication.reset();
     m_pendingRustLoot.reset();
-    if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust ||
-        m_entitySelector == seq::shadow::EntitySelector::Rust ||
-        m_playerSelector == seq::shadow::PlayerSelector::Rust ||
-        m_progressionSelector == seq::shadow::ProgressionSelector::Rust ||
-        m_lootSelector == seq::shadow::LootSelector::Rust ||
-        m_combatSelector == seq::shadow::CombatSelector::Rust ||
-        m_communicationSelector ==
-            seq::shadow::CommunicationSelector::Rust ||
-        session->traceEnabled()) {
+    if (rustOwnsAnyFamily() || session->traceEnabled() ||
+        !m_applicationTracePrefix.isEmpty()) {
       m_lifecycleFatal = true;
       qCritical("Rust lifecycle decode/apply failed for box %s: %s; "
                 "the immutable Rust-owned session cannot fall back in place",
@@ -1295,11 +1369,37 @@ bool EQPacket::decodeShadowApplication(
       seqWarn("Rust shadow disabled for box %s after decode error: %s",
               qUtf8Printable(box->box_id), error.what());
     } else {
-      auto temporary = m_temporaryShadowSessions.find(flowKey);
-      if (temporary != m_temporaryShadowSessions.end())
-        temporary->second.disabled = true;
-      seqWarn("Temporary Rust shadow disabled after decode error: %s",
+      auto provisional = m_provisionalShadowSessions.find(flowKey);
+      if (provisional != m_provisionalShadowSessions.end())
+        provisional->second.disabled = true;
+      seqWarn("Provisional Rust shadow disabled after decode error: %s",
               error.what());
+    }
+  }
+  if (!box) {
+    // The raw history can safely rebuild correlation after attribution, but
+    // applying an already-emitted owned event later is not generally exact.
+    // Some legacy compatibility handlers mutate host state before their Rust
+    // ownership guard (loot money is one example), so suppressing dispatch or
+    // replaying it later can respectively lose or duplicate that mutation.
+    const bool delayedOwnedOutput =
+        (session->appliesRustLifecycle() &&
+         !m_currentRustLifecycleKinds.empty()) ||
+        (session->appliesRustEntities() &&
+         !m_currentRustEntityKinds.empty()) ||
+        (session->appliesRustPlayers() &&
+         !m_currentRustPlayerKinds.empty()) ||
+        (session->appliesRustProgression() &&
+         !m_currentRustProgressionKinds.empty()) ||
+        (session->appliesRustLoot() && !m_currentRustLootKinds.empty()) ||
+        (session->appliesRustCombat() && !m_currentRustCombatKinds.empty()) ||
+        (session->appliesRustCommunication() &&
+         !m_currentRustCommunicationKinds.empty());
+    if (delayedOwnedOutput) {
+      m_lifecycleFatal = true;
+      qCritical("Rust-owned event requires flow attribution before host apply");
+      QCoreApplication::exit(EXIT_FAILURE);
+      return false;
     }
   }
   return true;
@@ -1862,53 +1962,14 @@ void EQPacket::flushShadowSession(const Box* box,
 
 void EQPacket::flushAllShadowSessions(seq::shadow::FlushReason reason)
 {
-  for (auto& entry : m_temporaryShadowSessions) {
-    if (entry.second.disabled || !entry.second.session) continue;
-    try {
-      const auto& flushed = entry.second.session->flush(reason);
-      if (entry.second.session->appliesRustLoot() &&
-          !seq::shadow::lootObservations(flushed.batch).empty())
-        throw std::runtime_error(
-            "unattributed Rust loot cannot be persisted on flush");
-      if (entry.second.session->appliesRustCombat() &&
-          !seq::shadow::combatObservations(flushed.batch).empty())
-        throw std::runtime_error(
-            "unattributed Rust combat cannot mutate host state on flush");
-      if (entry.second.session->appliesRustCommunication() &&
-          !seq::shadow::communicationObservations(flushed.batch).empty())
-        throw std::runtime_error(
-            "unattributed Rust communication cannot mutate host state on "
-            "flush");
-    } catch (const std::exception& error) {
-      if (entry.second.session->appliesRustLifecycle() ||
-          entry.second.session->appliesRustEntities() ||
-          entry.second.session->appliesRustPlayers() ||
-          entry.second.session->appliesRustProgression() ||
-          entry.second.session->appliesRustLoot() ||
-          entry.second.session->appliesRustCombat() ||
-          entry.second.session->appliesRustCommunication() ||
-          entry.second.session->traceEnabled()) {
-        m_lifecycleFatal = true;
-        qCritical("Temporary Rust-owned lifecycle flush failed: %s",
-                  error.what());
-        QCoreApplication::exit(EXIT_FAILURE);
-        continue;
-      }
-      entry.second.disabled = true;
-      seqWarn("Temporary Rust shadow disabled after flush error: %s",
-              error.what());
-    }
-  }
+  finalizeAllProvisionalFlows(reason);
   for (const auto& entry : m_shadowSessions)
     flushShadowSession(entry.first, reason);
 }
 
 void EQPacket::finalizeApplicationTraces()
 {
-  for (auto& entry : m_temporaryShadowSessions) {
-    if (entry.second.session)
-      entry.second.session->finalizeTrace();
-  }
+  finalizeAllProvisionalFlows(seq::shadow::FlushReason::Shutdown);
   for (auto& entry : m_shadowSessions)
     entry.second->finalizeTrace();
 }
@@ -2056,8 +2117,21 @@ void EQPacket::dispatchPacket(int size, unsigned char *buffer)
 void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
 {
   packet.setCaptureTimeMs(nowMs());
-  packet.setFlowKey(packetFlowKey(packet));
+  const EQPacketFlowKey flowKey = packetFlowKey(packet);
+  const uint64_t sourceEndpoint =
+      (uint64_t(packet.getIPv4SourceN()) << 16) |
+      uint64_t(packet.getSourcePort());
+  packet.setFlowKey(flowKey);
+  packet.setSourceIsLow(sourceEndpoint == flowKey.endpointLow);
   packet.setAttributionToken(0);
+
+  if (packet.getNetOpCode() == OP_SessionRequest) {
+    if (auto prior = m_provisionalPackets.take(flowKey))
+      finalizeProvisionalFlow(flowKey, std::move(*prior),
+                              seq::shadow::FlushReason::Reset);
+    if (m_lifecycleFatal) return;
+    m_flowOwners.erase(flowKey);
+  }
 
   // Detect client by world server port traffic...
   const in_port_t srcPortHost = packet.getSourcePort();
@@ -2173,6 +2247,7 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
     Box* box = m_boxes.lookupByWorld(client_ip, client_port, server_port);
     if (box)
     {
+      if (!bindShadowFlow(flowKey, box)) return;
       packet.setAttributionToken(reinterpret_cast<uintptr_t>(box));
       EQPacketStream* s = srcIsServer ? box->world_s2c : box->world_c2s;
       if (s) s->handlePacket(packet);
@@ -2275,6 +2350,7 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
       // the global pipeline — but now keyed on the box's session, not on
       // m_client_addr (which is identical for every same-host box).
       EQPacketStream* s = srcIsClient ? box->zone_c2s : box->zone_s2c;
+      if (!bindShadowFlow(flowKey, box)) return;
       packet.setAttributionToken(reinterpret_cast<uintptr_t>(box));
       s->handlePacket(packet);
       return;
@@ -2442,6 +2518,13 @@ void EQPacket::decodeUcsShadow(Box* box, const uint8_t* payload,
 void EQPacket::onBoxAboutToBeRemoved(Box* box)
 {
   if (!box || box->is_primary) return;   // primary aliases the globals
+
+  for (auto owner = m_flowOwners.begin(); owner != m_flowOwners.end();) {
+    if (owner->second == box)
+      owner = m_flowOwners.erase(owner);
+    else
+      ++owner;
+  }
 
   for (EQPacketStream* stream : {box->world_c2s, box->world_s2c,
                                  box->zone_c2s, box->zone_s2c}) {
@@ -2871,6 +2954,8 @@ void EQPacket::setRealtime(bool val)
 // Reset EQPacket's state
 void EQPacket::resetEQPacket()
 {
+  finalizeAllProvisionalFlows(seq::shadow::FlushReason::Reset);
+  m_flowOwners.clear();
   m_client2WorldStream->reset();
   m_client2WorldStream->setSessionTracking(m_session_tracking);
   m_world2ClientStream->reset();

@@ -38,6 +38,7 @@
 #include "packetcommon.h"
 #include "packetformat.h"
 #include "packetinfo.h"
+#include "provisionalflow.h"
 #include "rustsession.h"
 
 #if defined (__GLIBC__) && (__GLIBC__ < 2)
@@ -372,14 +373,14 @@ class EQPacket : public QObject
    std::unordered_map<const Box*, std::unique_ptr<seq::shadow::Session>>
        m_shadowSessions;
    std::unordered_set<const Box*> m_shadowDisabled;
-   struct TemporaryShadowSession {
+   struct ProvisionalShadowSession {
        std::unique_ptr<seq::shadow::Session> session;
-       quint64 lastUsed = 0;
        bool disabled = false;
    };
-   std::map<EQPacketFlowKey, TemporaryShadowSession> m_temporaryShadowSessions;
-   quint64 m_temporaryShadowClock = 0;
-   static constexpr size_t kMaxTemporaryShadowSessions = 16;
+   std::map<EQPacketFlowKey, ProvisionalShadowSession> m_provisionalShadowSessions;
+   seq::shadow::ProvisionalPacketStore m_provisionalPackets;
+   std::map<EQPacketFlowKey, Box*> m_flowOwners;
+   uint64_t m_applicationDispatchOrder = 0;
    struct PendingLifecycleComparison {
        seq::shadow::Session* session = nullptr;
        const Box* box = nullptr;
@@ -515,11 +516,20 @@ class EQPacket : public QObject
    bool decodeShadowApplication(EQStreamID stream, uint8_t direction,
                                 uint16_t opcode, const uint8_t* payload,
                                 size_t payloadSize, int64_t timestamp,
-                                EQPacketFlowKey flowKey,
+                                EQPacketFlowKey flowKey, bool sourceIsLow,
                                 uintptr_t attributionToken);
    void completeShadowApplication(bool legacyDispatched);
-   seq::shadow::Session* temporaryShadowSession(EQPacketFlowKey flowKey);
-   void evictOldestTemporaryShadowSession();
+   seq::shadow::Session* provisionalShadowSession(EQPacketFlowKey flowKey);
+   bool bindShadowFlow(EQPacketFlowKey flowKey, Box* box);
+   bool replayProvisionalFlow(EQPacketFlowKey flowKey, Box* box,
+                              seq::shadow::ProvisionalPacketFlow flow);
+   void finalizeProvisionalFlow(EQPacketFlowKey flowKey,
+                                seq::shadow::ProvisionalPacketFlow flow,
+                                seq::shadow::FlushReason reason);
+   void finalizeAllProvisionalFlows(seq::shadow::FlushReason reason);
+   void writeProvisionalTrace(
+       const seq::shadow::ProvisionalPacketFlow& flow);
+   bool rustOwnsAnyFamily() const;
    std::unique_ptr<seq::shadow::ApplicationTraceWriter>
        makeApplicationTraceWriter();
  protected slots:

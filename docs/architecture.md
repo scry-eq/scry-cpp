@@ -104,11 +104,13 @@ do not use that override.
 
 Phase-2 shadow decoding lives in `rustsession.*`. `EQPacket` owns one protocol
 registry built from the decoder's embedded catalogs. It creates one stateful
-Rust session for each `Box`. Captures that begin mid-zone use temporary
-sessions keyed by normalized UDP flow, capped at 16, so two unattributed flows
-cannot share correlation. A still-cold Box adopts its matching temporary
-session when attribution becomes available. A warm Box cannot safely merge two
-state machines without replay, so the temporary side is finalized instead.
+Rust session for each `Box`. Captures that begin mid-zone retain a bounded raw
+application-packet history and a trace-free preview session per normalized UDP
+flow. When existing wire routing attributes that flow, its intact history is
+replayed into the Box session before the triggering packet, whether that
+session is cold or warm. The limit is 16 flows, 256 packets and 4 MiB per flow,
+and 16 MiB total. An incomplete history fails closed for Rust ownership and
+trace recording instead of merging a suffix.
 
 `EQPacketStream` calls the shadow hook after SOE reassembly and before its
 decoded-packet observers or legacy handlers. The hook sends the stream, numeric
@@ -122,10 +124,12 @@ byte budget, with monotonic record and dropped-record counts for diagnostics.
 Oversized individual records retain only their disposition and metadata.
 
 `--record-app-traces DIR` attaches one atomic strict-v1 trace writer to each
-logical Rust session at this same hook. Temporary flow sessions carry their
-writer when a Box adopts them, so attribution cannot duplicate or split the
-packet sequence. See `docs/application-packet-traces.md` for handling and
-scrubbing rules.
+logical Rust session at this same hook. Provisional preview sessions never own
+a writer. Adoption writes their buffered packets through the Box writer after
+a part boundary, so attribution cannot duplicate or split the packet sequence
+across owners. A flow that remains unattributed through terminal finalization
+gets one standalone trace. See `docs/application-packet-traces.md` for handling
+and scrubbing rules.
 
 `--lifecycle-decoder legacy|shadow|rust` supplies the immutable selector copied
 into each new session. The default is `shadow`. Legacy mode runs the existing
