@@ -232,7 +232,6 @@ void EQPacketStream::resetCache()
     seqDebug("Resetting sequence cache[%s]", EQStreamStr[m_streamid]);
 #endif
     m_cache.clear();
-    emit cacheSize(0, m_streamid);
 }
 
 ////////////////////////////////////////////////////
@@ -253,7 +252,6 @@ void EQPacketStream::setCache(uint16_t serverArqSeq, EQProtocolPacket& packet)
 
       m_cache.insert(EQPacketMap::value_type(serverArqSeq, 
          new EQProtocolPacket(packet, true)));
-      emit cacheSize(m_cache.size(), (int)m_streamid);
    }
    else
    {
@@ -316,7 +314,6 @@ void EQPacketStream::processCache()
       
       // incremente the expected arq sequence number
       m_arqSeqExp++;
-      emit seqExpect(m_arqSeqExp, (int)m_streamid);
       
       // attempt to find the new current expencted arq seq
       it = m_cache.find(m_arqSeqExp);
@@ -367,7 +364,6 @@ void EQPacketStream::processCache()
         
       // erase the packet from the cache
       m_cache.erase(eraseIt);
-      emit cacheSize(m_cache.size(), (int)m_streamid);
         
     #ifdef PACKET_CACHE_DIAG
       seqDebug("SEQ: REMOVING arq %04x from stream %s cache, cache count %04d",
@@ -399,7 +395,6 @@ void EQPacketStream::processCache()
       
       // erase the packet from the cache
       m_cache.erase(eraseIt);
-      emit cacheSize(m_cache.size(), (int)m_streamid);
     
 #ifdef PACKET_CACHE_DIAG
       seqDebug("SEQ: REMOVING arq %04x from stream %s cache, cache count %04d",
@@ -815,14 +810,12 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
     {
       // Normal unfragmented sequenced packet.
       uint16_t seq = packet.arqSeq();
-      emit seqReceive(seq, (int)m_streamid);
 
       // Future packet?
       if (seq == m_arqSeqExp)
       {
         // Expected packet.
         m_arqSeqExp++;
-        emit seqExpect(m_arqSeqExp, (int)m_streamid);
 
         // OpCode next. Net order for op codes.
         uint16_t subOpCode = *(uint16_t*)(packet.payload());
@@ -894,14 +887,12 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
     {
       // Fragmented sequenced data packet.
       uint16_t seq = packet.arqSeq();
-      emit seqReceive(seq, (int)m_streamid);
 
       // Future packet?
       if (seq == m_arqSeqExp)
       {
         // Expected packet.
         m_arqSeqExp++;
-        emit seqExpect(m_arqSeqExp, (int)m_streamid);
        
 #if defined(PACKET_PROCESS_DIAG) && (PACKET_PROCESS_DIAG > 1)
         seqDebug("SEQ: Found next sequence number in data stream %s (%d), incrementing expected seq, %04x (op code %04x)", 
@@ -1013,8 +1004,6 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
         m_maxLength = maxPacketSize;
       }
 
-      emit maxLength((int) m_maxLength, (int) m_streamid);
-
 #if defined(PACKET_PROCESS_DIAG) || defined(PACKET_SESSION_DIAG)
       seqDebug("EQPacket: SessionRequest found, resetting expected seq, stream %s (%d) (session tracking %s)",
 	    EQStreamStr[m_streamid], m_streamid,
@@ -1098,8 +1087,6 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
         m_maxLength = maxPacketSize;
       }
 
-      emit maxLength((int) m_maxLength, (int) m_streamid);
-
 #if defined(PACKET_PROCESS_DIAG) || defined(PACKET_SESSION_DIAG)
       seqDebug("EQPacket: SessionResponse found %s:%u->%s:%u, resetting expected seq, stream %s (%d) (session tracking %s)",
         qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4SourceA()),
@@ -1156,7 +1143,6 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
         if (m_streamid == world2client)
         {
           m_session_tracking_enabled = 1;
-          emit sessionTrackingChanged(m_session_tracking_enabled);
         }
         // If this is the zone server talking to us, close the latch and lock
         else if (m_streamid == zone2client)
@@ -1170,7 +1156,6 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
           emit lockOnClient(((EQUDPIPPacketFormat&) packet).getSourcePort(),
             ((EQUDPIPPacketFormat&) packet).getDestPort(),
             ((EQUDPIPPacketFormat&) packet).getIPv4DestN());
-          emit sessionTrackingChanged(m_session_tracking_enabled);
         }
       }
     }
@@ -1216,7 +1201,6 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
       if (m_session_tracking_enabled)
       {
         m_session_tracking_enabled = 1;
-        emit sessionTrackingChanged(m_session_tracking_enabled);
 
         m_sessionClientPort = 0;
         m_sessionClientIP = 0;
