@@ -87,7 +87,6 @@ EQPacketStream::EQPacketStream(EQStreamID streamid, uint8_t dir,
     m_dir(dir),
     m_packetCount(0),
     m_session_tracking_enabled(0),
-    m_maxCacheCount(0),
     m_arqSeqExp(0),
     m_arqSeqGiveUp(arqSeqGiveUp),
     m_arqSeqFound(false),
@@ -278,10 +277,6 @@ void EQPacketStream::setCache(uint16_t serverArqSeq, EQProtocolPacket& packet)
 #endif
    }
 
-#ifdef PACKET_CACHE_DIAG
-   if (m_cache.size() > m_maxCacheCount)
-      m_maxCacheCount = m_cache.size();
-#endif // PACKET_CACHE_DIAG
 }
 
 ////////////////////////////////////////////////////
