@@ -98,12 +98,6 @@ class MessageShell : public QObject
                        uint32_t clientAddr);
    void inspectData(const uint8_t* inspt);
 
-   void handleSpell(const uint8_t* mem, size_t, uint8_t);
-   void beginCast(const uint8_t* bcast);
-   void spellFaded(const uint8_t* sf);
-   void interruptSpellCast(const uint8_t*icast);
-   void startCast(const uint8_t* cast);
-
    void groupUpdate(const uint8_t* gmem, size_t, uint8_t);
    void groupInvite(const uint8_t* gmem, size_t, uint8_t);
    void groupDecline(const uint8_t* gmem);
