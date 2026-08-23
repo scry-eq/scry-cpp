@@ -121,6 +121,12 @@ session keeps at most 256 ordered packet and flush records under a 4 MiB source
 byte budget, with monotonic record and dropped-record counts for diagnostics.
 Oversized individual records retain only their disposition and metadata.
 
+`--record-app-traces DIR` attaches one atomic strict-v1 trace writer to each
+logical Rust session at this same hook. Temporary flow sessions carry their
+writer when a Box adopts them, so attribution cannot duplicate or split the
+packet sequence. See `docs/application-packet-traces.md` for handling and
+scrubbing rules.
+
 `--lifecycle-decoder legacy|shadow|rust` supplies the immutable selector copied
 into each new session. The default is `shadow`. Legacy mode runs the existing
 lifecycle handlers. Shadow mode runs them and records their real manager

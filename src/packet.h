@@ -98,6 +98,7 @@ class EQPacket : public QObject
 	    seq::shadow::LootSelector lootSelector,
 	    seq::shadow::CombatSelector combatSelector,
 	    seq::shadow::CommunicationSelector communicationSelector,
+	    QString applicationTraceDir,
 	    QObject *parent,
             const char *name);
    ~EQPacket();           
@@ -150,6 +151,7 @@ class EQPacket : public QObject
    const seq::shadow::Session* shadowSession(const Box* box) const;
    void flushShadowSession(const Box* box, seq::shadow::FlushReason reason);
    void flushAllShadowSessions(seq::shadow::FlushReason reason);
+   void finalizeApplicationTraces();
    using LifecycleEventHandler =
        std::function<void(const Box*, const seq::shadow::Event&)>;
    using EntityEventHandler = LifecycleEventHandler;
@@ -349,6 +351,9 @@ class EQPacket : public QObject
    const seq::shadow::LootSelector m_lootSelector;
    const seq::shadow::CombatSelector m_combatSelector;
    const seq::shadow::CommunicationSelector m_communicationSelector;
+   QString m_applicationTracePrefix;
+   QString m_applicationTraceCatalogHash;
+   uint64_t m_applicationTraceSession = 0;
 
    EQPacketStream* m_client2WorldStream;
    EQPacketStream* m_world2ClientStream;
@@ -515,6 +520,8 @@ class EQPacket : public QObject
    void completeShadowApplication(bool legacyDispatched);
    seq::shadow::Session* temporaryShadowSession(EQPacketFlowKey flowKey);
    void evictOldestTemporaryShadowSession();
+   std::unique_ptr<seq::shadow::ApplicationTraceWriter>
+       makeApplicationTraceWriter();
  protected slots:
    void resetEQPacket();
    void dispatchWorldChatData (size_t len, uint8_t* data, uint8_t direction = 0);

@@ -215,6 +215,7 @@ set(SEQ_DAEMON_EXTRACTED_SOURCES
 )
 
 set(SEQ_DAEMON_CORE_NEW_SOURCES
+  src/applicationtrace.cpp
   src/boxregistry.cpp
   src/remotecapture.cpp
   src/rustsession.cpp

@@ -104,6 +104,19 @@ seq::rust::SessionBackend shadowBackend()
 #endif
 }
 
+QString shadowBackendName()
+{
+#if defined(SEQ_TARGET_LIVE)
+  return QStringLiteral("live");
+#elif defined(SEQ_TARGET_TEST)
+  return QStringLiteral("test");
+#elif defined(SEQ_TARGET_EQL)
+  return QStringLiteral("eql");
+#else
+#error "unknown SEQ_TARGET"
+#endif
+}
+
 EQPacketFlowKey packetFlowKey(const EQUDPIPPacketFormat& packet)
 {
   const uint64_t source = (uint64_t(packet.getIPv4SourceN()) << 16) |
@@ -144,6 +157,7 @@ EQPacket::EQPacket(const QString& opcodesToml,
 		   seq::shadow::LootSelector lootSelector,
 		   seq::shadow::CombatSelector combatSelector,
 		   seq::shadow::CommunicationSelector communicationSelector,
+		   QString applicationTraceDir,
 		   QObject * parent, const char *name)
   : QObject (parent),
     m_packetCapture(NULL),
@@ -207,8 +221,25 @@ EQPacket::EQPacket(const QString& opcodesToml,
     // The pinned decoder carries the canonical catalogs. One registry is
     // shared by every per-Box Rust session created below.
     m_shadowRegistry = std::make_unique<seq::shadow::ProtocolRegistry>();
+    m_applicationTraceCatalogHash = QString::fromStdString(
+        m_shadowRegistry->contentHash(shadowBackend()));
     seqInfo("Rust shadow protocol catalog: %s",
-            m_shadowRegistry->contentHash(shadowBackend()).c_str());
+            qUtf8Printable(m_applicationTraceCatalogHash));
+    if (!applicationTraceDir.isEmpty()) {
+      QDir directory(applicationTraceDir);
+      if (!directory.exists() && !QDir().mkpath(directory.absolutePath()))
+        throw std::runtime_error(
+            QStringLiteral("could not create application trace directory %1")
+                .arg(directory.absolutePath()).toStdString());
+      const QString run = QStringLiteral("scry-%1-%2-%3")
+          .arg(shadowBackendName(),
+               QDateTime::currentDateTimeUtc().toString(
+                   QStringLiteral("yyyyMMdd-HHmmsszzz")))
+          .arg(QCoreApplication::applicationPid());
+      m_applicationTracePrefix = directory.filePath(run);
+      seqInfo("Application packet traces: %s-session-NNNNNN-part-NNNN.trace.json",
+              qUtf8Printable(m_applicationTracePrefix));
+    }
   } catch (const std::exception& error) {
     if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust ||
         m_entitySelector == seq::shadow::EntitySelector::Rust ||
@@ -217,7 +248,8 @@ EQPacket::EQPacket(const QString& opcodesToml,
         m_lootSelector == seq::shadow::LootSelector::Rust ||
         m_combatSelector == seq::shadow::CombatSelector::Rust ||
         m_communicationSelector ==
-            seq::shadow::CommunicationSelector::Rust)
+            seq::shadow::CommunicationSelector::Rust ||
+        !applicationTraceDir.isEmpty())
       throw;
     // Shadow diagnostics must never take down the legacy mutation path.
     seqWarn("Rust shadow disabled: protocol registry failed: %s", error.what());
@@ -364,6 +396,7 @@ EQPacket::EQPacket(const QString& opcodesToml,
             m_lifecycleSelector, m_entitySelector, m_playerSelector,
             m_progressionSelector, m_lootSelector, m_combatSelector,
             m_communicationSelector);
+        session->setTraceWriter(makeApplicationTraceWriter());
         m_shadowSessions.emplace(&box, std::move(session));
         for (EQPacketStream* stream : {box.world_c2s, box.world_s2c,
                                        box.zone_c2s, box.zone_s2c})
@@ -376,7 +409,8 @@ EQPacket::EQPacket(const QString& opcodesToml,
             m_lootSelector == seq::shadow::LootSelector::Rust ||
             m_combatSelector == seq::shadow::CombatSelector::Rust ||
             m_communicationSelector ==
-                seq::shadow::CommunicationSelector::Rust) {
+                seq::shadow::CommunicationSelector::Rust ||
+            !m_applicationTracePrefix.isEmpty()) {
           m_lifecycleFatal = true;
           qCritical("Rust-owned lifecycle session creation failed for box %s: %s",
                     qUtf8Printable(box.box_id), error.what());
@@ -799,6 +833,18 @@ void EQPacket::installShadowHook(EQPacketStream* stream)
       });
 }
 
+std::unique_ptr<seq::shadow::ApplicationTraceWriter>
+EQPacket::makeApplicationTraceWriter()
+{
+  if (m_applicationTracePrefix.isEmpty()) return {};
+  const QString prefix = QStringLiteral("%1-session-%2")
+      .arg(m_applicationTracePrefix)
+      .arg(++m_applicationTraceSession, 6, 10, QLatin1Char('0'));
+  return std::make_unique<seq::shadow::ApplicationTraceWriter>(
+      prefix, shadowBackendName(), m_applicationTraceCatalogHash,
+      /*synthetic*/ false);
+}
+
 seq::shadow::Session* EQPacket::temporaryShadowSession(EQPacketFlowKey flowKey)
 {
   if (!m_shadowRegistry || !flowKey.isValid()) return nullptr;
@@ -818,6 +864,7 @@ seq::shadow::Session* EQPacket::temporaryShadowSession(EQPacketFlowKey flowKey)
         m_lifecycleSelector, m_entitySelector, m_playerSelector,
         m_progressionSelector, m_lootSelector, m_combatSelector,
         m_communicationSelector);
+    temporary.session->setTraceWriter(makeApplicationTraceWriter());
     temporary.lastUsed = ++m_temporaryShadowClock;
     auto [it, inserted] =
         m_temporaryShadowSessions.emplace(flowKey, std::move(temporary));
@@ -830,7 +877,8 @@ seq::shadow::Session* EQPacket::temporaryShadowSession(EQPacketFlowKey flowKey)
         m_lootSelector == seq::shadow::LootSelector::Rust ||
         m_combatSelector == seq::shadow::CombatSelector::Rust ||
         m_communicationSelector ==
-            seq::shadow::CommunicationSelector::Rust) {
+            seq::shadow::CommunicationSelector::Rust ||
+        !m_applicationTracePrefix.isEmpty()) {
       m_lifecycleFatal = true;
       qCritical("Temporary Rust-owned lifecycle session creation failed: %s",
                 error.what());
@@ -866,7 +914,8 @@ void EQPacket::evictOldestTemporaryShadowSession()
           oldest->second.session->appliesRustProgression() ||
           oldest->second.session->appliesRustLoot() ||
           oldest->second.session->appliesRustCombat() ||
-          oldest->second.session->appliesRustCommunication()) {
+          oldest->second.session->appliesRustCommunication() ||
+          oldest->second.session->traceEnabled()) {
         m_lifecycleFatal = true;
         qCritical("Temporary Rust-owned lifecycle eviction flush failed: %s",
                   error.what());
@@ -940,7 +989,8 @@ bool EQPacket::decodeShadowApplication(
               temporary->second.session->appliesRustProgression() ||
               temporary->second.session->appliesRustLoot() ||
               temporary->second.session->appliesRustCombat() ||
-              temporary->second.session->appliesRustCommunication()) {
+              temporary->second.session->appliesRustCommunication() ||
+              temporary->second.session->traceEnabled()) {
             m_lifecycleFatal = true;
             qCritical("Temporary Rust-owned lifecycle attribution flush "
                       "failed: %s", error.what());
@@ -1222,7 +1272,8 @@ bool EQPacket::decodeShadowApplication(
         m_lootSelector == seq::shadow::LootSelector::Rust ||
         m_combatSelector == seq::shadow::CombatSelector::Rust ||
         m_communicationSelector ==
-            seq::shadow::CommunicationSelector::Rust) {
+            seq::shadow::CommunicationSelector::Rust ||
+        session->traceEnabled()) {
       m_lifecycleFatal = true;
       qCritical("Rust lifecycle decode/apply failed for box %s: %s; "
                 "the immutable Rust-owned session cannot fall back in place",
@@ -1794,7 +1845,8 @@ void EQPacket::flushShadowSession(const Box* box,
         it->second->appliesRustProgression() ||
         it->second->appliesRustLoot() ||
         it->second->appliesRustCombat() ||
-        it->second->appliesRustCommunication()) {
+        it->second->appliesRustCommunication() ||
+        it->second->traceEnabled()) {
       m_lifecycleFatal = true;
       qCritical("Rust lifecycle flush failed for box %s: %s; the immutable "
                 "Rust-owned session cannot fall back in place",
@@ -1834,7 +1886,8 @@ void EQPacket::flushAllShadowSessions(seq::shadow::FlushReason reason)
           entry.second.session->appliesRustProgression() ||
           entry.second.session->appliesRustLoot() ||
           entry.second.session->appliesRustCombat() ||
-          entry.second.session->appliesRustCommunication()) {
+          entry.second.session->appliesRustCommunication() ||
+          entry.second.session->traceEnabled()) {
         m_lifecycleFatal = true;
         qCritical("Temporary Rust-owned lifecycle flush failed: %s",
                   error.what());
@@ -1848,6 +1901,16 @@ void EQPacket::flushAllShadowSessions(seq::shadow::FlushReason reason)
   }
   for (const auto& entry : m_shadowSessions)
     flushShadowSession(entry.first, reason);
+}
+
+void EQPacket::finalizeApplicationTraces()
+{
+  for (auto& entry : m_temporaryShadowSessions) {
+    if (entry.second.session)
+      entry.second.session->finalizeTrace();
+  }
+  for (auto& entry : m_shadowSessions)
+    entry.second->finalizeTrace();
 }
 
 /////////////////////////////////////////////////////////

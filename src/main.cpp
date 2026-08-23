@@ -160,6 +160,11 @@ int main(int argc, char** argv)
         "length-delimited seq.v1.Envelope protobuf. With --replay, the "
         "daemon exits at EOF — the regression-harness golden workflow.",
         "file");
+    QCommandLineOption applicationTraceOpt(QStringList{"record-app-traces"},
+        "Write strict v1 application-packet traces under DIR, one opaque "
+        "file sequence per logical Rust session. Output is capture-derived, "
+        "may contain names or chat, and must be scrubbed before committing.",
+        "dir");
     QCommandLineOption opcodeStatsOpt(QStringList{"opcode-stats"},
         "Patch-day diagnostic: tally every decoded opcode (known + "
         "unknown) and write a sorted report with payload-size matches "
@@ -259,6 +264,7 @@ int main(int argc, char** argv)
     parser.addOption(mapPackageOpt);
     parser.addOption(recordVpkOpt);
     parser.addOption(recordGoldenOpt);
+    parser.addOption(applicationTraceOpt);
     parser.addOption(opcodeStatsOpt);
     parser.addOption(noListenOpt);
     parser.addOption(strictGateSizesOpt);
@@ -311,6 +317,7 @@ int main(int argc, char** argv)
     cfg.mapPackage   = parser.value(mapPackageOpt);
     cfg.recordVpk    = parser.value(recordVpkOpt);
     cfg.recordGolden = parser.value(recordGoldenOpt);
+    cfg.applicationTraceDir = parser.value(applicationTraceOpt);
     cfg.opcodeStats  = parser.value(opcodeStatsOpt);
     cfg.noListen     = parser.isSet(noListenOpt);
     cfg.strictGateSizes = parser.isSet(strictGateSizesOpt);
@@ -390,6 +397,11 @@ int main(int argc, char** argv)
     }
     if (!cfg.recordGolden.isEmpty() && QDir::isRelativePath(cfg.recordGolden)) {
         cfg.recordGolden = QFileInfo(cfg.recordGolden).absoluteFilePath();
+    }
+    if (!cfg.applicationTraceDir.isEmpty() &&
+        QDir::isRelativePath(cfg.applicationTraceDir)) {
+        cfg.applicationTraceDir =
+            QFileInfo(cfg.applicationTraceDir).absoluteFilePath();
     }
     // Golden recording must be byte-reproducible across processes. Qt seeds
     // QHash with a per-process random value, so QHash iteration order (e.g.

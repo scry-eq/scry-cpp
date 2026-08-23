@@ -128,6 +128,7 @@ src/              # Daemon sources (extracted from showeq + new glue)
   sessionadapter.*# Per-client adapter: QObject signals -> protobuf
   protoencoder.*  # Pure translation functions
   rustsession.*   # Typed Rust Session shadow adapter + diagnostic journal
+  applicationtrace.* # Atomic strict-v1 Rust Session input trace writer
   ...             # Packet layer + managers, see extraction inventory
 proto/            # git submodule -> scry-proto
 scry-decoder-rs/  # pinned git submodule -> Rust decoder and C++ bridge

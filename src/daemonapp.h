@@ -103,6 +103,9 @@ public:
         // delimited seq.v1.Envelope protobuf. With --replay set, the
         // daemon exits at EOF (golden generation workflow).
         QString      recordGolden;
+        // Strict v1 application-packet traces. The daemon writes one opaque
+        // file sequence per logical Rust Session under this directory.
+        QString      applicationTraceDir;
         // If set, OpcodeStatsLogger taps EQPacket's decoded-packet
         // signals and writes a per-opcode tally to this file at
         // shutdown — patch-day diagnostic for finding ffff opcodes.

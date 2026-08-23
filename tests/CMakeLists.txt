@@ -222,3 +222,26 @@ target_compile_options(rustsession_test PRIVATE
 )
 
 add_test(NAME rustsession_test COMMAND rustsession_test)
+
+add_executable(applicationtrace_test
+  applicationtrace_test.cpp
+)
+
+target_link_libraries(applicationtrace_test PRIVATE
+  seq-daemon-core
+  Qt6::Test
+)
+
+target_compile_definitions(applicationtrace_test PRIVATE
+  SEQ_DECODER_RS_DIR_PATH="${SEQ_DECODER_RS_DIR}"
+  SEQ_TRACE_TARGET_DIR="${CMAKE_CURRENT_BINARY_DIR}/seq-trace-cargo-${SEQ_TARGET}"
+)
+
+target_compile_options(applicationtrace_test PRIVATE
+  -Wall
+  -Werror
+  -Wno-unused-parameter
+  -Wno-deprecated-declarations
+)
+
+add_test(NAME applicationtrace_test COMMAND applicationtrace_test)

@@ -77,14 +77,19 @@ template <typename T>
 void appendScalar(std::vector<uint8_t>& out, T value)
 {
     static_assert(std::is_arithmetic_v<T> || std::is_enum_v<T>);
-    const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
-    out.insert(out.end(), bytes, bytes + sizeof(value));
+    const size_t offset = out.size();
+    out.resize(offset + sizeof(value));
+    std::memcpy(out.data() + offset, &value, sizeof(value));
 }
 
 void appendString(std::vector<uint8_t>& out, const ::rust::String& value)
 {
     appendScalar(out, uint64_t(value.size()));
-    out.insert(out.end(), value.data(), value.data() + value.size());
+    if (!value.empty()) {
+        const size_t offset = out.size();
+        out.resize(offset + value.size());
+        std::memcpy(out.data() + offset, value.data(), value.size());
+    }
 }
 
 template <typename T>
@@ -2040,13 +2045,25 @@ const Record& Session::decode(Stream stream, uint16_t opcode,
                               Direction direction, const uint8_t* payload,
                               size_t payloadSize, int64_t timestamp)
 {
+    if (m_traceWriter)
+        m_traceWriter->push(stream, opcode, direction, payload, payloadSize,
+                            timestamp);
     auto raw = m_session->decode(toRust(stream), opcode, toRust(direction),
                                  ::rust::Slice<const uint8_t>(payload, payloadSize),
                                  timestamp);
     Record record;
     record.packet = PacketRecord{stream, opcode, direction, payloadSize, timestamp};
     record.batch = translate(std::move(raw));
-    return append(std::move(record));
+    const bool lifecycleBoundary = std::any_of(
+        record.batch.events.begin(), record.batch.events.end(),
+        [](const Event& event) {
+            return std::holds_alternative<SessionReset>(event) ||
+                   std::holds_alternative<ZoneTransition>(event);
+        });
+    const Record& appended = append(std::move(record));
+    if (lifecycleBoundary && m_traceWriter)
+        m_traceWriter->finalize();
+    return appended;
 }
 
 const Record& Session::flush(FlushReason reason)
@@ -2055,6 +2072,8 @@ const Record& Session::flush(FlushReason reason)
     record.flushReason = reason;
     record.batch = translate(m_session->flush(toRust(reason)));
     const Record& appended = append(std::move(record));
+    if (m_traceWriter)
+        m_traceWriter->finalize();
     return appended;
 }
 

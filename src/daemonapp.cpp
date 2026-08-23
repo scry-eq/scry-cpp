@@ -2012,6 +2012,7 @@ bool DaemonApp::startCapture()
             lifecycleSelector(m_cfg.lootDecoder),
             lifecycleSelector(m_cfg.combatDecoder),
             lifecycleSelector(m_cfg.communicationDecoder),
+            m_cfg.applicationTraceDir,
             this, "packet");
     } catch (const std::exception& error) {
         qCritical("Rust decoder setup failed: %s", error.what());
@@ -2594,6 +2595,17 @@ void DaemonApp::exportHandoffState(const QString& configDir) const
     // bypasses. Flush it explicitly so the new daemon loads current data.
     if (m_spawnMonitor)
         m_spawnMonitor->saveSpawnPoints();
+
+    // SIGHUP exits through _exit(75), so QObject and Session destructors do
+    // not run. Commit complete trace parts before the process handoff.
+    if (m_packet) {
+        try {
+            m_packet->finalizeApplicationTraces();
+        } catch (const std::exception& error) {
+            qFatal("application trace handoff finalization failed: %s",
+                   error.what());
+        }
+    }
 }
 
 bool DaemonApp::importHandoffState(const QString& configDir)

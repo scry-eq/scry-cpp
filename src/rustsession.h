@@ -10,6 +10,7 @@
 #include <variant>
 #include <vector>
 
+#include "applicationtrace.h"
 #include "seq-bridge-cxx/lib.h"
 #include "seq/v1/events.pb.h"
 
@@ -474,6 +475,14 @@ public:
             CommunicationSelector communicationSelector =
                 CommunicationSelector::Legacy);
 
+    void setTraceWriter(std::unique_ptr<ApplicationTraceWriter> writer)
+    { m_traceWriter = std::move(writer); }
+    bool traceEnabled() const { return bool(m_traceWriter); }
+    const ApplicationTraceWriter* traceWriter() const
+    { return m_traceWriter.get(); }
+    void finalizeTrace()
+    { if (m_traceWriter) m_traceWriter->finalize(); }
+
     const Record& decode(Stream stream, uint16_t opcode, Direction direction,
                          const uint8_t* payload, size_t payloadSize,
                          int64_t timestamp);
@@ -587,6 +596,7 @@ private:
     std::optional<LootComparison> m_lastLootComparison;
     std::optional<CombatComparison> m_lastCombatComparison;
     std::optional<CommunicationComparison> m_lastCommunicationComparison;
+    std::unique_ptr<ApplicationTraceWriter> m_traceWriter;
 };
 
 } // namespace seq::shadow
