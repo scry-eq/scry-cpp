@@ -27,7 +27,6 @@
 #include <QHash>
 #include <QObject>
 #include <QSet>
-#include <QPointer>
 #include <QTimer>
 #include <vector>
 #include "boxregistry.h"
@@ -93,25 +92,7 @@ class EQPacket : public QObject
 
    const QString pcapFilter();
    int packetCount(int);
-   const QString& ip();
-   const QString& mac();
-   const QString& device();
-   in_addr_t clientAddr(void);
-   in_port_t clientPort(void);
-   in_port_t serverPort(void);
-   uint8_t session_tracking_enabled(void);
-   int playbackPackets(void);
    int playbackSpeed(void);
-   size_t currentCacheSize(int);
-   uint32_t currentMaxLength(int);
-   uint16_t serverSeqExp(int);
-   uint16_t arqSeqGiveUp(void);
-   bool session_tracking(void);
-   bool realtime(void);
-   int snaplen(void) { return m_snaplen; }
-   int buffersize(void) { return m_buffersize; }
-   void setSnapLen(int len) { m_snaplen = len; }
-   void setBufferSize(int size) { m_buffersize = size; }
 
    // Epoch-ms timestamp of the packet currently being dispatched. During
    // --replay this is the *recorded* time (epoch seconds from the .vpk,
@@ -141,12 +122,9 @@ class EQPacket : public QObject
    void decPlayback(void);
    void setPlayback(int);
    void monitorIPClient(const QString& address);   
-   void monitorMACClient(const QString& address);   
    void monitorNextClient();   
    void monitorDevice(const QString& dev);   
    void session_tracking(bool enable);
-   void setArqSeqGiveUp(uint16_t giveUp);
-   void setRealtime(bool val);
    void dispatchSessionKey(uint32_t sessionId, EQStreamID streamid,
       uint32_t sessionKey);
 
@@ -298,55 +276,5 @@ class EQPacket : public QObject
    void resetEQPacket();
    void dispatchWorldChatData (size_t len, uint8_t* data, uint8_t direction = 0);
 };
-
-inline in_addr_t EQPacket::clientAddr(void)
-{
-   return m_client_addr;
-}
-
-inline in_port_t EQPacket::clientPort(void)
-{
-  return m_clientPort;
-}
-
-inline in_port_t EQPacket::serverPort(void)
-{
-  return m_serverPort;
-}
-
-inline uint16_t EQPacket::arqSeqGiveUp(void)
-{
-  return m_arqSeqGiveUp;
-}
-
-inline bool EQPacket::session_tracking(void)
-{
-  return m_session_tracking;
-}
-
-inline int EQPacket::playbackPackets(void)
-{
-  return m_playbackPackets;
-}
-
-inline bool EQPacket::realtime(void)
-{
-  return m_realtime;
-}
-
-inline const QString& EQPacket::ip()
-{
-  return m_ip;
-}
-
-inline const QString& EQPacket::mac()
-{
-  return m_mac;
-}
-
-inline const QString& EQPacket::device()
-{
-  return m_device;
-}
 
 #endif // _PACKET_H_
