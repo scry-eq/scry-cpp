@@ -496,6 +496,7 @@ void fillGroupUpdate(seq::v1::GroupUpdate* out, GroupMgr& g)
             m->set_class_(sp->classVal());
         } else {
             m->set_in_zone(false);
+            m->set_level(g.memberLevelBySlot(slot));
         }
     }
 }

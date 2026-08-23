@@ -113,6 +113,14 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
                 handler(data, len, dir);
         };
     };
+    auto communication = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet ||
+                m_packet->legacyCommunicationEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
     ms.player->setProgressionMutationGuard([this] {
         return !m_packet ||
                m_packet->legacyProgressionEnabledForCurrentPacket();
@@ -196,10 +204,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          entity(seqBind(ms.zoneMgr, &ZoneMgr::zonePoints)));
     wire("OP_DzSwitchInfo", SP_Zone, DIR_Server,
          "dzSwitchInfo", SZC_None,
-         seqBind(ms.zoneMgr, &ZoneMgr::dynamicZonePoints));
+         communication(seqBind(ms.zoneMgr, &ZoneMgr::dynamicZonePoints)));
     wire("OP_DzInfo", SP_Zone, DIR_Server,
          "dzInfo", SZC_Match,
-         seqBind(ms.zoneMgr, &ZoneMgr::dynamicZoneInfo));
+         communication(seqBind(ms.zoneMgr, &ZoneMgr::dynamicZoneInfo)));
 
     // Cross-manager: profile feeds Player too (after GroupMgr, which is
     // connected in buildManagerSet() — preserves slot fire order).
@@ -259,10 +267,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // wires per-box like the rest of the box pipeline.
     wire("OP_GuildMemberList", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::guildMemberList));
+         communication(seqBind(eql, &EqlDispatch::guildMemberList)));
     wire("OP_GuildMOTD", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::guildMotd));
+         communication(seqBind(eql, &EqlDispatch::guildMotd)));
 
     // --- SpawnShell: spawn lifecycle + positions.
     // eql ground-item defs are makeDropStruct/none (variable name field);
@@ -517,16 +525,16 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // OP_GroupDisband/2 (leave/disband). OP_GroupMemberList is dead here.
     wire("OP_GroupUpdate", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::groupUpdate));
+         communication(seqBind(ms.groupMgr, &GroupMgr::groupUpdate)));
     wire("OP_GroupFollow", SP_Zone, DIR_Server,
          "groupFollowStruct", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::addGroupMember));
+         communication(seqBind(ms.groupMgr, &GroupMgr::addGroupMember)));
     wire("OP_GroupDisband", SP_Zone, DIR_Server,
          "groupDisbandStruct", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::removeGroupMember));
+         communication(seqBind(ms.groupMgr, &GroupMgr::removeGroupMember)));
     wire("OP_GroupDisband2", SP_Zone, DIR_Server,
          "groupDisbandStruct", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::removeGroupMember));
+         communication(seqBind(ms.groupMgr, &GroupMgr::removeGroupMember)));
 
     // --- SpellShell. (OP_SimpleMessage here is a SECOND receiver after
     // MessageShell above — order preserved.)

@@ -114,6 +114,14 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
                 handler(data, len, dir);
         };
     };
+    auto communication = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet ||
+                m_packet->legacyCommunicationEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
     ms.player->setProgressionMutationGuard([this] {
         return !m_packet ||
                m_packet->legacyProgressionEnabledForCurrentPacket();
@@ -144,10 +152,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          entity(seqBind(ms.zoneMgr, &ZoneMgr::zonePoints)));
     wire("OP_DzSwitchInfo", SP_Zone, DIR_Server,
          "dzSwitchInfo", SZC_None,
-         seqBind(ms.zoneMgr, &ZoneMgr::dynamicZonePoints));
+         communication(seqBind(ms.zoneMgr, &ZoneMgr::dynamicZonePoints)));
     wire("OP_DzInfo", SP_Zone, DIR_Server,
          "dzInfo", SZC_Match,
-         seqBind(ms.zoneMgr, &ZoneMgr::dynamicZoneInfo));
+         communication(seqBind(ms.zoneMgr, &ZoneMgr::dynamicZoneInfo)));
 
     // OP_GuildMOTD — the player's guild message of the day. Per-character
     // (GuildShell lives in the ManagerSet), so per-box, not a global sink.
@@ -155,25 +163,25 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // no C++ struct cast. GuildShell stamps the guild id from its roster.
     wire("OP_GuildMOTD", SP_Zone, DIR_Server,
          "guildMOTDStruct", SZC_None,
-         seqBind(ms.guildShell, &GuildShell::guildMOTD));
+         communication(seqBind(ms.guildShell, &GuildShell::guildMOTD)));
     // OP_GuildMemberList — the guild roster. Variable-length (a member list with
     // per-member LPText names/notes), so no fixed struct: uint8_t/none, decoded
     // in seq-decode's stock-layout parser inside the handler.
     wire("OP_GuildMemberList", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.guildShell, &GuildShell::guildRoster));
+         communication(seqBind(ms.guildShell, &GuildShell::guildRoster)));
     // OP_GuildMemberUpdate — a member's zone/last-on (online status), a fixed
     // 88B GuildMemberUpdate struct. Decoded in seq-decode via the eqstructs
     // binding; the handler updates the tracked member + re-emits the roster.
     wire("OP_GuildMemberUpdate", SP_Zone, DIR_Server,
          "GuildMemberUpdate", SZC_Match,
-         seqBind(ms.guildShell, &GuildShell::memberZoneUpdate));
+         communication(seqBind(ms.guildShell, &GuildShell::memberZoneUpdate)));
     // OP_ExpandedGuildInfo — tagged union; its rank-name action builds the
     // guild's rank -> label table (arrives per-rank right after the roster).
     // Variable-size, so uint8_t/none + a seq-decode parser in the handler.
     wire("OP_ExpandedGuildInfo", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.guildShell, &GuildShell::expandedGuildInfo));
+         communication(seqBind(ms.guildShell, &GuildShell::expandedGuildInfo)));
     // OP_GuildsInZoneList / OP_NewGuildInZone — the guild id->name source that
     // puts guild tags on spawns (fed to the daemon-wide GuildMgr). Decoded in
     // seq-decode. Per-box (each zone-in re-sends the in-zone set); GuildMgr
@@ -341,16 +349,16 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // --- GroupMgr.
     wire("OP_GroupUpdate", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::groupUpdate));
+         communication(seqBind(ms.groupMgr, &GroupMgr::groupUpdate)));
     wire("OP_GroupMemberList", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::groupMemberList));
+         communication(seqBind(ms.groupMgr, &GroupMgr::groupMemberList)));
     wire("OP_GroupDisband", SP_Zone, DIR_Server,
          "groupDisbandStruct", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::removeGroupMember));
+         communication(seqBind(ms.groupMgr, &GroupMgr::removeGroupMember)));
     wire("OP_GroupDisband2", SP_Zone, DIR_Server,
          "groupDisbandStruct", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::removeGroupMember));
+         communication(seqBind(ms.groupMgr, &GroupMgr::removeGroupMember)));
 
     // --- SpellShell. (OP_SimpleMessage here is a SECOND receiver after
     // MessageShell above — order preserved.)

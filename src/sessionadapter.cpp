@@ -465,11 +465,7 @@ void SessionAdapter::connectPerBox()
     }
 
     if (m_groupMgr) {
-        connect(m_groupMgr, SIGNAL(added(const QString&, const Spawn*)),
-                this,       SLOT(onGroupChanged()));
-        connect(m_groupMgr, SIGNAL(removed(const QString&, const Spawn*)),
-                this,       SLOT(onGroupChanged()));
-        connect(m_groupMgr, SIGNAL(cleared()),
+        connect(m_groupMgr, SIGNAL(rosterUpdated()),
                 this,       SLOT(onGroupChanged()));
     }
 

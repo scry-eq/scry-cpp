@@ -1,0 +1,692 @@
+schema_version = 1
+host = "cpp"
+event_manifest = "seq-events/event-coverage.json"
+
+# Current non-strict audit; capture proof and Phase 11 deletion remain pending.
+# Valid values: rust, legacy, not_applicable, missing.
+
+[[events]]
+name = "SessionReset"
+projection = "not_applicable"
+state = "rust"
+persistence = "not_applicable"
+notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+
+[[events]]
+name = "PlayerIdentityUpdated"
+projection = "rust"
+state = "rust"
+persistence = "legacy"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "PlayerMoved"
+projection = "rust"
+state = "rust"
+persistence = "legacy"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "PlayerVitalsUpdated"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SpawnHealthUpdated"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "PlayerDied"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SpawnDied"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SpawnIdentityUpdated"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "PlayerAppearanceUpdated"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SpawnAdded"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SpawnMoved"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SpawnRemoved"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SpawnRenamed"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SpawnKilled"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "SpawnHp"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "StatSync"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "SelfPos"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "SpawnAnimation"
+projection = "legacy"
+state = "legacy"
+persistence = "not_applicable"
+notes = "Legacy animation handler mutates the spawn and emits SpawnUpdated."
+
+[[events]]
+name = "SpawnIllusion"
+projection = "legacy"
+state = "legacy"
+persistence = "not_applicable"
+notes = "Legacy illusion handler mutates the spawn and emits SpawnUpdated."
+
+[[events]]
+name = "GuildsInZone"
+projection = "not_applicable"
+state = "legacy"
+persistence = "legacy"
+notes = "Guild name lookup and guild-file persistence still use the legacy handler."
+
+[[events]]
+name = "TimeOfDay"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "ZoneTransition"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "ZoneChanged"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "ZoneEnvironmentChanged"
+projection = "not_applicable"
+state = "rust"
+persistence = "not_applicable"
+notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+
+[[events]]
+name = "PlayerProfile"
+projection = "not_applicable"
+state = "rust"
+persistence = "not_applicable"
+notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+
+[[events]]
+name = "Stance"
+projection = "legacy"
+state = "legacy"
+persistence = "legacy"
+notes = "EQL stance remains on the compatibility handler and Player persistence path."
+
+[[events]]
+name = "Invocation"
+projection = "legacy"
+state = "legacy"
+persistence = "legacy"
+notes = "EQL invocation remains on the compatibility handler and Player persistence path."
+
+[[events]]
+name = "InspectAnswer"
+projection = "legacy"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Transient inspect output is projected by the legacy handler."
+
+[[events]]
+name = "GuildRoster"
+projection = "legacy"
+state = "legacy"
+persistence = "not_applicable"
+notes = "The compatibility roster remains legacy; GuildRosterUpdated is the Rust-owned final state."
+
+[[events]]
+name = "GuildRosterWire"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "GuildRosterUpdated"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "GuildMemberStatus"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "ZoneServerInfo"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "ItemSet"
+projection = "legacy"
+state = "legacy"
+persistence = "legacy"
+notes = "Compatibility item-set handling remains legacy; semantic inventory and equipment events are Rust-owned."
+
+[[events]]
+name = "ItemLearned"
+projection = "legacy"
+state = "legacy"
+persistence = "legacy"
+notes = "Compatibility item learning remains legacy; semantic inventory events are Rust-owned."
+
+[[events]]
+name = "InventorySnapshot"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "InventoryItemUpdated"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "EquipmentSnapshot"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "EquipmentSlotUpdated"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "GuildMotd"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "GuildMotdUpdated"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "GuildRankName"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "GuildRankNamesUpdated"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "LoadoutSwap"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "Doors"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "GroundItemRemoved"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "GroundItem"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "CorpseLocated"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "ZonePoints"
+projection = "not_applicable"
+state = "rust"
+persistence = "not_applicable"
+notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+
+[[events]]
+name = "Combat"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "CombatDamage"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SpellAction"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "SpellActionResolved"
+projection = "not_applicable"
+state = "rust"
+persistence = "not_applicable"
+notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+
+[[events]]
+name = "SpellCastRequest"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "SpawnCast"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "SpellCastStarted"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SpellCastInterrupted"
+projection = "not_applicable"
+state = "missing"
+persistence = "not_applicable"
+notes = "The event is bridged and compared, but C++ has no typed interruption reducer yet."
+
+[[events]]
+name = "Targeted"
+projection = "legacy"
+state = "legacy"
+persistence = "not_applicable"
+notes = "Target selection still uses the legacy SpawnShell path."
+
+[[events]]
+name = "Considered"
+projection = "legacy"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Consider output is transient and still uses the legacy SpawnShell path."
+
+[[events]]
+name = "AaTable"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "AlternateAbilityDefined"
+projection = "not_applicable"
+state = "rust"
+persistence = "not_applicable"
+notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+
+[[events]]
+name = "Exp"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "ExperienceUpdated"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "AaExp"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "AlternateAdvancementUpdated"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "AlternateAdvancementSnapshot"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "Stamina"
+projection = "legacy"
+state = "legacy"
+persistence = "legacy"
+notes = "The pre-semantic stamina event remains on the legacy Player path."
+
+[[events]]
+name = "ManaUpdate"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "SkillUpdate"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "SkillsSnapshot"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SkillValueUpdated"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "LootTransaction"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "LootDrops"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "CorpseLootSnapshot"
+projection = "rust"
+state = "not_applicable"
+persistence = "rust"
+notes = "Rust owns LootDrops projection and window-row persistence."
+
+[[events]]
+name = "LootAcquired"
+projection = "rust"
+state = "not_applicable"
+persistence = "rust"
+notes = "Rust owns LootTransaction projection and semantic loot persistence."
+
+[[events]]
+name = "Money"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "MoneyBalanceUpdated"
+projection = "rust"
+state = "rust"
+persistence = "rust"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "SimpleMessage"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "FormattedMessage"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "SpecialMessage"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "LootMessage"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "Chat"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "ChatMessage"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "UcsRecord"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "BuffList"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "BuffWire"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "BuffAdded"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "BuffUpdated"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "BuffRemoved"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "GroupFollow"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "GroupDisband"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "GroupRosterWire"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "GroupRosterUpdated"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+
+[[events]]
+name = "DynamicZoneInfo"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "DynamicZoneSwitch"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "DynamicZoneUpdated"
+projection = "not_applicable"
+state = "rust"
+persistence = "not_applicable"
+notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+
+[[events]]
+name = "LevelUpdate"
+projection = "not_applicable"
+state = "not_applicable"
+persistence = "not_applicable"
+notes = "Internal-only by contract."
+
+[[events]]
+name = "EnterWorld"
+projection = "rust"
+state = "rust"
+persistence = "not_applicable"
+notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."

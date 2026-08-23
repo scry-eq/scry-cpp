@@ -559,6 +559,29 @@ bool DaemonApp::start()
             [this](const Box* box, const seq::shadow::Batch& batch) {
                 applyRustCombat(box, batch);
             });
+        m_packet->setCommunicationEventHandler(
+            [this](const Box* box, const seq::shadow::Event& event) {
+                applyRustCommunication(box, event);
+            });
+        m_packet->setCommunicationProjectionProvider(
+            [this](const Box* box, const seq::shadow::Batch& batch) {
+                const ManagerSet* managers = nullptr;
+                if (box) {
+                    const auto found = m_boxManagers.constFind(box);
+                    if (found != m_boxManagers.cend()) managers = &found.value();
+                }
+                if (!managers) managers = &m_activeManagers;
+                seq::shadow::ChatTextResolver resolver;
+                if (managers->messageShell) {
+                    resolver = [shell = managers->messageShell](
+                                   uint32_t formatId,
+                                   const std::vector<std::string>& args) {
+                        return shell->resolveChatText(formatId, args)
+                            .toStdString();
+                    };
+                }
+                return seq::shadow::projectCommunication(batch, resolver);
+            });
         m_packet->setLifecycleProjectionEnricher(
             [this](const Box* box, bool addHostZoneProjection,
                    std::vector<seq::shadow::LifecycleObservation>& events,
@@ -605,6 +628,7 @@ bool DaemonApp::start()
         connectPlayerObservers();
         connectProgressionObservers();
         connectCombatObservers();
+        connectCommunicationObservers();
 
         // Tap decoded packets BEFORE the regular wiring so the logger
         // sees every dispatch (it doesn't matter for correctness — the
@@ -1097,6 +1121,95 @@ void DaemonApp::applyRustCombat(const Box* box,
             }
         }, event);
     }
+}
+
+void DaemonApp::applyRustCommunication(
+    const Box* box, const seq::shadow::Event& event)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+
+    std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, seq::shadow::ChatMessage>) {
+                if (managers->messageShell)
+                    managers->messageShell->applyChatMessage(p);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::GroupRosterUpdated>) {
+                if (!managers->groupMgr) return;
+                std::vector<GroupRosterEntry> members;
+                members.reserve(p.members.size());
+                for (const auto& member : p.members) {
+                    members.push_back(GroupRosterEntry{
+                        member.slot, qString(member.name),
+                        member.has_level
+                            ? std::optional<uint32_t>(member.level)
+                            : std::nullopt});
+                }
+                managers->groupMgr->applyRoster(members, p.complete);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::GuildRosterUpdated>) {
+                if (!managers->guildShell) return;
+                QVector<GuildRosterEntry> members;
+                members.reserve(int(p.members.size()));
+                for (const auto& member : p.members) {
+                    GuildRosterEntry row;
+                    row.name = qString(member.name);
+                    row.level = uint8_t(member.level);
+                    row.classVal = uint8_t(member.class_);
+                    row.classMask = member.class_mask;
+                    row.guildRank = member.rank;
+                    row.lastOn = member.last_on;
+                    row.banker = uint8_t(member.banker);
+                    row.alt = uint8_t(member.alt);
+                    row.fullMember = member.full_member ? 1u : 0u;
+                    row.publicNote = qString(member.public_note);
+                    row.zoneId = uint16_t(member.zone_id);
+                    members.push_back(std::move(row));
+                }
+                managers->guildShell->setRoster(
+                    p.guild_id, members, p.complete);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::GuildMotdUpdated>) {
+                if (managers->guildShell)
+                    managers->guildShell->setMotd(
+                        p.guild_id, qString(p.message), qString(p.sender));
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::GuildRankNamesUpdated>) {
+                if (!managers->guildShell) return;
+                QMap<uint32_t, QString> ranks;
+                for (const auto& rank : p.ranks)
+                    ranks.insert(rank.rank_index, qString(rank.rank_name));
+                managers->guildShell->setRankNames(p.guild_id, ranks);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::DynamicZoneUpdated>) {
+                if (!managers->zoneMgr) return;
+                managers->zoneMgr->applyDynamicZoneState(
+                    p.active,
+                    p.has_zone_id
+                        ? std::optional<uint16_t>(p.zone_id) : std::nullopt,
+                    p.has_instance_id
+                        ? std::optional<uint16_t>(p.instance_id)
+                        : std::nullopt,
+                    p.has_kind ? std::optional<uint32_t>(p.kind) : std::nullopt,
+                    p.has_position
+                        ? std::optional<float>(p.position.x) : std::nullopt,
+                    p.has_position
+                        ? std::optional<float>(p.position.y) : std::nullopt,
+                    p.has_position
+                        ? std::optional<float>(p.position.z) : std::nullopt,
+                    p.has_max_players
+                        ? std::optional<uint32_t>(p.max_players)
+                        : std::nullopt,
+                    qString(p.expedition_name), qString(p.leader_name),
+                    p.complete);
+            }
+    }, event);
 }
 
 void DaemonApp::applyRustPlayer(const Box* box,
@@ -1725,6 +1838,90 @@ void DaemonApp::connectCombatObservers()
     });
 }
 
+void DaemonApp::connectCommunicationObservers()
+{
+    if (!m_packet) return;
+    auto accepted = [this](seq::shadow::CommunicationKind kind) {
+        return m_packet->rustCommunicationAcceptedForCurrentPacket(kind);
+    };
+    auto observe = [this, accepted](seq::shadow::CommunicationKind kind,
+                                    seq::v1::Envelope envelope) {
+        if (!accepted(kind)) return;
+        m_packet->observeLegacyCommunication({kind, {}});
+        if (envelope.payload_case() != seq::v1::Envelope::PAYLOAD_NOT_SET)
+            m_packet->observeLegacyCommunicationProjection(
+                std::move(envelope));
+    };
+
+    if (m_messageShell) {
+        connect(m_messageShell, &MessageShell::chatMessage, this,
+                [observe](uint32_t channel, const QString& from,
+                          const QString& target, const QString& text,
+                          uint32_t color, const QString& channelName) {
+            seq::v1::Envelope envelope;
+            auto* chat = envelope.mutable_chat();
+            chat->set_channel(channel);
+            chat->set_from(from.toStdString());
+            chat->set_target(target.toStdString());
+            chat->set_text(text.toStdString());
+            chat->set_chat_color(color);
+            chat->set_channel_name(channelName.toStdString());
+            observe(seq::shadow::CommunicationKind::ChatMessage,
+                    std::move(envelope));
+        });
+    }
+    if (m_groupMgr) {
+        connect(m_groupMgr, &GroupMgr::rosterUpdated, this,
+                [this, observe] {
+            seq::v1::Envelope envelope;
+            seq::encode::fillGroupUpdate(envelope.mutable_group(),
+                                         *m_groupMgr);
+            observe(seq::shadow::CommunicationKind::GroupRosterUpdated,
+                    std::move(envelope));
+        });
+    }
+    if (m_guildShell) {
+        connect(m_guildShell, &GuildShell::loaded, this, [this, observe] {
+            seq::v1::Envelope envelope;
+            seq::encode::fillGuildRoster(envelope.mutable_guild_roster(),
+                                         *m_guildShell);
+            observe(seq::shadow::CommunicationKind::GuildRosterUpdated,
+                    std::move(envelope));
+        });
+        connect(m_guildShell, &GuildShell::updated, this,
+                [this, observe](const GuildMember*) {
+            seq::v1::Envelope envelope;
+            seq::encode::fillGuildRoster(envelope.mutable_guild_roster(),
+                                         *m_guildShell);
+            observe(seq::shadow::CommunicationKind::GuildRosterUpdated,
+                    std::move(envelope));
+        });
+        connect(m_guildShell, &GuildShell::motdChanged, this,
+                [this, observe] {
+            seq::v1::Envelope envelope;
+            seq::encode::fillGuildMotd(envelope.mutable_guild_motd(),
+                                       *m_guildShell);
+            observe(seq::shadow::CommunicationKind::GuildMotdUpdated,
+                    std::move(envelope));
+        });
+        connect(m_guildShell, &GuildShell::rankNamesChanged, this,
+                [this, observe] {
+            seq::v1::Envelope envelope;
+            seq::encode::fillGuildRankNames(
+                envelope.mutable_guild_rank_names(), *m_guildShell);
+            observe(seq::shadow::CommunicationKind::GuildRankNamesUpdated,
+                    std::move(envelope));
+        });
+    }
+    if (m_zoneMgr) {
+        connect(m_zoneMgr, &ZoneMgr::dynamicZoneChanged, this,
+                [observe] {
+            observe(seq::shadow::CommunicationKind::DynamicZoneUpdated,
+                    seq::v1::Envelope{});
+        });
+    }
+}
+
 bool DaemonApp::startServer()
 {
     if (!m_ws->listen(m_cfg.listenHost, m_cfg.listenPort)) {
@@ -1796,6 +1993,7 @@ bool DaemonApp::startCapture()
             lifecycleSelector(m_cfg.progressionDecoder),
             lifecycleSelector(m_cfg.lootDecoder),
             lifecycleSelector(m_cfg.combatDecoder),
+            lifecycleSelector(m_cfg.communicationDecoder),
             this, "packet");
     } catch (const std::exception& error) {
         qCritical("Rust decoder setup failed: %s", error.what());
@@ -1880,6 +2078,10 @@ ManagerSet DaemonApp::buildManagerSet()
     ms.messageShell->setLootStore(m_lootStore.get());
     ms.messageShell->setLootMutationGuard([this] {
         return !m_packet || m_packet->legacyLootEnabledForCurrentPacket();
+    });
+    ms.messageShell->setCommunicationMutationGuard([this] {
+        return !m_packet ||
+               m_packet->legacyCommunicationEnabledForCurrentPacket();
     });
     connect(ms.messageShell, &MessageShell::lootTransactionReceived, this,
             [this](uint32_t corpseId, uint32_t itemId, uint32_t quantity,

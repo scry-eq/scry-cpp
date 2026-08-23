@@ -93,6 +93,8 @@ SAME_PAYLOAD(FormattedMessage, EventFormattedMessagePayload);
 SAME_PAYLOAD(SpecialMessage, EventSpecialMessagePayload);
 SAME_PAYLOAD(LootMessage, EventLootMessagePayload);
 SAME_PAYLOAD(Chat, EventChat);
+SAME_PAYLOAD(ChatMessage, EventChatMessage);
+SAME_PAYLOAD(UcsRecord, EventUcsRecord);
 SAME_PAYLOAD(BuffList, EventBuffList);
 SAME_PAYLOAD(BuffWire, EventBuffWire);
 SAME_PAYLOAD(BuffAdded, EventActiveBuff);
@@ -100,6 +102,16 @@ SAME_PAYLOAD(BuffUpdated, EventActiveBuff);
 SAME_PAYLOAD(BuffRemoved, EventBuffRemoved);
 SAME_PAYLOAD(GroupFollow, EventGroupFollowPayload);
 SAME_PAYLOAD(GroupDisband, EventGroupDisbandPayload);
+SAME_PAYLOAD(GroupRosterWire, EventGroupRosterWire);
+SAME_PAYLOAD(GroupRosterUpdated, EventGroupRosterState);
+SAME_PAYLOAD(GuildRosterUpdated, EventGuildRosterState);
+SAME_PAYLOAD(GuildRosterWire, EventGuildRosterState);
+SAME_PAYLOAD(GuildMemberStatus, EventGuildMemberStatus);
+SAME_PAYLOAD(GuildMotdUpdated, EventGuildMotdState);
+SAME_PAYLOAD(GuildRankNamesUpdated, EventGuildRankNamesState);
+SAME_PAYLOAD(DynamicZoneInfo, EventDynamicZoneInfo);
+SAME_PAYLOAD(DynamicZoneSwitch, EventDynamicZoneSwitch);
+SAME_PAYLOAD(DynamicZoneUpdated, EventDynamicZoneState);
 SAME_PAYLOAD(LevelUpdate, EventLevelUpdatePayload);
 SAME_PAYLOAD(EnterWorld, EventEnterWorld);
 SAME_PAYLOAD(PlayerIdentityUpdated, EventPlayerIdentity);
@@ -192,6 +204,7 @@ private slots:
     void progressionAdapterPreservesOptionalFieldsAndProjectsExactly();
     void lootAdapterPreservesContextPresenceAndProjectionOrder();
     void combatAdapterPreservesPresenceOrderAndCompatibilityProjection();
+    void communicationAdapterPreservesStateOrderAndProjection();
     void combatProjectionUsesCompatibilityZeroAndUnknownSpellFallback();
     void spellProjectionUsesDatabaseMetadataAndUnknownFallback();
     void malformedCombatDoesNotMutateOrProject();
@@ -305,12 +318,25 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     ADD(buff_added, BuffAdded, EventActiveBuff);
     ADD(buff_updated, BuffUpdated, EventActiveBuff);
     ADD(buff_removed, BuffRemoved, EventBuffRemoved);
+    ADD(chat_message, ChatMessage, EventChatMessage);
+    ADD(ucs_record, UcsRecord, EventUcsRecord);
+    ADD(group_roster_wire, GroupRosterWire, EventGroupRosterWire);
+    ADD(group_roster_updated, GroupRosterUpdated, EventGroupRosterState);
+    ADD(guild_roster_updated, GuildRosterUpdated, EventGuildRosterState);
+    ADD(guild_member_status, GuildMemberStatus, EventGuildMemberStatus);
+    ADD(guild_motd_updated, GuildMotdUpdated, EventGuildMotdState);
+    ADD(guild_rank_names_updated, GuildRankNamesUpdated,
+        EventGuildRankNamesState);
+    ADD(dynamic_zone_info, DynamicZoneInfo, EventDynamicZoneInfo);
+    ADD(dynamic_zone_switch, DynamicZoneSwitch, EventDynamicZoneSwitch);
+    ADD(dynamic_zone_updated, DynamicZoneUpdated, EventDynamicZoneState);
+    ADD(guild_roster_wire, GuildRosterWire, EventGuildRosterState);
 #undef ADD
 
     Batch batch = translate(std::move(raw));
     QCOMPARE(batch.protocolGeneration, uint64_t(77));
     QCOMPARE(batch.disposition, Disposition::Decoded);
-    QCOMPARE(batch.events.size(), size_t(86));
+    QCOMPARE(batch.events.size(), size_t(98));
 
 #define CHECK(index, type) QVERIFY(std::holds_alternative<type>(batch.events[index]))
     CHECK(0, SpawnAdded); CHECK(1, SpawnMoved); CHECK(2, SpawnRenamed);
@@ -350,6 +376,12 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     CHECK(80, SpellCastStarted); CHECK(81, SpellCastInterrupted);
     CHECK(82, BuffWire); CHECK(83, BuffAdded); CHECK(84, BuffUpdated);
     CHECK(85, BuffRemoved);
+    CHECK(86, ChatMessage); CHECK(87, UcsRecord);
+    CHECK(88, GroupRosterWire); CHECK(89, GroupRosterUpdated);
+    CHECK(90, GuildRosterUpdated); CHECK(91, GuildMemberStatus);
+    CHECK(92, GuildMotdUpdated); CHECK(93, GuildRankNamesUpdated);
+    CHECK(94, DynamicZoneInfo); CHECK(95, DynamicZoneSwitch);
+    CHECK(96, DynamicZoneUpdated); CHECK(97, GuildRosterWire);
 #undef CHECK
 }
 
@@ -762,6 +794,29 @@ void RustSessionTest::lifecycleSelectorIsImmutablePerSession()
     QVERIFY(combatShadow.comparesCombat());
     QVERIFY(!combatRust.runsLegacyCombat());
     QVERIFY(combatRust.appliesRustCombat());
+
+    Session communicationLegacy(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Legacy,
+        LootSelector::Legacy, CombatSelector::Legacy,
+        CommunicationSelector::Legacy);
+    Session communicationShadow(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Legacy,
+        LootSelector::Legacy, CombatSelector::Legacy,
+        CommunicationSelector::Shadow);
+    Session communicationRust(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Legacy,
+        LootSelector::Legacy, CombatSelector::Legacy,
+        CommunicationSelector::Rust);
+    QVERIFY(communicationLegacy.runsLegacyCommunication());
+    QVERIFY(communicationShadow.comparesCommunication());
+    QVERIFY(!communicationRust.runsLegacyCommunication());
+    QVERIFY(communicationRust.appliesRustCommunication());
 }
 
 void RustSessionTest::entityAdapterPreservesOptionalFieldsAndProjectionOrder()
@@ -1424,6 +1479,147 @@ void RustSessionTest::combatAdapterPreservesPresenceOrderAndCompatibilityProject
     QCOMPARE(lowLevel.events.size(), size_t(4));
     for (const auto& event : lowLevel.events) QVERIFY(!isCombatEvent(event));
     QVERIFY(combatObservations(lowLevel).empty());
+}
+
+void RustSessionTest::communicationAdapterPreservesStateOrderAndProjection()
+{
+    ffi::SessionDecodeBatch raw;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+
+    ffi::EventChatMessage chat;
+    chat.kind = ffi::EventChatMessageKind::Formatted;
+    chat.channel = 19;
+    chat.from = ::rust::String("Andr\xc3\xa9");
+    chat.target = ::rust::String("Target");
+    chat.chat_color = 259;
+    chat.has_format_id = true;
+    chat.format_id = 456;
+    chat.args.push_back(::rust::String("caf\xc3\xa9"));
+    addPayload(raw, raw.chat_message, ffi::SessionEventKind::ChatMessage,
+               std::move(chat));
+
+    ffi::EventGroupRosterState group;
+    group.has_group_id = true;
+    group.group_id = 77;
+    group.complete = false;
+    ffi::EventGroupMember peer;
+    peer.slot = 3;
+    peer.name = ::rust::String("Alice");
+    peer.has_level = true;
+    peer.level = 60;
+    group.members.push_back(std::move(peer));
+    addPayload(raw, raw.group_roster_updated,
+               ffi::SessionEventKind::GroupRosterUpdated, std::move(group));
+
+    ffi::EventGuildRosterState guild;
+    guild.guild_id = 15;
+    guild.complete = true;
+    ffi::EventGuildRosterMember member;
+    member.name = ::rust::String("Zulu");
+    member.level = 125;
+    member.class_ = 2;
+    member.class_mask = 6;
+    member.rank = 3;
+    member.last_on = 1234;
+    member.banker = true;
+    member.alt = false;
+    member.full_member = true;
+    member.public_note = ::rust::String("note");
+    member.zone_id = 22;
+    guild.members.push_back(std::move(member));
+    addPayload(raw, raw.guild_roster_updated,
+               ffi::SessionEventKind::GuildRosterUpdated, std::move(guild));
+
+    ffi::EventGuildMotdState motd;
+    motd.guild_id = 15;
+    motd.message = ::rust::String("Raid at 8");
+    motd.sender = ::rust::String("Setter");
+    addPayload(raw, raw.guild_motd_updated,
+               ffi::SessionEventKind::GuildMotdUpdated, std::move(motd));
+
+    ffi::EventGuildRankNamesState ranks;
+    ranks.guild_id = 15;
+    ffi::EventGuildRankNameEntry rank;
+    rank.rank_index = 3;
+    rank.rank_name = ::rust::String("Officer");
+    ranks.ranks.push_back(std::move(rank));
+    addPayload(raw, raw.guild_rank_names_updated,
+               ffi::SessionEventKind::GuildRankNamesUpdated,
+               std::move(ranks));
+
+    ffi::EventDynamicZoneState dz;
+    dz.active = true;
+    dz.has_zone_id = true;
+    dz.zone_id = 42;
+    dz.has_instance_id = true;
+    dz.instance_id = 7;
+    dz.has_kind = true;
+    dz.kind = 5;
+    dz.has_position = true;
+    dz.position.x = 1.5f;
+    dz.position.y = 2.5f;
+    dz.position.z = -3.5f;
+    dz.has_max_players = true;
+    dz.max_players = 6;
+    dz.expedition_name = ::rust::String("Plane Raid");
+    dz.leader_name = ::rust::String("Alice");
+    dz.complete = true;
+    addPayload(raw, raw.dynamic_zone_updated,
+               ffi::SessionEventKind::DynamicZoneUpdated, std::move(dz));
+
+    const Batch batch = translate(std::move(raw));
+    const auto observations = communicationObservations(batch);
+    QCOMPARE(observations.size(), size_t(6));
+    QCOMPARE(observations[0].kind, CommunicationKind::ChatMessage);
+    QCOMPARE(observations[1].kind, CommunicationKind::GroupRosterUpdated);
+    QCOMPARE(observations[2].kind, CommunicationKind::GuildRosterUpdated);
+    QCOMPARE(observations[3].kind, CommunicationKind::GuildMotdUpdated);
+    QCOMPARE(observations[4].kind,
+             CommunicationKind::GuildRankNamesUpdated);
+    QCOMPARE(observations[5].kind, CommunicationKind::DynamicZoneUpdated);
+    for (const auto& event : batch.events) QVERIFY(isCommunicationEvent(event));
+
+    const auto projections = projectCommunication(
+        batch, [](uint32_t formatId, const std::vector<std::string>& args) {
+            if (formatId != 456 || args.size() != 1) return std::string();
+            return std::string("resolved ") + args[0];
+        });
+    QCOMPARE(projections.size(), size_t(5));
+    QCOMPARE(QString::fromStdString(projections[0].chat().text()),
+             QString::fromUtf8("resolved caf\xc3\xa9"));
+    QCOMPARE(projections[1].group().members_size(), 5);
+    QCOMPARE(projections[1].group().members(3).name(), std::string("Alice"));
+    QCOMPARE(projections[1].group().members(3).level(), uint32_t(60));
+    QCOMPARE(projections[2].guild_roster().members(0).class_mask(),
+             uint32_t(6));
+    QCOMPARE(projections[3].guild_motd().guild_id(), uint32_t(15));
+    QCOMPARE(projections[4].guild_rank_names().rank_ids(0), uint32_t(3));
+
+    ffi::SessionDecodeBatch lowLevelRaw;
+    lowLevelRaw.disposition = ffi::SessionDisposition::Decoded;
+    addPayload(lowLevelRaw, lowLevelRaw.ucs_record,
+               ffi::SessionEventKind::UcsRecord, ffi::EventUcsRecord{});
+    addPayload(lowLevelRaw, lowLevelRaw.group_roster_wire,
+               ffi::SessionEventKind::GroupRosterWire,
+               ffi::EventGroupRosterWire{});
+    addPayload(lowLevelRaw, lowLevelRaw.guild_roster_wire,
+               ffi::SessionEventKind::GuildRosterWire,
+               ffi::EventGuildRosterState{});
+    addPayload(lowLevelRaw, lowLevelRaw.guild_member_status,
+               ffi::SessionEventKind::GuildMemberStatus,
+               ffi::EventGuildMemberStatus{});
+    addPayload(lowLevelRaw, lowLevelRaw.dynamic_zone_info,
+               ffi::SessionEventKind::DynamicZoneInfo,
+               ffi::EventDynamicZoneInfo{});
+    addPayload(lowLevelRaw, lowLevelRaw.dynamic_zone_switch,
+               ffi::SessionEventKind::DynamicZoneSwitch,
+               ffi::EventDynamicZoneSwitch{});
+    const Batch lowLevel = translate(std::move(lowLevelRaw));
+    QCOMPARE(lowLevel.events.size(), size_t(6));
+    for (const auto& event : lowLevel.events)
+        QVERIFY(!isCommunicationEvent(event));
+    QVERIFY(communicationObservations(lowLevel).empty());
+    QVERIFY(projectCommunication(lowLevel).empty());
 }
 
 void RustSessionTest::combatProjectionUsesCompatibilityZeroAndUnknownSpellFallback()

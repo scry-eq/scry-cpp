@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <optional>
 #include <string>
 #include <variant>
@@ -24,6 +25,7 @@ using PlayerSelector = LifecycleSelector;
 using ProgressionSelector = LifecycleSelector;
 using LootSelector = LifecycleSelector;
 using CombatSelector = LifecycleSelector;
+using CommunicationSelector = LifecycleSelector;
 enum class LifecycleKind {
     SessionReset,
     EnterWorld,
@@ -77,6 +79,14 @@ enum class CombatKind {
     BuffAdded,
     BuffUpdated,
     BuffRemoved,
+};
+enum class CommunicationKind {
+    ChatMessage,
+    GroupRosterUpdated,
+    GuildRosterUpdated,
+    GuildMotdUpdated,
+    GuildRankNamesUpdated,
+    DynamicZoneUpdated,
 };
 
 struct PlayerIdentityUpdated { rust::EventPlayerIdentity payload; };
@@ -157,6 +167,8 @@ struct FormattedMessage { rust::EventFormattedMessagePayload payload; };
 struct SpecialMessage { rust::EventSpecialMessagePayload payload; };
 struct LootMessage { rust::EventLootMessagePayload payload; };
 struct Chat { rust::EventChat payload; };
+struct ChatMessage { rust::EventChatMessage payload; };
+struct UcsRecord { rust::EventUcsRecord payload; };
 struct BuffList { rust::EventBuffList payload; };
 struct BuffWire { rust::EventBuffWire payload; };
 struct BuffAdded { rust::EventActiveBuff payload; };
@@ -164,6 +176,16 @@ struct BuffUpdated { rust::EventActiveBuff payload; };
 struct BuffRemoved { rust::EventBuffRemoved payload; };
 struct GroupFollow { rust::EventGroupFollowPayload payload; };
 struct GroupDisband { rust::EventGroupDisbandPayload payload; };
+struct GroupRosterWire { rust::EventGroupRosterWire payload; };
+struct GroupRosterUpdated { rust::EventGroupRosterState payload; };
+struct GuildRosterUpdated { rust::EventGuildRosterState payload; };
+struct GuildRosterWire { rust::EventGuildRosterState payload; };
+struct GuildMemberStatus { rust::EventGuildMemberStatus payload; };
+struct GuildMotdUpdated { rust::EventGuildMotdState payload; };
+struct GuildRankNamesUpdated { rust::EventGuildRankNamesState payload; };
+struct DynamicZoneInfo { rust::EventDynamicZoneInfo payload; };
+struct DynamicZoneSwitch { rust::EventDynamicZoneSwitch payload; };
+struct DynamicZoneUpdated { rust::EventDynamicZoneState payload; };
 struct LevelUpdate { rust::EventLevelUpdatePayload payload; };
 struct EnterWorld { rust::EventEnterWorld payload; };
 
@@ -185,12 +207,17 @@ using Event = std::variant<
     Stamina, ManaUpdate, SkillUpdate, SkillsSnapshot, SkillValueUpdated,
     LootTransaction, LootDrops, CorpseLootSnapshot, LootAcquired,
     Money, MoneyBalanceUpdated, SimpleMessage, FormattedMessage,
-    SpecialMessage, LootMessage, Chat, BuffList, BuffWire, BuffAdded,
+    SpecialMessage, LootMessage, Chat, ChatMessage, UcsRecord,
+    BuffList, BuffWire, BuffAdded,
     BuffUpdated, BuffRemoved, GroupFollow, GroupDisband,
+    GroupRosterWire, GroupRosterUpdated, GuildRosterUpdated,
+    GuildRosterWire, GuildMemberStatus, GuildMotdUpdated,
+    GuildRankNamesUpdated, DynamicZoneInfo, DynamicZoneSwitch,
+    DynamicZoneUpdated,
     LevelUpdate, EnterWorld, SessionReset, ZoneTransition,
     ZoneEnvironmentChanged>;
 
-static_assert(std::variant_size_v<Event> == 86,
+static_assert(std::variant_size_v<Event> == 98,
               "the C++ shadow event model must cover every Rust event kind");
 
 // A copyable, deterministic representation used by shadow comparison. The
@@ -275,6 +302,20 @@ struct CombatObservation {
 
 using CombatComparison = LifecycleComparison;
 
+struct CommunicationObservation {
+    CommunicationKind kind = CommunicationKind::ChatMessage;
+    std::vector<uint8_t> payload;
+
+    bool operator==(const CommunicationObservation& other) const
+    {
+        return kind == other.kind && payload == other.payload;
+    }
+};
+
+using CommunicationComparison = LifecycleComparison;
+using ChatTextResolver = std::function<std::string(
+    uint32_t, const std::vector<std::string>&)>;
+
 struct LifecycleProfile {
     std::string name;
     std::string lastName;
@@ -322,6 +363,7 @@ struct Record {
     uint64_t sequence = 0;
     std::optional<PacketRecord> packet;
     std::optional<FlushReason> flushReason;
+    std::optional<size_t> ucsPayloadSize;
     Batch batch;
     size_t retainedBytes = 0;
     bool detailsOmitted = false;
@@ -363,6 +405,15 @@ CombatComparison compareCombat(
     const Batch& rustBatch,
     const std::vector<CombatObservation>& legacyEvents,
     const std::vector<seq::v1::Envelope>& legacyProjections);
+std::vector<CommunicationObservation> communicationObservations(
+    const Batch& batch);
+std::vector<seq::v1::Envelope> projectCommunication(
+    const Batch& batch, const ChatTextResolver& resolveText = {});
+CommunicationComparison compareCommunication(
+    const Batch& rustBatch,
+    const std::vector<CommunicationObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections,
+    const ChatTextResolver& resolveText = {});
 LifecycleObservation observeSessionReset(rust::EventSessionResetReason reason);
 LifecycleObservation observeEnterWorld(const std::string& characterName);
 LifecycleObservation observeZoneServer(const std::string& host, uint16_t port);
@@ -393,6 +444,7 @@ bool isPlayerEvent(const Event& event);
 bool isProgressionEvent(const Event& event);
 bool isLootEvent(const Event& event);
 bool isCombatEvent(const Event& event);
+bool isCommunicationEvent(const Event& event);
 
 class ProtocolRegistry {
 public:
@@ -418,11 +470,15 @@ public:
             PlayerSelector playerSelector = PlayerSelector::Legacy,
             ProgressionSelector progressionSelector = ProgressionSelector::Legacy,
             LootSelector lootSelector = LootSelector::Legacy,
-            CombatSelector combatSelector = CombatSelector::Legacy);
+            CombatSelector combatSelector = CombatSelector::Legacy,
+            CommunicationSelector communicationSelector =
+                CommunicationSelector::Legacy);
 
     const Record& decode(Stream stream, uint16_t opcode, Direction direction,
                          const uint8_t* payload, size_t payloadSize,
                          int64_t timestamp);
+    const Record& decodeUcs(Direction direction, const uint8_t* payload,
+                            size_t payloadSize);
     const Record& flush(FlushReason reason);
     const std::deque<Record>& journal() const { return m_journal; }
     uint64_t recordCount() const { return m_recordCount; }
@@ -470,6 +526,14 @@ public:
     { return m_combatSelector == CombatSelector::Shadow; }
     bool appliesRustCombat() const
     { return m_combatSelector == CombatSelector::Rust; }
+    CommunicationSelector communicationSelector() const
+    { return m_communicationSelector; }
+    bool runsLegacyCommunication() const
+    { return m_communicationSelector != CommunicationSelector::Rust; }
+    bool comparesCommunication() const
+    { return m_communicationSelector == CommunicationSelector::Shadow; }
+    bool appliesRustCommunication() const
+    { return m_communicationSelector == CommunicationSelector::Rust; }
     const std::optional<LifecycleComparison>& lastLifecycleComparison() const
     { return m_lastLifecycleComparison; }
     void recordLifecycleComparison(LifecycleComparison comparison)
@@ -494,6 +558,10 @@ public:
     { return m_lastCombatComparison; }
     void recordCombatComparison(CombatComparison comparison)
     { m_lastCombatComparison = std::move(comparison); }
+    const std::optional<CommunicationComparison>& lastCommunicationComparison() const
+    { return m_lastCommunicationComparison; }
+    void recordCommunicationComparison(CommunicationComparison comparison)
+    { m_lastCommunicationComparison = std::move(comparison); }
 
 private:
     const Record& append(Record record);
@@ -508,6 +576,7 @@ private:
     const ProgressionSelector m_progressionSelector;
     const LootSelector m_lootSelector;
     const CombatSelector m_combatSelector;
+    const CommunicationSelector m_communicationSelector;
     uint64_t m_recordCount = 0;
     uint64_t m_droppedRecordCount = 0;
     std::deque<Record> m_journal;
@@ -517,6 +586,7 @@ private:
     std::optional<ProgressionComparison> m_lastProgressionComparison;
     std::optional<LootComparison> m_lastLootComparison;
     std::optional<CombatComparison> m_lastCombatComparison;
+    std::optional<CommunicationComparison> m_lastCommunicationComparison;
 };
 
 } // namespace seq::shadow

@@ -719,6 +719,7 @@ void ZoneMgr::dynamicZonePoints(const uint8_t *data, size_t len, uint8_t)
          m_dzType = 0; // green
       else
          m_dzType = 1; // pink
+      emit dynamicZoneChanged();
    }
    else if(len == 8)
    {
@@ -726,6 +727,7 @@ void ZoneMgr::dynamicZonePoints(const uint8_t *data, size_t len, uint8_t)
       m_dzPoint.setPoint(0, 0, 0);
       m_dzID = 0;
       m_dzLongName = "";
+      emit dynamicZoneChanged();
    }
 }
 
@@ -741,5 +743,37 @@ void ZoneMgr::dynamicZoneInfo(const uint8_t* data, size_t len, uint8_t)
       m_dzPoint.setPoint(0, 0, 0);
       m_dzID = 0;
       m_dzLongName = "";
+      emit dynamicZoneChanged();
    }
+}
+
+void ZoneMgr::applyDynamicZoneState(
+    bool active, std::optional<uint16_t> zoneId,
+    std::optional<uint16_t> instanceId, std::optional<uint32_t> kind,
+    std::optional<float> x, std::optional<float> y, std::optional<float> z,
+    std::optional<uint32_t> maxPlayers, const QString& expeditionName,
+    const QString& leaderName, bool complete)
+{
+   m_dzActive = active;
+   m_dzInstanceId = instanceId;
+   m_dzKind = kind;
+   m_dzMaxPlayers = maxPlayers;
+   m_dzExpeditionName = expeditionName;
+   m_dzLeaderName = leaderName;
+   m_dzComplete = complete;
+   if (!active) {
+      m_dzPoint.setPoint(0, 0, 0);
+      m_dzID = 0;
+      m_dzLongName.clear();
+      m_dzType = 0;
+   } else {
+      m_dzID = zoneId.value_or(0);
+      m_dzLongName = zoneId ? zoneLongNameFromID(*zoneId) : QString();
+      if (x && y && z)
+         m_dzPoint.setPoint(lrintf(*x), lrintf(*y), lrintf(*z));
+      else
+         m_dzPoint.setPoint(0, 0, 0);
+      m_dzType = kind && *kind != 1 && *kind > 2 && *kind <= 5 ? 0 : 1;
+   }
+   emit dynamicZoneChanged();
 }

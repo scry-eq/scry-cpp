@@ -29,7 +29,9 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include <QObject>
 
@@ -75,6 +77,11 @@ class MessageShell : public QObject
   void applyLootAcquired(const seq::rust::EventLootAcquisition& acquisition);
   void applyCorpseLootSnapshot(
       const seq::rust::EventCorpseLootSnapshot& snapshot);
+  void setCommunicationMutationGuard(std::function<bool()> guard)
+  { m_communicationMutationGuard = std::move(guard); }
+  QString resolveChatText(uint32_t formatId,
+                          const std::vector<std::string>& args) const;
+  void applyChatMessage(const seq::rust::EventChatMessage& message);
 
  public slots:
    void channelMessage(const uint8_t* cmsg, size_t, uint8_t);
@@ -193,6 +200,7 @@ class MessageShell : public QObject
    LootStore* m_lootStore = nullptr;
    rust::Box<seq::rust::EqlLootTracker> m_lootTracker;
    std::function<bool()> m_lootMutationGuard;
+   std::function<bool()> m_communicationMutationGuard;
 };
 
 

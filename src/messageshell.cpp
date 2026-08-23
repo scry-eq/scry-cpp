@@ -212,6 +212,7 @@ void MessageShell::channelMessage(const uint8_t* data, size_t len, uint8_t dir)
   auto out = seq::rust::decode_channel_message(
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok) return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   const uint32_t chanNum = out.chan_num;
 
@@ -338,6 +339,47 @@ static MessageType chatColor2MessageType(ChatColor chatColor)
   return messageType;
 }
 
+QString MessageShell::resolveChatText(
+    uint32_t formatId, const std::vector<std::string>& rawArgs) const
+{
+  if (!m_eqStrings) return QString();
+  if (rawArgs.empty())
+    return stripEqItemLinks(m_eqStrings->message(formatId));
+  QStringList args;
+  args.reserve(int(rawArgs.size()));
+  for (const auto& arg : rawArgs)
+    args.push_back(QString::fromUtf8(arg.data(), int(arg.size())));
+  return stripEqItemLinks(m_eqStrings->formatMessage(formatId, args));
+}
+
+void MessageShell::applyChatMessage(const seq::rust::EventChatMessage& p)
+{
+  std::vector<std::string> args;
+  args.reserve(p.args.size());
+  for (const auto& arg : p.args) args.emplace_back(arg);
+  const QString text = p.has_format_id
+      ? resolveChatText(p.format_id, args) : qString(p.text);
+  if (text.isEmpty()) return;
+
+  const QString sender = qString(p.from);
+  const QString target = qString(p.target);
+  const QString channelName = qString(p.channel_name);
+  const MessageType mt = static_cast<MessageType>(p.channel);
+  QString display = text;
+  if (p.kind == seq::rust::EventChatMessageKind::Common) {
+    display = target.isEmpty()
+        ? QString("'%1' - %2").arg(sender, text)
+        : QString("'%1' -> '%2' - %3").arg(sender, target, text);
+  } else if (p.kind == seq::rust::EventChatMessageKind::Special) {
+    display = target.isEmpty()
+        ? QString("Special: '%1' - %2").arg(sender, text)
+        : QString("Special: '%1' -> '%2' - %3").arg(sender, target, text);
+  }
+  if (p.kind != seq::rust::EventChatMessageKind::Ucs)
+    m_messages->addMessage(mt, display);
+  emit chatMessage(p.channel, sender, target, text, p.chat_color, channelName);
+}
+
 void MessageShell::formattedMessage(const uint8_t* data, size_t len, uint8_t dir)
 {
   // avoid client chatter and do nothing if not viewing channel messages
@@ -347,6 +389,7 @@ void MessageShell::formattedMessage(const uint8_t* data, size_t len, uint8_t dir
   auto out = seq::rust::decode_formatted_message(
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok) return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   // Variable-length text follows the 13-byte header; pass through to
   // EQStr::formatMessage which walks the {u32 len, bytes} subseq array.
@@ -376,6 +419,7 @@ void MessageShell::formattedMessageEQL(const uint8_t* data, size_t len, uint8_t 
   auto out = seq::rust::decode_formatted_message(
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok) return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   // EQL 0x15d0 (07/14): stock length-prefixed FormattedMessage — format_id@5,
   // msg_color@9 (message type / chat colour), positional args (the parser has
@@ -410,9 +454,11 @@ void MessageShell::lootMessage(const uint8_t* data, size_t len, uint8_t dir)
   if (!out.ok || out.text.empty())
     return;
   const QString text = QString::fromUtf8(out.text.data(), out.text.size());
-  m_messages->addMessage(MT_General, text);
-  emit chatMessage(static_cast<uint32_t>(MT_General), QString(), QString(),
-                   text, out.color);
+  if (!m_communicationMutationGuard || m_communicationMutationGuard()) {
+    m_messages->addMessage(MT_General, text);
+    emit chatMessage(static_cast<uint32_t>(MT_General), QString(), QString(),
+                     text, out.color);
+  }
   if (m_lootMutationGuard && !m_lootMutationGuard()) return;
   recordLoot(m_lootTracker->on_loot_message(out.color, out.text, out.item_id,
                                             out.item_name, nowMs()));
@@ -477,6 +523,7 @@ void MessageShell::simpleMessage(const uint8_t* data, size_t len, uint8_t dir)
   auto out = seq::rust::decode_simple_message(
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok) return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   const MessageType mt = chatColor2MessageType(
       static_cast<ChatColor>(out.message_color));
@@ -495,6 +542,7 @@ void MessageShell::specialMessage(const uint8_t* data, size_t len, uint8_t dir)
   auto out = seq::rust::decode_special_message(
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok) return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   const Item* target = NULL;
   if (out.target)
@@ -593,6 +641,7 @@ void MessageShell::ucsChatMessage(const uint8_t* data, size_t len, uint8_t dir,
   // zone/world server. Rust does the keyless XOR + SPAM-anchored record parse.
   if (dir != DIR_Server || data == NULL || len < 12)
     return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   auto recs = seq::rust::decode_ucs_chat(rust::Slice<const uint8_t>{data, len});
 

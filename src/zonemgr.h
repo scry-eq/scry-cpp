@@ -83,6 +83,17 @@ class ZoneMgr : public QObject
   const Point3D<int16_t>& dzPoint() const { return m_dzPoint; }
   QString dzLongName() { return m_dzLongName; }
   uint32_t dzType() { return m_dzType; }
+  void applyDynamicZoneState(bool active,
+                             std::optional<uint16_t> zoneId,
+                             std::optional<uint16_t> instanceId,
+                             std::optional<uint32_t> kind,
+                             std::optional<float> x,
+                             std::optional<float> y,
+                             std::optional<float> z,
+                             std::optional<uint32_t> maxPlayers,
+                             const QString& expeditionName,
+                             const QString& leaderName,
+                             bool complete);
 
   // Target-neutral primitive for the eql backend (EqlDispatch): set the active
   // zone directly from OP_NewZone's decoded short/long names and emit
@@ -153,6 +164,7 @@ class ZoneMgr : public QObject
   // live/test.
   void zoneResolved(const QString& shortZoneName);
   void entityZonePointsChanged();
+  void dynamicZoneChanged();
   
  private:
   void adoptLiveZoneNames(const QString& shortName, const QString& longName);
@@ -174,6 +186,13 @@ class ZoneMgr : public QObject
   uint32_t m_dzID;
   QString m_dzLongName;
   uint32_t m_dzType;
+  bool m_dzActive = false;
+  std::optional<uint16_t> m_dzInstanceId;
+  std::optional<uint32_t> m_dzKind;
+  std::optional<uint32_t> m_dzMaxPlayers;
+  QString m_dzExpeditionName;
+  QString m_dzLeaderName;
+  bool m_dzComplete = false;
 };
 
 #endif // ZONEMGR

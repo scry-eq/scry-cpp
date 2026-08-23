@@ -561,6 +561,14 @@ Batch translate(rust::SessionDecodeBatch batch)
         case rust::SessionEventKind::Chat:
             out.events.emplace_back(Chat{takePayload(batch.chat, index)});
             break;
+        case rust::SessionEventKind::ChatMessage:
+            out.events.emplace_back(ChatMessage{
+                takePayload(batch.chat_message, index)});
+            break;
+        case rust::SessionEventKind::UcsRecord:
+            out.events.emplace_back(UcsRecord{
+                takePayload(batch.ucs_record, index)});
+            break;
         case rust::SessionEventKind::BuffList:
             out.events.emplace_back(BuffList{takePayload(batch.buff_list, index)});
             break;
@@ -586,6 +594,46 @@ Batch translate(rust::SessionDecodeBatch batch)
         case rust::SessionEventKind::GroupDisband:
             out.events.emplace_back(GroupDisband{
                 takePayload(batch.group_disband, index)});
+            break;
+        case rust::SessionEventKind::GroupRosterWire:
+            out.events.emplace_back(GroupRosterWire{
+                takePayload(batch.group_roster_wire, index)});
+            break;
+        case rust::SessionEventKind::GroupRosterUpdated:
+            out.events.emplace_back(GroupRosterUpdated{
+                takePayload(batch.group_roster_updated, index)});
+            break;
+        case rust::SessionEventKind::GuildRosterUpdated:
+            out.events.emplace_back(GuildRosterUpdated{
+                takePayload(batch.guild_roster_updated, index)});
+            break;
+        case rust::SessionEventKind::GuildRosterWire:
+            out.events.emplace_back(GuildRosterWire{
+                takePayload(batch.guild_roster_wire, index)});
+            break;
+        case rust::SessionEventKind::GuildMemberStatus:
+            out.events.emplace_back(GuildMemberStatus{
+                takePayload(batch.guild_member_status, index)});
+            break;
+        case rust::SessionEventKind::GuildMotdUpdated:
+            out.events.emplace_back(GuildMotdUpdated{
+                takePayload(batch.guild_motd_updated, index)});
+            break;
+        case rust::SessionEventKind::GuildRankNamesUpdated:
+            out.events.emplace_back(GuildRankNamesUpdated{
+                takePayload(batch.guild_rank_names_updated, index)});
+            break;
+        case rust::SessionEventKind::DynamicZoneInfo:
+            out.events.emplace_back(DynamicZoneInfo{
+                takePayload(batch.dynamic_zone_info, index)});
+            break;
+        case rust::SessionEventKind::DynamicZoneSwitch:
+            out.events.emplace_back(DynamicZoneSwitch{
+                takePayload(batch.dynamic_zone_switch, index)});
+            break;
+        case rust::SessionEventKind::DynamicZoneUpdated:
+            out.events.emplace_back(DynamicZoneUpdated{
+                takePayload(batch.dynamic_zone_updated, index)});
             break;
         case rust::SessionEventKind::LevelUpdate:
             out.events.emplace_back(LevelUpdate{takePayload(batch.level_update, index)});
@@ -1653,6 +1701,234 @@ CombatComparison compareCombat(
     return comparison;
 }
 
+bool isCommunicationEvent(const Event& event)
+{
+    return std::holds_alternative<ChatMessage>(event) ||
+           std::holds_alternative<GroupRosterUpdated>(event) ||
+           std::holds_alternative<GuildRosterUpdated>(event) ||
+           std::holds_alternative<GuildMotdUpdated>(event) ||
+           std::holds_alternative<GuildRankNamesUpdated>(event) ||
+           std::holds_alternative<DynamicZoneUpdated>(event);
+}
+
+std::vector<CommunicationObservation> communicationObservations(
+    const Batch& batch)
+{
+    std::vector<CommunicationObservation> out;
+    for (const Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            CommunicationObservation observation;
+            if constexpr (std::is_same_v<T, ChatMessage>) {
+                observation.kind = CommunicationKind::ChatMessage;
+                appendScalar(observation.payload, p.kind);
+                appendScalar(observation.payload, p.channel);
+                appendString(observation.payload, p.from);
+                appendString(observation.payload, p.target);
+                appendString(observation.payload, p.text);
+                appendScalar(observation.payload, p.chat_color);
+                appendString(observation.payload, p.channel_name);
+                appendScalar(observation.payload, p.has_format_id);
+                if (p.has_format_id)
+                    appendScalar(observation.payload, p.format_id);
+                appendScalar(observation.payload, uint64_t(p.args.size()));
+                for (const auto& arg : p.args)
+                    appendString(observation.payload, arg);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, GroupRosterUpdated>) {
+                observation.kind = CommunicationKind::GroupRosterUpdated;
+                appendScalar(observation.payload, p.has_group_id);
+                if (p.has_group_id)
+                    appendScalar(observation.payload, p.group_id);
+                appendScalar(observation.payload, uint64_t(p.members.size()));
+                for (const auto& member : p.members) {
+                    appendScalar(observation.payload, member.slot);
+                    appendString(observation.payload, member.name);
+                    appendScalar(observation.payload, member.has_level);
+                    if (member.has_level)
+                        appendScalar(observation.payload, member.level);
+                }
+                appendScalar(observation.payload, p.complete);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, GuildRosterUpdated>) {
+                observation.kind = CommunicationKind::GuildRosterUpdated;
+                appendScalar(observation.payload, p.guild_id);
+                appendScalar(observation.payload, uint64_t(p.members.size()));
+                for (const auto& member : p.members) {
+                    appendString(observation.payload, member.name);
+                    appendScalar(observation.payload, member.level);
+                    appendScalar(observation.payload, member.class_);
+                    appendScalar(observation.payload, member.class_mask);
+                    appendScalar(observation.payload, member.rank);
+                    appendScalar(observation.payload, member.last_on);
+                    appendScalar(observation.payload, member.banker);
+                    appendScalar(observation.payload, member.alt);
+                    appendScalar(observation.payload, member.full_member);
+                    appendString(observation.payload, member.public_note);
+                    appendScalar(observation.payload, member.zone_id);
+                }
+                appendScalar(observation.payload, p.complete);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, GuildMotdUpdated>) {
+                observation.kind = CommunicationKind::GuildMotdUpdated;
+                appendScalar(observation.payload, p.guild_id);
+                appendString(observation.payload, p.message);
+                appendString(observation.payload, p.sender);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, GuildRankNamesUpdated>) {
+                observation.kind = CommunicationKind::GuildRankNamesUpdated;
+                appendScalar(observation.payload, p.guild_id);
+                appendScalar(observation.payload, uint64_t(p.ranks.size()));
+                for (const auto& rank : p.ranks) {
+                    appendScalar(observation.payload, rank.rank_index);
+                    appendString(observation.payload, rank.rank_name);
+                }
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, DynamicZoneUpdated>) {
+                observation.kind = CommunicationKind::DynamicZoneUpdated;
+                appendScalar(observation.payload, p.active);
+                appendScalar(observation.payload, p.has_zone_id);
+                if (p.has_zone_id) appendScalar(observation.payload, p.zone_id);
+                appendScalar(observation.payload, p.has_instance_id);
+                if (p.has_instance_id)
+                    appendScalar(observation.payload, p.instance_id);
+                appendScalar(observation.payload, p.has_kind);
+                if (p.has_kind) appendScalar(observation.payload, p.kind);
+                appendScalar(observation.payload, p.has_position);
+                if (p.has_position) {
+                    appendScalar(observation.payload, p.position.x);
+                    appendScalar(observation.payload, p.position.y);
+                    appendScalar(observation.payload, p.position.z);
+                }
+                appendScalar(observation.payload, p.has_max_players);
+                if (p.has_max_players)
+                    appendScalar(observation.payload, p.max_players);
+                appendString(observation.payload, p.expedition_name);
+                appendString(observation.payload, p.leader_name);
+                appendScalar(observation.payload, p.complete);
+                out.push_back(std::move(observation));
+            }
+        }, event);
+    }
+    return out;
+}
+
+std::vector<seq::v1::Envelope> projectCommunication(
+    const Batch& batch, const ChatTextResolver& resolveText)
+{
+    std::vector<seq::v1::Envelope> out;
+    for (const Event& event : batch.events) {
+        if (const auto* value = std::get_if<ChatMessage>(&event)) {
+            const auto& p = value->payload;
+            std::string text(p.text);
+            if (p.has_format_id && resolveText) {
+                std::vector<std::string> args;
+                args.reserve(p.args.size());
+                for (const auto& arg : p.args) args.emplace_back(arg);
+                text = resolveText(p.format_id, args);
+            }
+            if (text.empty()) continue;
+            seq::v1::Envelope envelope;
+            auto* chat = envelope.mutable_chat();
+            chat->set_channel(p.channel);
+            chat->set_from(std::string(p.from));
+            chat->set_target(std::string(p.target));
+            chat->set_text(std::move(text));
+            chat->set_chat_color(p.chat_color);
+            chat->set_channel_name(std::string(p.channel_name));
+            out.push_back(std::move(envelope));
+        } else if (const auto* value =
+                       std::get_if<GroupRosterUpdated>(&event)) {
+            seq::v1::Envelope envelope;
+            auto* group = envelope.mutable_group();
+            for (uint32_t slot = 0; slot < 5; ++slot) {
+                auto* target = group->add_members();
+                target->set_slot(slot);
+                const auto& members = value->payload.members;
+                const auto found = std::find_if(
+                    members.begin(), members.end(), [slot](const auto& member) {
+                        return member.slot == slot;
+                    });
+                if (found != members.end()) {
+                    target->set_name(std::string(found->name));
+                    if (found->has_level) target->set_level(found->level);
+                }
+                target->set_in_zone(false);
+            }
+            out.push_back(std::move(envelope));
+        } else if (const auto* value =
+                       std::get_if<GuildRosterUpdated>(&event)) {
+            seq::v1::Envelope envelope;
+            auto* guild = envelope.mutable_guild_roster();
+            guild->set_guild_id(value->payload.guild_id);
+            std::vector<const rust::EventGuildRosterMember*> members;
+            members.reserve(value->payload.members.size());
+            for (const auto& member : value->payload.members)
+                members.push_back(&member);
+            std::sort(members.begin(), members.end(), [](const auto* left,
+                                                         const auto* right) {
+                return std::string(left->name) < std::string(right->name);
+            });
+            for (const auto* member : members) {
+                auto* target = guild->add_members();
+                target->set_name(std::string(member->name));
+                target->set_level(member->level);
+                target->set_class_(member->class_);
+                target->set_class_mask(member->class_mask);
+                target->set_rank(member->rank);
+                target->set_last_on(member->last_on);
+                target->set_banker(member->banker);
+                target->set_alt(member->alt);
+                target->set_full_member(member->full_member);
+                target->set_public_note(std::string(member->public_note));
+                target->set_zone_id(member->zone_id);
+            }
+            out.push_back(std::move(envelope));
+        } else if (const auto* value =
+                       std::get_if<GuildMotdUpdated>(&event)) {
+            seq::v1::Envelope envelope;
+            auto* motd = envelope.mutable_guild_motd();
+            motd->set_guild_id(value->payload.guild_id);
+            motd->set_message(std::string(value->payload.message));
+            motd->set_sender(std::string(value->payload.sender));
+            out.push_back(std::move(envelope));
+        } else if (const auto* value =
+                       std::get_if<GuildRankNamesUpdated>(&event)) {
+            seq::v1::Envelope envelope;
+            auto* ranks = envelope.mutable_guild_rank_names();
+            ranks->set_guild_id(value->payload.guild_id);
+            for (const auto& rank : value->payload.ranks) {
+                ranks->add_rank_ids(rank.rank_index);
+                ranks->add_names(std::string(rank.rank_name));
+            }
+            out.push_back(std::move(envelope));
+        }
+    }
+    return out;
+}
+
+CommunicationComparison compareCommunication(
+    const Batch& rustBatch,
+    const std::vector<CommunicationObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections,
+    const ChatTextResolver& resolveText)
+{
+    CommunicationComparison comparison;
+    const auto rustEvents = communicationObservations(rustBatch);
+    const auto rustProjections = projectCommunication(rustBatch, resolveText);
+    comparison.rustEventCount = rustEvents.size();
+    comparison.legacyEventCount = legacyEvents.size();
+    comparison.rustProjectionCount = rustProjections.size();
+    comparison.legacyProjectionCount = legacyProjections.size();
+    comparison.orderedEventsEqual = rustEvents == legacyEvents;
+    comparison.projectionsEqual =
+        rustProjections.size() == legacyProjections.size() &&
+        std::equal(rustProjections.begin(), rustProjections.end(),
+                   legacyProjections.begin(), sameEnvelope);
+    return comparison;
+}
+
 std::vector<seq::v1::Envelope> projectLifecycle(const Batch& batch)
 {
     std::vector<seq::v1::Envelope> projections;
@@ -1734,7 +2010,8 @@ Session::Session(const ProtocolRegistry& registry,
                  PlayerSelector playerSelector,
                  ProgressionSelector progressionSelector,
                  LootSelector lootSelector,
-                 CombatSelector combatSelector)
+                 CombatSelector combatSelector,
+                 CommunicationSelector communicationSelector)
     : m_session(rust::session_new(registry.rustRegistry(), backend))
     , m_journalLimit(std::max<size_t>(journalLimit, 1))
     , m_journalByteLimit(std::max<size_t>(journalByteLimit, sizeof(Record)))
@@ -1744,7 +2021,19 @@ Session::Session(const ProtocolRegistry& registry,
     , m_progressionSelector(progressionSelector)
     , m_lootSelector(lootSelector)
     , m_combatSelector(combatSelector)
+    , m_communicationSelector(communicationSelector)
 {
+}
+
+const Record& Session::decodeUcs(Direction direction, const uint8_t* payload,
+                                 size_t payloadSize)
+{
+    auto raw = m_session->decode_ucs(
+        toRust(direction), ::rust::Slice<const uint8_t>(payload, payloadSize));
+    Record record;
+    record.ucsPayloadSize = payloadSize;
+    record.batch = translate(std::move(raw));
+    return append(std::move(record));
 }
 
 const Record& Session::decode(Stream stream, uint16_t opcode,
@@ -1777,7 +2066,8 @@ const Record& Session::append(Record record)
     // record storage. Decoded fields are derived from that source and may use
     // more container overhead, so large single records become summaries before
     // they can dominate a per-Box journal.
-    const size_t payloadBytes = record.packet ? record.packet->payloadSize : 0;
+    const size_t payloadBytes = record.packet
+        ? record.packet->payloadSize : record.ucsPayloadSize.value_or(0);
     record.retainedBytes = sizeof(Record) + payloadBytes;
     if (record.retainedBytes > m_journalByteLimit) {
         // Swap with fresh containers so an oversized decoded batch releases

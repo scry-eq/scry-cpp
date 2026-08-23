@@ -242,6 +242,12 @@ int main(int argc, char** argv)
         "session: legacy, shadow, or rust. The default remains legacy until "
         "capture soak completes. Changing it requires a session restart.",
         "mode", "legacy");
+    QCommandLineOption communicationDecoderOpt(
+        QStringList{"communication-decoder"},
+        "Immutable chat, UCS, group, guild, and dynamic-zone owner for each "
+        "session: legacy, shadow, or rust. The default remains legacy until "
+        "capture soak completes. Changing it requires a session restart.",
+        "mode", "legacy");
     parser.addOption(deviceOpt);
     parser.addOption(ipOpt);
     parser.addOption(listenOpt);
@@ -269,6 +275,7 @@ int main(int argc, char** argv)
     parser.addOption(progressionDecoderOpt);
     parser.addOption(lootDecoderOpt);
     parser.addOption(combatDecoderOpt);
+    parser.addOption(communicationDecoderOpt);
     parser.process(app);
 
     DaemonApp::Config cfg;
@@ -353,6 +360,14 @@ int main(int argc, char** argv)
         cfg.combatDecoder != QLatin1String("shadow") &&
         cfg.combatDecoder != QLatin1String("rust")) {
         qCritical("--combat-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.communicationDecoder =
+        parser.value(communicationDecoderOpt).toLower();
+    if (cfg.communicationDecoder != QLatin1String("legacy") &&
+        cfg.communicationDecoder != QLatin1String("shadow") &&
+        cfg.communicationDecoder != QLatin1String("rust")) {
+        qCritical("--communication-decoder must be legacy, shadow, or rust");
         return 2;
     }
     if (parser.isSet(boxIdleTtlOpt)) {
