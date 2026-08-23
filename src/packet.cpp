@@ -1901,12 +1901,6 @@ void EQPacket::completeShadowApplication(bool legacyDispatched)
   }
 }
 
-const seq::shadow::Session* EQPacket::shadowSession(const Box* box) const
-{
-  const auto it = m_shadowSessions.find(box);
-  return it == m_shadowSessions.end() ? nullptr : it->second.get();
-}
-
 void EQPacket::flushShadowSession(const Box* box,
                                   seq::shadow::FlushReason reason)
 {

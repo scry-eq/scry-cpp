@@ -149,7 +149,6 @@ class EQPacket : public QObject
    // Stateful Rust sessions consume every application packet. Their immutable
    // lifecycle selector decides whether legacy handlers mutate, shadow output
    // is compared, or typed Rust lifecycle events mutate host state.
-   const seq::shadow::Session* shadowSession(const Box* box) const;
    void flushShadowSession(const Box* box, seq::shadow::FlushReason reason);
    void flushAllShadowSessions(seq::shadow::FlushReason reason);
    void finalizeApplicationTraces();

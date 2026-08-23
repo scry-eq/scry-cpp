@@ -507,36 +507,30 @@ public:
     { return m_entitySelector == EntitySelector::Shadow; }
     bool appliesRustEntities() const
     { return m_entitySelector == EntitySelector::Rust; }
-    PlayerSelector playerSelector() const { return m_playerSelector; }
     bool runsLegacyPlayers() const
     { return m_playerSelector != PlayerSelector::Rust; }
     bool comparesPlayers() const
     { return m_playerSelector == PlayerSelector::Shadow; }
     bool appliesRustPlayers() const
     { return m_playerSelector == PlayerSelector::Rust; }
-    ProgressionSelector progressionSelector() const { return m_progressionSelector; }
     bool runsLegacyProgression() const
     { return m_progressionSelector != ProgressionSelector::Rust; }
     bool comparesProgression() const
     { return m_progressionSelector == ProgressionSelector::Shadow; }
     bool appliesRustProgression() const
     { return m_progressionSelector == ProgressionSelector::Rust; }
-    LootSelector lootSelector() const { return m_lootSelector; }
     bool runsLegacyLoot() const
     { return m_lootSelector != LootSelector::Rust; }
     bool comparesLoot() const
     { return m_lootSelector == LootSelector::Shadow; }
     bool appliesRustLoot() const
     { return m_lootSelector == LootSelector::Rust; }
-    CombatSelector combatSelector() const { return m_combatSelector; }
     bool runsLegacyCombat() const
     { return m_combatSelector != CombatSelector::Rust; }
     bool comparesCombat() const
     { return m_combatSelector == CombatSelector::Shadow; }
     bool appliesRustCombat() const
     { return m_combatSelector == CombatSelector::Rust; }
-    CommunicationSelector communicationSelector() const
-    { return m_communicationSelector; }
     bool runsLegacyCommunication() const
     { return m_communicationSelector != CommunicationSelector::Rust; }
     bool comparesCommunication() const
