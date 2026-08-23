@@ -701,13 +701,6 @@ void MessageShell::inspectData(const uint8_t* data)
   emit inspectReceived(inspt);
 }
 
-void MessageShell::syncDateTime(const QDateTime& dt)
-{
-  QString dateString = dt.toString(pSEQPrefs->getPrefString("DateTimeFormat", "Interface", "ddd MMM dd,yyyy - hh:mm ap"));
-
-  m_messages->addMessage(MT_Time, dateString);
-}
-
 void MessageShell::player(const charProfileStruct* player)
 {
   QString message;
@@ -808,24 +801,6 @@ void MessageShell::player(const charProfileStruct* player)
   m_messages->addMessage(MT_Player, message);
 }
 
-void MessageShell::increaseSkill(const uint8_t* data)
-{
-  const skillIncStruct* skilli = (const skillIncStruct*)data;
-  QString tempStr;
-  tempStr = QString::asprintf("Skill: %s has increased (%d)",
-          skill_name(skilli->skillId).toLatin1().data(),
-          skilli->value);
-  m_messages->addMessage(MT_Player, tempStr);
-}
-
-void MessageShell::updateLevel(const uint8_t* data)
-{
-  const levelUpUpdateStruct *levelup = (const levelUpUpdateStruct *)data;
-  QString tempStr;
-  tempStr = QString::asprintf("NewLevel: %d", levelup->level);
-  m_messages->addMessage(MT_Player, tempStr);
-}
-  
 void MessageShell::consMessage(const uint8_t* data, size_t, uint8_t dir) 
 {
   const considerStruct * con = (const considerStruct*)data;
@@ -909,74 +884,6 @@ void MessageShell::consMessage(const uint8_t* data, size_t, uint8_t dir)
   m_messages->addMessage(MT_Consider, msg);
 } // end consMessage()
 
-
-void MessageShell::setExp(uint32_t totalExp, uint32_t totalTick,
-			  uint32_t minExpLevel, uint32_t maxExpLevel, 
-			  uint32_t tickExpLevel)
-{
-    QString tempStr;
-    tempStr = QString::asprintf("Exp: Set: %u total, with %u (%u/330) into level with %u left, where 1/330 = %u",
-		    totalExp, (totalExp - minExpLevel), totalTick, 
-		    (maxExpLevel - totalExp), tickExpLevel);
-    m_messages->addMessage(MT_Player, tempStr);
-}
-
-void MessageShell::newExp(uint32_t newExp, uint32_t totalExp, 
-			  uint32_t totalTick,
-			  uint32_t minExpLevel, uint32_t maxExpLevel, 
-			  uint32_t tickExpLevel)
-{
-  QString tempStr;
-  uint32_t leftExp = maxExpLevel - totalExp;
-
-  // only can display certain things if new experience is greater then 0,
-  // ie. a > 1/330'th experience increment.
-  if (newExp)
-  {
-    // calculate the number of this type of kill needed to level.
-    uint32_t needKills = leftExp / newExp;
-
-    tempStr = QString::asprintf("Exp: New: %u, %u (%u/330) into level with %u left [~%u kills]",
-		    newExp, (totalExp - minExpLevel), totalTick, 
-		    leftExp, needKills);
-  }
-  else
-    tempStr = QString::asprintf("Exp: New: < %u, %u (%u/330) into level with %u left",
-		    tickExpLevel, (totalExp - minExpLevel), totalTick, 
-		    leftExp);
-  
-  m_messages->addMessage(MT_Player, tempStr);
-}
-
-void MessageShell::setAltExp(uint32_t totalExp,
-			     uint32_t maxExp, uint32_t tickExp, 
-			     uint32_t aaPoints)
-{
-  QString tempStr;
-  tempStr = QString::asprintf("ExpAA: Set: %u total, with %u aapoints",
-		  totalExp, aaPoints);
-
-  m_messages->addMessage(MT_Player, tempStr);
-}
-
-void MessageShell::newAltExp(uint32_t newExp, uint32_t totalExp, 
-			     uint32_t totalTick, 
-			     uint32_t maxExp, uint32_t tickExp, 
-			     uint32_t aapoints)
-{
-  QString tempStr;
-  
-  // only can display certain things if new experience is greater then 0,
-  // ie. a > 1/330'th experience increment.
-  if (newExp)
-    tempStr = QString::asprintf("ExpAA: %u, %u (%u/330) with %u left",
-		    newExp, totalExp, totalTick, maxExp - totalExp);
-  else
-    tempStr = QString::asprintf("ExpAA: < %u, %u (%u/330) with %u left",
-		    tickExp, totalExp, totalTick, maxExp - totalExp);
-
-  m_messages->addMessage(MT_Player, tempStr);
-}
 
 void MessageShell::addItem(const Item* item)
 {
