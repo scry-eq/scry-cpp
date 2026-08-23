@@ -2048,11 +2048,6 @@ void EQPacket::connectStream(EQPacketStream* stream)
     }
   }
 
-  connect(stream,
-      SIGNAL(numPacket(int, int)),
-      this,
-      SIGNAL(numPacket(int, int)));
-
   // Session handling
   connect(stream,
       SIGNAL(lockOnClient(in_port_t, in_port_t, in_addr_t)),
@@ -2644,126 +2639,6 @@ void EQPacket::dispatchWorldChatData (size_t len, uint8_t *data,
 }
 
 ///////////////////////////////////////////
-// Returns the current playback speed
-int EQPacket::playbackSpeed(void)
-{
-  if (m_vPacket)
-    return m_vPacket->playbackSpeed();
-  else
-    return m_packetCapture->getPlaybackSpeed();
-}
-
-///////////////////////////////////////////
-// Set the packet playback speed
-void EQPacket::setPlayback(int speed)
-{
-  if (m_vPacket)
-  {
-    m_vPacket->setPlaybackSpeed(speed);
-  }
-  else
-  {
-    m_packetCapture->setPlaybackSpeed(speed);
-  }
-    
-  QString string("");
-    
-  if (speed == 0)
-    string = QString::asprintf("Playback speed set Fast as possible");
-  else if (speed < 0)
-     string = QString::asprintf("Playback paused (']' to resume)");
-  else
-     string = QString::asprintf("Playback speed set to %d", speed);
-
-  emit stsMessage(string, 5000);
-
-  emit resetPacket(m_client2WorldStream->packetCount(), client2world);
-  emit resetPacket(m_world2ClientStream->packetCount(), world2client);
-  emit resetPacket(m_client2ZoneStream->packetCount(), client2zone);
-  emit resetPacket(m_zone2ClientStream->packetCount(), zone2client);
-
-  emit playbackSpeedChanged(speed);
-}
-
-///////////////////////////////////////////
-// Increment the packet playback speed
-void EQPacket::incPlayback(void)
-{
-  int x;
-
-  if (m_vPacket)
-  {
-    x = m_vPacket->playbackSpeed();
-  }
-  else
-  {
-    x = m_packetCapture->getPlaybackSpeed();
-  }
-    
-  switch(x)
-  {
-	// if we were paused go to 1X not full speed
-    case -1:
-      x = 1;
-      break;
-	
-    // can't go faster than full speed
-    case 0:
-      return;
-	
-    case 9:
-      x = 0;
-      break;
-	
-    default:
-      x += 1;
-      break;
-  }
-    
-  setPlayback(x);
-}
-
-///////////////////////////////////////////
-// Decrement the packet playback speed
-void EQPacket::decPlayback(void)
-{
-  int x;
-
-  if (m_vPacket)
-  {
-    x = m_vPacket->playbackSpeed();
-  }
-  else
-  {
-    x = m_packetCapture->getPlaybackSpeed();
-  }
-
-  switch(x)
-  {
-    // paused
-    case -1:
-      return;
-	  break;
-
-    // slower than 1 is paused
-    case 1:
-      x = -1;
-      break;
-	
-    // if we were full speed goto 9
-    case 0:
-      x = 9;
-      break;
-	
-    default:
-      x -= 1;
-      break;
-  }
-    
-  setPlayback(x);
-}
-
-///////////////////////////////////////////
 // Set the IP address of the client to monitor
 void EQPacket::monitorIPClient(const QString& ip)
 {
@@ -2880,11 +2755,6 @@ void EQPacket::resetEQPacket()
   m_zone2ClientStream->setSessionTracking(m_session_tracking);
 
   unlatchClientPort();
-}
-
-int EQPacket::packetCount(int stream)
-{
-  return m_streams[stream]->packetCount();
 }
 
 // ---------------------------------------------------------------------------

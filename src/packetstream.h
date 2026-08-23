@@ -83,7 +83,6 @@ class EQPacketStream : public QObject
   void reset();
   void setSessionTracking(uint8_t);
   void setArqSeqGiveUp(uint16_t);
-  int packetCount(void);
   uint8_t dir();
   EQStreamID streamID();
   // Register a PacketHandler for the opcode+payload+szt (typed dispatch, no Qt
@@ -163,8 +162,6 @@ class EQPacketStream : public QObject
   // Signal a new session key being received
   void sessionKey(uint32_t sessionId, EQStreamID streadid, uint32_t sessionKey);
 		    
-  void numPacket(int, int);
-
  protected:
   void resetCache();
   void setCache(uint16_t serverArqSeq, EQProtocolPacket& packet);
@@ -186,7 +183,6 @@ class EQPacketStream : public QObject
   QHash<void*, EQPacketDispatch*> m_dispatchers;
   EQStreamID m_streamid;
   uint8_t m_dir;
-  int m_packetCount;
   uint8_t m_session_tracking_enabled;
   bool m_muted = false;
   ApplicationPacketHook m_applicationPacketHook;
@@ -228,11 +224,6 @@ inline void EQPacketStream::setSessionTracking(uint8_t val)
 inline void EQPacketStream::setArqSeqGiveUp(uint16_t val)
 {
   m_arqSeqGiveUp = val;
-}
-
-inline int EQPacketStream::packetCount(void)
-{
-  return m_packetCount;
 }
 
 inline uint8_t EQPacketStream::dir()

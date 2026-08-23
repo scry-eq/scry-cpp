@@ -105,9 +105,6 @@ class EQPacket : public QObject
    void start(int delay = 0);
    void stop(void);
 
-   int packetCount(int);
-   int playbackSpeed(void);
-
    // Epoch-ms timestamp of the packet currently being dispatched. During
    // --replay this is the *recorded* time (epoch seconds from the .vpk,
    // ×1000) so regenerated timelines match the original capture; 0 in live
@@ -216,9 +213,6 @@ class EQPacket : public QObject
  public slots:
    void processPackets(void);
    void processPlaybackPackets(void);
-   void incPlayback(void);
-   void decPlayback(void);
-   void setPlayback(int);
    void monitorIPClient(const QString& address);   
    void monitorNextClient();   
    void monitorDevice(const QString& dev);   
@@ -243,16 +237,11 @@ class EQPacket : public QObject
    // instead of hanging in the event loop after EOF.
    void playbackFinished();
 
-   void numPacket(int, int);
-   void resetPacket(int, int);
-   void playbackSpeedChanged(int);
    void clientChanged(in_addr_t);
    void clientPortLatched(in_port_t);
    void serverPortLatched(in_port_t);
    void toggle_session_tracking(bool);
    void filterChanged(void);
-   void stsMessage(const QString &, int = 0);
-
    // new logging
    void newPacket(const EQUDPIPPacketFormat& packet);
    void rawWorldPacket(const uint8_t* data, size_t len, uint8_t dir, 

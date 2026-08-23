@@ -85,7 +85,6 @@ EQPacketStream::EQPacketStream(EQStreamID streamid, uint8_t dir,
     m_dispatchers(),
     m_streamid(streamid),
     m_dir(dir),
-    m_packetCount(0),
     m_session_tracking_enabled(0),
     m_arqSeqExp(0),
     m_arqSeqGiveUp(arqSeqGiveUp),
@@ -555,8 +554,6 @@ void EQPacketStream::dispatchPacketAt(const uint8_t* data, size_t len,
 // handle a new packet on the stream
 void EQPacketStream::handlePacket(EQUDPIPPacketFormat& packet)
 {
-  emit numPacket(++m_packetCount, (int)m_streamid);
-
   // Packet is ours now. Logging needs to know this later on.
   packet.setSessionKey(getSessionKey());
 
