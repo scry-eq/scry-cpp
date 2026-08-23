@@ -1474,18 +1474,6 @@ void EQPacket::resetEQPacket()
   unlatchClientPort();
 }
 
-///////////////////////////////////////////
-// Return the current pcap filter
-const QString EQPacket::pcapFilter()
-{
-  // make sure we aren't playing back packets
-  if (m_playbackPackets != PLAYBACK_OFF)
-    return QString("Playback");
-
-  return m_packetCapture->getFilter();
-}
-
-
 int EQPacket::packetCount(int stream)
 {
   return m_streams[stream]->packetCount();

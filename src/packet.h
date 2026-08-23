@@ -90,7 +90,6 @@ class EQPacket : public QObject
    void start(int delay = 0);
    void stop(void);
 
-   const QString pcapFilter();
    int packetCount(int);
    int playbackSpeed(void);
 
