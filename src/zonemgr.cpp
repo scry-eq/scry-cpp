@@ -284,9 +284,8 @@ int32_t ZoneMgr::fillProfileStruct(charProfileStruct *player, const uint8_t *dat
                 out.spell_slot_refresh.data(), n * sizeof(uint32_t));
   }
 
-  // Buffs — only spellid + duration are consumed (Player::loadProfile,
-  // MessageShell::player, SpellShell::buffLoad). Rest of the spellBuff
-  // slot stays zeroed.
+  // Buffs — only spellid + duration are consumed (Player::loadProfile and
+  // SpellShell::buffLoad). Rest of the spellBuff slot stays zeroed.
   {
     const std::size_t n = std::min<std::size_t>(out.buff_spell_ids.size(),
         sizeof(player->profile.buffs) / sizeof(spellBuff));
