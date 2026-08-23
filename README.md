@@ -115,6 +115,10 @@ prepends ISO timestamps and `[INFO ]`/`[WARN ]`/`[ERROR]` tags:
 journalctl -u scryd -f
 ```
 
+Packet investigation uses the maintained `--opcode-stats`, `--dump-payload`,
+`--list-events`, VPK capture, and application-trace options. The retired
+`PacketLogging` and spawn-log preferences are not runtime features.
+
 The unit runs as root for `CAP_NET_RAW` + `CAP_NET_ADMIN`. To drop
 privileges, set `User=` to a regular account and uncomment the
 `AmbientCapabilities` / `CapabilityBoundingSet` lines in the unit.
