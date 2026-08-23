@@ -24,6 +24,7 @@
 /* Implementation of Packet class */
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <unistd.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
@@ -528,12 +529,4 @@ void PacketCaptureThread::setFilter (const char *device,
     // there. Re-applying it on every filter change is unnecessary (the capture
     // thread keeps its SCHED_RR priority for its lifetime).
     (void)realtime;
-
-    m_pcapFilter = filter_buf;
 }
-
-const QString PacketCaptureThread::getFilter()
-{
-  return m_pcapFilter;
-}
-

@@ -34,8 +34,6 @@ extern "C" { // fix for bpf not being c++ happy
 #include <pcap.h>
 }
 
-#include <QString>
-
 #include "packetcaptureprovider.h"
 #include "packetcommon.h"
 
@@ -57,8 +55,6 @@ class PacketCaptureThread : public PacketCaptureProviderThread
         PacketCaptureThread(int snaplen, int buffersize);
         ~PacketCaptureThread();
 
-        bool offlinePlaybackSupported() { return true; }
-
         // Set the playback speed for offline packet capture. Valid values
         // are -1-9, 1 is 1x, 2 is 2x, etc. -1 is paused. 0 is as fast as
         // possible (no throttle)
@@ -74,7 +70,6 @@ class PacketCaptureThread : public PacketCaptureProviderThread
 
         void setFilter (const char *device, const char *hostname, bool realtime,
                 uint8_t address_type, uint16_t zone_server_port, uint16_t client_port);
-        const QString getFilter();
 
     private:
         static void* loop(void *param);
@@ -83,8 +78,6 @@ class PacketCaptureThread : public PacketCaptureProviderThread
         static unsigned int last_ps_drop;
 
         pcap_t *m_pcache_pcap;
-
-        QString m_pcapFilter;
 
         // Playback controls for offline file processing
         int m_playbackSpeed; // -1=paused, 0=max, 1=1x speed, 2=2x speed, up to 9
