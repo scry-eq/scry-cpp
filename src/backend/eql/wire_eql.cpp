@@ -98,6 +98,18 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
                 handler(data, len, dir);
         };
     };
+    auto progression = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet ||
+                m_packet->legacyProgressionEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
+    ms.player->setProgressionMutationGuard([this] {
+        return !m_packet ||
+               m_packet->legacyProgressionEnabledForCurrentPacket();
+    });
 
     // Backend-owned adapter holding the Legends handlers (never on the core
     // managers — see eqldispatch.h). Owned by a shared_ptr the wired closures
@@ -117,6 +129,15 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
         [this] {
             return m_packet &&
                    !m_packet->legacyPlayersEnabledForCurrentPacket();
+        },
+        [this] {
+            return m_packet &&
+                   !m_packet->legacyProgressionEnabledForCurrentPacket();
+        },
+        [this](seq::shadow::ProgressionKind kind) {
+            if (m_packet &&
+                m_packet->rustProgressionAcceptedForCurrentPacket(kind))
+                m_packet->observeLegacyProgression({kind, {}});
         },
         [this](const seq::shadow::LifecycleProfile& profile) {
             if (!m_packet) return;
@@ -351,7 +372,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          seqBind(ms.messageShell, &MessageShell::lootTransaction));
     wire("OP_MoneyUpdate", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::moneyUpdate));
+         progression(seqBind(eql, &EqlDispatch::moneyUpdate)));
     // OP_ExpUpdate (16B expUpdateStruct): the regular exp bar. The ids
     // were cross-wired with OP_AAExpUpdate; corrected per the community
     // l-patch. exp@0 is 0-100000 permille — the same scale the daemon already
@@ -362,7 +383,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // forwards to Player::updateExp. See OP_LevelUpdate below + OPCODES_LEGENDS.md.
     wire("OP_ExpUpdate", SP_Zone, DIR_Server,
          "expUpdateStruct", SZC_Match,
-         seqBind(eql, &EqlDispatch::expUpdate));
+         progression(seqBind(eql, &EqlDispatch::expUpdate)));
     // OP_AAExpUpdate (12B): u32 altexp (0-100000 per-AA-point
     // progress), u32 aapoints (unspent), u32 tail (unread; Live carries u8
     // percent + pad there, which updateAltExp ignores). First 8 bytes match
@@ -371,7 +392,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // predated ac918ec's rescale), so it wires straight to the Live handler.
     wire("OP_AAExpUpdate", SP_Zone, DIR_Server,
          "altExpUpdateStruct", SZC_Match,
-         seqBind(ms.player, &Player::updateAltExp));
+         progression(seqBind(ms.player, &Player::updateAltExp)));
     // OP_SendAATable (S>C): static AA ability-definition burst at zone-in
     // (one variable-length record per packet). EqlDispatch::sendAATable resolves
     // each record's descID -> titleSID -> dbstr type-1 name and records descID ->
@@ -379,7 +400,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // titles instead of "#<id>"). Variable size -> uint8_t/none. See eqldispatch.cpp.
     wire("OP_SendAATable", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::sendAATable));
+         progression(seqBind(eql, &EqlDispatch::sendAATable)));
     // OP_LevelUpdate: eql DOES have a discrete level packet — the older "no such
     // packet exists" finding is superseded (see OPCODES_LEGENDS.md). It is an 80B
     // widened container whose head is the stock levelUpUpdateStruct
@@ -388,10 +409,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // read to sizeof(levelUpUpdateStruct).
     wire("OP_LevelUpdate", SP_Zone, DIR_Server,
          "levelUpUpdateStruct", SZC_None,
-         seqBind(ms.player, &Player::updateLevel));
+         progression(seqBind(ms.player, &Player::updateLevel)));
     wire("OP_SkillUpdate", SP_Zone, DIR_Server,
          "skillIncStruct", SZC_Match,
-         seqBind(ms.player, &Player::increaseSkill));
+         progression(seqBind(ms.player, &Player::increaseSkill)));
     // (OP_WearChange intentionally unwired on eql — see the note above OP_SpawnAppearance2.)
     wire("OP_DeleteSpawn", SP_Zone, DIR_Server | DIR_Client,
          "deleteSpawnStruct", SZC_Match,

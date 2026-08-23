@@ -10,6 +10,8 @@
 #include <QStandardPaths>
 #include <QTimer>
 
+#include <algorithm>
+
 #include "main.h"
 
 #include "category.h"
@@ -104,6 +106,47 @@ seq::shadow::LifecycleProfile lifecycleProfile(const charProfileStruct& value)
     out.gold = value.profile.gold;
     out.silver = value.profile.silver;
     out.copper = value.profile.copper;
+    return out;
+}
+
+ItemTemplate itemTemplate(const seq::rust::EventItemTemplate& value)
+{
+    ItemTemplate out;
+    out.serial = qString(value.serial);
+    out.itemName = qString(value.name);
+    out.loreName = qString(value.lore_name);
+    out.itemId = value.item_id;
+    if (value.has_icon) out.icon = value.icon;
+    if (value.has_stack_count) {
+        out.wireStackCount = value.stack_count;
+        out.stackCount = value.stack_count;
+    }
+    if (value.has_weight_tenths) {
+        out.weightTenths = value.weight_tenths;
+        out.weight = float(value.weight_tenths) / 10.0f;
+    }
+    if (value.has_flags) {
+        out.wireFlags = value.flags;
+        out.flags = value.flags;
+    }
+    if (value.has_corruption) {
+        out.wireCorruption = value.corruption;
+        out.corruption = int8_t(std::clamp(value.corruption, -128, 127));
+    }
+    out.slotBitmask = value.slot_mask;
+    out.containerId = value.container_id;
+    out.containerSlot = value.container_slot;
+    out.parentSlot = value.parent_slot;
+    out.mainSlot = value.parent_slot == 0xFFFF ? 0 : value.parent_slot;
+    out.subSlot = value.container_slot;
+    for (size_t i = 0; i < ITEM_STAT_COUNT && i < value.stats.size(); ++i)
+        out.stats[i] = int8_t(std::clamp(value.stats[i], -128, 127));
+    for (size_t i = 0; i < ITEM_RES_COUNT && i < value.resists.size(); ++i)
+        out.resists[i] = int8_t(std::clamp(value.resists[i], -128, 127));
+    out.hp = value.hp;
+    out.mana = value.mana;
+    out.endurance = value.endurance;
+    out.ac = value.ac;
     return out;
 }
 }
@@ -496,6 +539,10 @@ bool DaemonApp::start()
             [this](const Box* box, const seq::shadow::Event& event) {
                 applyRustPlayer(box, event);
             });
+        m_packet->setProgressionBatchHandler(
+            [this](const Box* box, const seq::shadow::Batch& batch) {
+                applyRustProgression(box, batch);
+            });
         m_packet->setLifecycleProjectionEnricher(
             [this](const Box* box, bool addHostZoneProjection,
                    std::vector<seq::shadow::LifecycleObservation>& events,
@@ -540,6 +587,7 @@ bool DaemonApp::start()
         connectLifecycleObservers();
         connectEntityObservers();
         connectPlayerObservers();
+        connectProgressionObservers();
 
         // Tap decoded packets BEFORE the regular wiring so the logger
         // sees every dispatch (it doesn't matter for correctness — the
@@ -757,17 +805,22 @@ void DaemonApp::applyRustLifecycle(const Box* box,
         } else if constexpr (std::is_same_v<T, seq::shadow::PlayerProfile>) {
             if (!managers->player) return;
             Player* player = managers->player;
-            player->seedSkills(std::vector<uint32_t>(payload.skills.begin(),
-                                                      payload.skills.end()));
-            player->seedPurchasedAA(
-                std::vector<uint32_t>(payload.aa_ids.begin(), payload.aa_ids.end()),
-                std::vector<uint32_t>(payload.aa_values.begin(),
-                                      payload.aa_values.end()),
-                payload.aa_spent);
+            if (m_packet->legacyProgressionEnabledForCurrentPacket()) {
+                player->seedSkills(std::vector<uint32_t>(payload.skills.begin(),
+                                                          payload.skills.end()));
+                player->seedPurchasedAA(
+                    std::vector<uint32_t>(payload.aa_ids.begin(), payload.aa_ids.end()),
+                    std::vector<uint32_t>(payload.aa_values.begin(),
+                                          payload.aa_values.end()),
+                    payload.aa_spent);
+                player->setMoneyCoins(payload.platinum, payload.gold,
+                                      payload.silver, payload.copper);
+            }
             player->seedBaseStats(uint16_t(payload.str_), uint16_t(payload.sta),
                                   uint16_t(payload.cha), uint16_t(payload.dex),
                                   uint16_t(payload.int_), uint16_t(payload.agi),
-                                  uint16_t(payload.wis));
+                                  uint16_t(payload.wis),
+                                  m_packet->legacyProgressionEnabledForCurrentPacket());
             // Phase 6 takes identity publication from the profile. Until then,
             // lifecycle keeps the old boundary for legacy and shadow sessions.
             if (m_packet->legacyPlayersEnabledForCurrentPacket())
@@ -775,8 +828,6 @@ void DaemonApp::applyRustLifecycle(const Box* box,
                     qString(payload.name), qString(payload.last_name),
                     uint16_t(payload.race), uint8_t(payload.class_), payload.level,
                     uint16_t(payload.deity), payload.class_mask);
-            player->setMoneyCoins(payload.platinum, payload.gold,
-                                  payload.silver, payload.copper);
         } else if constexpr (std::is_same_v<T, seq::shadow::ZoneTransition>) {
             if (managers->zoneMgr)
                 managers->zoneMgr->applyLifecycleTransition(
@@ -800,6 +851,133 @@ void DaemonApp::applyRustLifecycle(const Box* box,
                     payload.minute);
         }
     }, event);
+}
+
+void DaemonApp::applyRustProgression(const Box* box,
+                                     const seq::shadow::Batch& batch)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+    Player* player = managers->player;
+
+    BoxRegistry& registry = m_packet->boxRegistry();
+    const Box* activeBox = registry.currentBoxFor(registry.activeCharacterId());
+    if (!activeBox) activeBox = registry.primary();
+    const bool ownsItemCache = !box || box == activeBox;
+    bool playerMutated = false;
+
+    for (const seq::shadow::Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, seq::shadow::InventorySnapshot>) {
+                if (!ownsItemCache || !m_itemCache) return;
+                QList<ItemTemplate> items;
+                items.reserve(int(p.items.size()));
+                for (const auto& item : p.items)
+                    items.push_back(itemTemplate(item));
+                m_itemCache->replaceInventory(items);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::InventoryItemUpdated>) {
+                if (ownsItemCache && m_itemCache) {
+                    m_itemCache->applyInventoryItem(
+                        itemTemplate(p.item),
+                        p.has_previous_location
+                            ? std::optional<uint32_t>(
+                                  p.previous_location.container_id)
+                            : std::nullopt,
+                        p.has_previous_location
+                            ? std::optional<uint16_t>(
+                                  p.previous_location.container_slot)
+                            : std::nullopt,
+                        p.has_previous_location
+                            ? std::optional<uint16_t>(
+                                  p.previous_location.parent_slot)
+                            : std::nullopt);
+                }
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::EquipmentSnapshot>) {
+                if (!ownsItemCache || !m_itemCache) return;
+                QHash<int, uint32_t> equipment;
+                for (const auto& item : p.items)
+                    equipment.insert(int(item.container_slot), item.item_id);
+                m_itemCache->replaceEquipment(equipment);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::EquipmentSlotUpdated>) {
+                if (!ownsItemCache || !m_itemCache) return;
+                // The semantic stream emits an old-slot removal before a set
+                // on moves. Apply that order literally. A replacement also
+                // vacates its destination before the new item becomes visible.
+                m_itemCache->clearEquipmentSlot(int(p.slot));
+                if (p.has_item)
+                    m_itemCache->setEquipmentSlot(int(p.slot), p.item.item_id);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::MoneyBalanceUpdated>) {
+                if (!player) return;
+                player->setMoneyCoins(p.platinum, p.gold, p.silver, p.copper);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::SkillsSnapshot>) {
+                if (!player) return;
+                std::vector<std::pair<uint32_t, uint32_t>> skills;
+                skills.reserve(p.skills.size());
+                for (const auto& skill : p.skills)
+                    skills.emplace_back(skill.skill_id, skill.value);
+                player->replaceSkills(skills);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::SkillValueUpdated>) {
+                if (!player) return;
+                player->applySkillValue(p.skill_id, p.value);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::ExperienceUpdated>) {
+                if (!player) return;
+                player->applyExperienceProgress(
+                    p.experience,
+                    p.has_level ? std::optional<uint32_t>(p.level)
+                                : std::nullopt,
+                    p.has_previous_level
+                        ? std::optional<uint32_t>(p.previous_level)
+                        : std::nullopt);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::AlternateAdvancementSnapshot>) {
+                if (!player) return;
+                std::vector<std::pair<uint32_t, uint32_t>> purchased;
+                purchased.reserve(p.purchased.size());
+                for (const auto& aa : p.purchased)
+                    purchased.emplace_back(aa.ability_id, aa.rank);
+                player->replaceAlternateAdvancement(
+                    purchased,
+                    p.has_spent_points
+                        ? std::optional<uint32_t>(p.spent_points)
+                        : std::nullopt,
+                    p.unspent_points, p.experience);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::AlternateAdvancementUpdated>) {
+                if (!player) return;
+                player->applyAlternateAdvancement(
+                    p.experience, p.unspent_points);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::AlternateAbilityDefined>) {
+                if (!player || !m_dbStrings) return;
+                const QString name = m_dbStrings->nameById(p.title_string_id);
+                if (!name.isEmpty()) player->setAAName(p.ability_id, name);
+            }
+        }, event);
+    }
+
+    // Phase 7 owns one Player.dat write per decoded batch. Individual typed
+    // primitives above never write, which avoids partial profile snapshots.
+    if (playerMutated && player && showeq_params->savePlayerState)
+        player->savePlayerState();
 }
 
 void DaemonApp::applyRustPlayer(const Box* box,
@@ -1226,6 +1404,117 @@ void DaemonApp::connectPlayerObservers()
     });
 }
 
+void DaemonApp::connectProgressionObservers()
+{
+    if (!m_packet || !m_player || !m_itemCache) return;
+    auto accepted = [this](seq::shadow::ProgressionKind kind) {
+        return m_packet->rustProgressionAcceptedForCurrentPacket(kind);
+    };
+    auto observe = [this](seq::shadow::ProgressionKind kind,
+                          seq::v1::Envelope envelope) {
+        m_packet->observeLegacyProgression({kind, {}});
+        m_packet->observeLegacyProgressionProjection(std::move(envelope));
+    };
+
+    connect(m_itemCache, &ItemCache::itemLearned, this,
+            [this, accepted, observe](uint32_t itemId) {
+        const auto kind = seq::shadow::ProgressionKind::InventoryItemUpdated;
+        if (!accepted(kind)) return;
+        ItemTemplate item;
+        if (!m_itemCache->lookup(itemId, &item)) return;
+        seq::v1::Envelope envelope;
+        seq::encode::fillItem(
+            envelope.mutable_item_learned()->mutable_item(), item);
+        observe(kind, std::move(envelope));
+    });
+    connect(m_itemCache, &ItemCache::wornSlotsChanged, this,
+            [this, accepted, observe] {
+        const auto kind = seq::shadow::ProgressionKind::EquipmentSlotUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope worn;
+        seq::encode::fillWornSet(worn.mutable_worn_set(), *m_itemCache);
+        observe(kind, std::move(worn));
+        seq::v1::Envelope totals;
+        seq::encode::fillItemTotals(totals.mutable_item_totals(), *m_itemCache);
+        m_packet->observeLegacyProgressionProjection(std::move(totals));
+    });
+    connect(m_player, &Player::moneyChanged, this,
+            [accepted, observe](uint32_t copper) {
+        const auto kind = seq::shadow::ProgressionKind::MoneyBalanceUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        envelope.mutable_player_stats()->set_money_copper(copper);
+        observe(kind, std::move(envelope));
+    });
+    connect(m_player, &Player::changeSkill, this,
+            [accepted, observe](int skillId, int value) {
+        const auto kind = seq::shadow::ProgressionKind::SkillValueUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* skill = envelope.mutable_player_stats()->add_skills();
+        skill->set_skill_id(uint32_t(skillId));
+        skill->set_value(uint32_t(value));
+        observe(kind, std::move(envelope));
+    });
+    connect(m_player, &Player::levelChanged, this,
+            [this, accepted, observe](uint8_t) {
+        if (accepted(seq::shadow::ProgressionKind::SkillsSnapshot)) {
+            seq::v1::Envelope envelope;
+            auto* stats = envelope.mutable_player_stats();
+            for (uint8_t id = 0; id < MAX_KNOWN_SKILLS; ++id) {
+                const uint32_t value = m_player->getSkill(id);
+                if (value == 0 || value == UINT32_MAX) continue;
+                auto* skill = stats->add_skills();
+                skill->set_skill_id(id); skill->set_value(value);
+            }
+            observe(seq::shadow::ProgressionKind::SkillsSnapshot,
+                    std::move(envelope));
+        }
+        if (accepted(
+                seq::shadow::ProgressionKind::AlternateAdvancementSnapshot)) {
+            seq::v1::Envelope envelope;
+            auto* stats = envelope.mutable_player_stats();
+            stats->set_aa_exp_cur(m_player->getCurrentAltExp());
+            stats->set_aa_exp_max(100000);
+            stats->set_aa_points(m_player->getCurrentAApts());
+            stats->set_aa_unspent(m_player->getCurrentAAUnspent());
+            for (const auto& aa : m_player->getPurchasedAA()) {
+                auto* target = stats->add_purchased_aa();
+                target->set_ability_id(aa.abilityId);
+                target->set_rank(aa.rank);
+                const QString name = m_player->aaName(aa.abilityId);
+                if (!name.isEmpty()) target->set_name(name.toStdString());
+            }
+            observe(
+                seq::shadow::ProgressionKind::AlternateAdvancementSnapshot,
+                std::move(envelope));
+        }
+    });
+    connect(m_player, &Player::expChangedInt, this,
+            [this, accepted, observe](int current, int, int maximum) {
+        const auto kind = seq::shadow::ProgressionKind::ExperienceUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* stats = envelope.mutable_player_stats();
+        stats->set_exp_cur(uint32_t(current));
+        stats->set_exp_max(uint32_t(maximum));
+        stats->set_level(m_player->level());
+        observe(kind, std::move(envelope));
+    });
+    connect(m_player, &Player::expAltChangedInt, this,
+            [this, accepted, observe](int current, int, int maximum) {
+        const auto kind =
+            seq::shadow::ProgressionKind::AlternateAdvancementUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* stats = envelope.mutable_player_stats();
+        stats->set_aa_exp_cur(uint32_t(current));
+        stats->set_aa_exp_max(uint32_t(maximum));
+        stats->set_aa_unspent(m_player->getCurrentAAUnspent());
+        observe(kind, std::move(envelope));
+    });
+}
+
 bool DaemonApp::startServer()
 {
     if (!m_ws->listen(m_cfg.listenHost, m_cfg.listenPort)) {
@@ -1294,6 +1583,7 @@ bool DaemonApp::startCapture()
             lifecycleSelector(m_cfg.lifecycleDecoder),
             lifecycleSelector(m_cfg.entityDecoder),
             lifecycleSelector(m_cfg.playerDecoder),
+            lifecycleSelector(m_cfg.progressionDecoder),
             this, "packet");
     } catch (const std::exception& error) {
         qCritical("Rust decoder setup failed: %s", error.what());

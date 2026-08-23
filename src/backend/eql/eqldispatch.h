@@ -48,6 +48,9 @@ public:
                 std::function<bool(seq::shadow::LifecycleKind)>
                     rustLifecycleAccepted,
                 std::function<bool()> rustPlayerOwned,
+                std::function<bool()> rustProgressionOwned,
+                std::function<void(seq::shadow::ProgressionKind)>
+                    progressionObserved,
                 std::function<void(const seq::shadow::LifecycleProfile&)>
                     profileObserved);
 
@@ -141,6 +144,8 @@ private:
     std::function<bool()> m_rustLifecycleOwned;
     std::function<bool(seq::shadow::LifecycleKind)> m_rustLifecycleAccepted;
     std::function<bool()> m_rustPlayerOwned;
+    std::function<bool()> m_rustProgressionOwned;
+    std::function<void(seq::shadow::ProgressionKind)> m_progressionObserved;
     std::function<void(const seq::shadow::LifecycleProfile&)>
         m_profileObserved;
     // While awaiting the in-zone respawn after the local player's own death,

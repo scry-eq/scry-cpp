@@ -227,6 +227,11 @@ int main(int argc, char** argv)
         "owner for each session: legacy, shadow, or rust. The default remains "
         "legacy until capture soak completes. Changing it requires a session "
         "restart.", "mode", "legacy");
+    QCommandLineOption progressionDecoderOpt(QStringList{"progression-decoder"},
+        "Immutable items and progression owner for each session: legacy, "
+        "shadow, or rust. The default remains legacy until capture soak "
+        "completes. Changing it requires a session restart.",
+        "mode", "legacy");
     parser.addOption(deviceOpt);
     parser.addOption(ipOpt);
     parser.addOption(listenOpt);
@@ -251,6 +256,7 @@ int main(int argc, char** argv)
     parser.addOption(lifecycleDecoderOpt);
     parser.addOption(entityDecoderOpt);
     parser.addOption(playerDecoderOpt);
+    parser.addOption(progressionDecoderOpt);
     parser.process(app);
 
     DaemonApp::Config cfg;
@@ -314,6 +320,13 @@ int main(int argc, char** argv)
         cfg.playerDecoder != QLatin1String("shadow") &&
         cfg.playerDecoder != QLatin1String("rust")) {
         qCritical("--player-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.progressionDecoder = parser.value(progressionDecoderOpt).toLower();
+    if (cfg.progressionDecoder != QLatin1String("legacy") &&
+        cfg.progressionDecoder != QLatin1String("shadow") &&
+        cfg.progressionDecoder != QLatin1String("rust")) {
+        qCritical("--progression-decoder must be legacy, shadow, or rust");
         return 2;
     }
     if (parser.isSet(boxIdleTtlOpt)) {

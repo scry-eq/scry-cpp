@@ -143,6 +143,7 @@ public:
         // capture-derived Phase 5 soak fixtures are available for both hosts.
         QString      entityDecoder = QStringLiteral("legacy");
         QString      playerDecoder = QStringLiteral("legacy");
+        QString      progressionDecoder = QStringLiteral("legacy");
         // --replay --wait-for-client: pause the .vpk playback until
         // the first WebSocket client attaches a SessionAdapter (so
         // early envelopes aren't dropped), and don't quit at EOF so
@@ -257,9 +258,12 @@ private:
     void applyRustLifecycle(const Box* box, const seq::shadow::Event& event);
     void applyRustEntity(const Box* box, const seq::shadow::Event& event);
     void applyRustPlayer(const Box* box, const seq::shadow::Event& event);
+    void applyRustProgression(const Box* box,
+                              const seq::shadow::Batch& batch);
     void connectLifecycleObservers();
     void connectEntityObservers();
     void connectPlayerObservers();
+    void connectProgressionObservers();
 
     // --only-session helpers -------------------------------------------------
     // Parsed index form of Config::onlySession: N for "N"/"first"(=1),

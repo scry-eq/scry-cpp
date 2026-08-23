@@ -99,6 +99,18 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
                 handler(data, len, dir);
         };
     };
+    auto progression = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet ||
+                m_packet->legacyProgressionEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
+    ms.player->setProgressionMutationGuard([this] {
+        return !m_packet ||
+               m_packet->legacyProgressionEnabledForCurrentPacket();
+    });
 
     // --- ZoneMgr: zone transitions + player profile.
     wire("OP_ZoneEntry", SP_Zone, DIR_Client,
@@ -192,7 +204,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     if (wireGlobalSinks) {
         wire("OP_ItemPacket", SP_Zone, DIR_Server,
              "itemPacketStruct", SZC_None,
-             seqBind(m_itemCache, &ItemCache::onItemPacket));
+             progression(seqBind(m_itemCache, &ItemCache::onItemPacket)));
         wire("OP_TimeOfDay", SP_Zone, DIR_Server,
              "timeOfDayStruct", SZC_Match,
              lifecycle(seqBind(m_dateTimeMgr, &DateTimeMgr::timeOfDay)));
@@ -248,19 +260,19 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          seqBind(ms.player, &Player::updateEndurance));
     wire("OP_ExpUpdate", SP_Zone, DIR_Server,
          "expUpdateStruct", SZC_Match,
-         seqBind(ms.player, &Player::updateExp));
+         progression(seqBind(ms.player, &Player::updateExp)));
     // Player::updateAltExp survived the showeq-c extraction but its wiring
     // didn't — the AA bar only refreshed at zone-in (charProfile) until this
     // was re-wired 2026-07-13.
     wire("OP_AAExpUpdate", SP_Zone, DIR_Server,
          "altExpUpdateStruct", SZC_Match,
-         seqBind(ms.player, &Player::updateAltExp));
+         progression(seqBind(ms.player, &Player::updateAltExp)));
     wire("OP_LevelUpdate", SP_Zone, DIR_Server,
          "levelUpUpdateStruct", SZC_Match,
-         seqBind(ms.player, &Player::updateLevel));
+         progression(seqBind(ms.player, &Player::updateLevel)));
     wire("OP_SkillUpdate", SP_Zone, DIR_Server,
          "skillIncStruct", SZC_Match,
-         seqBind(ms.player, &Player::increaseSkill));
+         progression(seqBind(ms.player, &Player::increaseSkill)));
     wire("OP_WearChange", SP_Zone, DIR_Server,
          "wearChangeStruct", SZC_None,
          seqBind(ms.player, &Player::updateSpawnInfo));

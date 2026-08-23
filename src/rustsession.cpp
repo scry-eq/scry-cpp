@@ -2,6 +2,7 @@
 #include "protoencoder.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <stdexcept>
 #include <type_traits>
@@ -112,6 +113,77 @@ void appendProfile(std::vector<uint8_t>& out, const LifecycleProfile& p)
     appendScalar(out, p.classId); appendScalar(out, p.level);
     appendScalar(out, p.race); appendScalar(out, p.deity);
     appendScalar(out, p.classMask);
+}
+
+void appendItem(std::vector<uint8_t>& out,
+                const rust::EventItemTemplate& item)
+{
+    appendString(out, item.serial);
+    appendString(out, item.name);
+    appendString(out, item.lore_name);
+    appendScalar(out, item.item_id);
+    appendScalar(out, item.has_icon);
+    if (item.has_icon) appendScalar(out, item.icon);
+    appendScalar(out, item.has_stack_count);
+    if (item.has_stack_count) appendScalar(out, item.stack_count);
+    appendScalar(out, item.has_weight_tenths);
+    if (item.has_weight_tenths) appendScalar(out, item.weight_tenths);
+    appendScalar(out, item.has_flags);
+    if (item.has_flags) appendScalar(out, item.flags);
+    appendScalar(out, item.has_corruption);
+    if (item.has_corruption) appendScalar(out, item.corruption);
+    appendScalar(out, item.slot_mask);
+    appendScalar(out, item.container_id);
+    appendScalar(out, item.container_slot);
+    appendScalar(out, item.parent_slot);
+    appendVector(out, item.stats);
+    appendVector(out, item.resists);
+    appendScalar(out, item.hp);
+    appendScalar(out, item.mana);
+    appendScalar(out, item.endurance);
+    appendScalar(out, item.ac);
+}
+
+void fillRustItem(seq::v1::Item* out, const rust::EventItemTemplate& item)
+{
+    out->set_id(item.item_id);
+    out->set_name(std::string(item.name));
+    if (item.lore_name != item.name)
+        out->set_lore_name(std::string(item.lore_name));
+    out->set_slot_mask(item.slot_mask);
+    if (item.has_flags) out->set_flags(item.flags);
+    if (item.has_weight_tenths)
+        out->set_weight(float(item.weight_tenths) / 10.0f);
+    out->set_hp(item.hp);
+    out->set_mana(item.mana);
+    out->set_endurance(item.endurance);
+    out->set_ac(item.ac);
+    for (int32_t value : item.stats) out->add_stats(value);
+    for (int32_t value : item.resists) out->add_resists(value);
+    if (item.has_corruption) out->set_corruption(item.corruption);
+}
+
+void fillItemTotals(seq::v1::ItemCacheTotals* out,
+                    const ::rust::Vec<rust::EventItemTemplate>& items)
+{
+    out->set_item_count(uint32_t(items.size()));
+    std::array<int64_t, 7> stats{};
+    std::array<int64_t, 5> resists{};
+    int64_t hp = 0, mana = 0, endurance = 0, ac = 0, corruption = 0;
+    for (const auto& item : items) {
+        hp += item.hp; mana += item.mana; endurance += item.endurance;
+        ac += item.ac;
+        if (item.has_corruption) corruption += item.corruption;
+        for (size_t i = 0; i < stats.size() && i < item.stats.size(); ++i)
+            stats[i] += item.stats[i];
+        for (size_t i = 0; i < resists.size() && i < item.resists.size(); ++i)
+            resists[i] += item.resists[i];
+    }
+    out->set_hp(int32_t(hp)); out->set_mana(int32_t(mana));
+    out->set_endurance(int32_t(endurance)); out->set_ac(int32_t(ac));
+    for (int64_t value : stats) out->add_stats(int32_t(value));
+    for (int64_t value : resists) out->add_resists(int32_t(value));
+    out->set_corruption(int32_t(corruption));
 }
 
 bool sameEnvelope(const seq::v1::Envelope& lhs,
@@ -327,6 +399,22 @@ Batch translate(rust::SessionDecodeBatch batch)
         case rust::SessionEventKind::ItemLearned:
             out.events.emplace_back(ItemLearned{takePayload(batch.item_learned, index)});
             break;
+        case rust::SessionEventKind::InventorySnapshot:
+            out.events.emplace_back(InventorySnapshot{
+                takePayload(batch.inventory_snapshot, index)});
+            break;
+        case rust::SessionEventKind::InventoryItemUpdated:
+            out.events.emplace_back(InventoryItemUpdated{
+                takePayload(batch.inventory_item_updated, index)});
+            break;
+        case rust::SessionEventKind::EquipmentSnapshot:
+            out.events.emplace_back(EquipmentSnapshot{
+                takePayload(batch.equipment_snapshot, index)});
+            break;
+        case rust::SessionEventKind::EquipmentSlotUpdated:
+            out.events.emplace_back(EquipmentSlotUpdated{
+                takePayload(batch.equipment_slot_updated, index)});
+            break;
         case rust::SessionEventKind::GuildMotd:
             out.events.emplace_back(GuildMotd{takePayload(batch.guild_motd, index)});
             break;
@@ -370,11 +458,27 @@ Batch translate(rust::SessionDecodeBatch batch)
         case rust::SessionEventKind::AaTable:
             out.events.emplace_back(AaTable{takePayload(batch.aa_table, index)});
             break;
+        case rust::SessionEventKind::AlternateAbilityDefined:
+            out.events.emplace_back(AlternateAbilityDefined{
+                takePayload(batch.alternate_ability_defined, index)});
+            break;
         case rust::SessionEventKind::Exp:
             out.events.emplace_back(Exp{takePayload(batch.exp, index)});
             break;
+        case rust::SessionEventKind::ExperienceUpdated:
+            out.events.emplace_back(ExperienceUpdated{
+                takePayload(batch.experience_updated, index)});
+            break;
         case rust::SessionEventKind::AaExp:
             out.events.emplace_back(AaExp{takePayload(batch.aa_exp, index)});
+            break;
+        case rust::SessionEventKind::AlternateAdvancementSnapshot:
+            out.events.emplace_back(AlternateAdvancementSnapshot{
+                takePayload(batch.alternate_advancement_snapshot, index)});
+            break;
+        case rust::SessionEventKind::AlternateAdvancementUpdated:
+            out.events.emplace_back(AlternateAdvancementUpdated{
+                takePayload(batch.alternate_advancement_updated, index)});
             break;
         case rust::SessionEventKind::Stamina:
             out.events.emplace_back(Stamina{takePayload(batch.stamina, index)});
@@ -385,6 +489,14 @@ Batch translate(rust::SessionDecodeBatch batch)
         case rust::SessionEventKind::SkillUpdate:
             out.events.emplace_back(SkillUpdate{takePayload(batch.skill_update, index)});
             break;
+        case rust::SessionEventKind::SkillsSnapshot:
+            out.events.emplace_back(SkillsSnapshot{
+                takePayload(batch.skills_snapshot, index)});
+            break;
+        case rust::SessionEventKind::SkillValueUpdated:
+            out.events.emplace_back(SkillValueUpdated{
+                takePayload(batch.skill_value_updated, index)});
+            break;
         case rust::SessionEventKind::LootTransaction:
             out.events.emplace_back(LootTransaction{
                 takePayload(batch.loot_transaction, index)});
@@ -394,6 +506,10 @@ Batch translate(rust::SessionDecodeBatch batch)
             break;
         case rust::SessionEventKind::Money:
             out.events.emplace_back(Money{takePayload(batch.money, index)});
+            break;
+        case rust::SessionEventKind::MoneyBalanceUpdated:
+            out.events.emplace_back(MoneyBalanceUpdated{
+                takePayload(batch.money_balance_updated, index)});
             break;
         case rust::SessionEventKind::SimpleMessage:
             out.events.emplace_back(SimpleMessage{
@@ -1004,6 +1120,230 @@ PlayerComparison comparePlayers(
     return comparison;
 }
 
+bool isProgressionEvent(const Event& event)
+{
+    return std::visit([](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        return std::is_same_v<T, InventorySnapshot> ||
+               std::is_same_v<T, InventoryItemUpdated> ||
+               std::is_same_v<T, EquipmentSnapshot> ||
+               std::is_same_v<T, EquipmentSlotUpdated> ||
+               std::is_same_v<T, MoneyBalanceUpdated> ||
+               std::is_same_v<T, SkillsSnapshot> ||
+               std::is_same_v<T, SkillValueUpdated> ||
+               std::is_same_v<T, ExperienceUpdated> ||
+               std::is_same_v<T, AlternateAdvancementSnapshot> ||
+               std::is_same_v<T, AlternateAdvancementUpdated> ||
+               std::is_same_v<T, AlternateAbilityDefined>;
+    }, event);
+}
+
+std::vector<ProgressionObservation> progressionObservations(const Batch& batch)
+{
+    std::vector<ProgressionObservation> out;
+    for (const Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            ProgressionObservation observation;
+            bool selected = true;
+            if constexpr (std::is_same_v<T, InventorySnapshot>) {
+                observation.kind = ProgressionKind::InventorySnapshot;
+                appendScalar(observation.payload, uint64_t(p.items.size()));
+                for (const auto& item : p.items) appendItem(observation.payload, item);
+            } else if constexpr (std::is_same_v<T, InventoryItemUpdated>) {
+                observation.kind = ProgressionKind::InventoryItemUpdated;
+                appendItem(observation.payload, p.item);
+                appendScalar(observation.payload, p.has_previous_location);
+                if (p.has_previous_location) {
+                    appendScalar(observation.payload, p.previous_location.container_id);
+                    appendScalar(observation.payload, p.previous_location.container_slot);
+                    appendScalar(observation.payload, p.previous_location.parent_slot);
+                }
+            } else if constexpr (std::is_same_v<T, EquipmentSnapshot>) {
+                observation.kind = ProgressionKind::EquipmentSnapshot;
+                appendScalar(observation.payload, uint64_t(p.items.size()));
+                for (const auto& item : p.items) appendItem(observation.payload, item);
+            } else if constexpr (std::is_same_v<T, EquipmentSlotUpdated>) {
+                observation.kind = ProgressionKind::EquipmentSlotUpdated;
+                appendScalar(observation.payload, p.slot);
+                appendScalar(observation.payload, p.has_item);
+                if (p.has_item) appendItem(observation.payload, p.item);
+            } else if constexpr (std::is_same_v<T, MoneyBalanceUpdated>) {
+                observation.kind = ProgressionKind::MoneyBalanceUpdated;
+                appendScalar(observation.payload, p.platinum);
+                appendScalar(observation.payload, p.gold);
+                appendScalar(observation.payload, p.silver);
+                appendScalar(observation.payload, p.copper);
+            } else if constexpr (std::is_same_v<T, SkillsSnapshot>) {
+                observation.kind = ProgressionKind::SkillsSnapshot;
+                appendScalar(observation.payload, uint64_t(p.skills.size()));
+                for (const auto& skill : p.skills) {
+                    appendScalar(observation.payload, skill.skill_id);
+                    appendScalar(observation.payload, skill.value);
+                }
+            } else if constexpr (std::is_same_v<T, SkillValueUpdated>) {
+                observation.kind = ProgressionKind::SkillValueUpdated;
+                appendScalar(observation.payload, p.skill_id);
+                appendScalar(observation.payload, p.value);
+            } else if constexpr (std::is_same_v<T, ExperienceUpdated>) {
+                observation.kind = ProgressionKind::ExperienceUpdated;
+                appendScalar(observation.payload, p.experience);
+                appendScalar(observation.payload, p.has_level);
+                if (p.has_level) appendScalar(observation.payload, p.level);
+                appendScalar(observation.payload, p.has_previous_level);
+                if (p.has_previous_level)
+                    appendScalar(observation.payload, p.previous_level);
+            } else if constexpr (std::is_same_v<T, AlternateAdvancementSnapshot>) {
+                observation.kind = ProgressionKind::AlternateAdvancementSnapshot;
+                appendScalar(observation.payload, uint64_t(p.purchased.size()));
+                for (const auto& aa : p.purchased) {
+                    appendScalar(observation.payload, aa.ability_id);
+                    appendScalar(observation.payload, aa.rank);
+                }
+                appendScalar(observation.payload, p.has_spent_points);
+                if (p.has_spent_points) appendScalar(observation.payload, p.spent_points);
+                appendScalar(observation.payload, p.has_assigned_points);
+                if (p.has_assigned_points) appendScalar(observation.payload, p.assigned_points);
+                appendScalar(observation.payload, p.unspent_points);
+                appendScalar(observation.payload, p.experience);
+            } else if constexpr (std::is_same_v<T, AlternateAdvancementUpdated>) {
+                observation.kind = ProgressionKind::AlternateAdvancementUpdated;
+                appendScalar(observation.payload, p.experience);
+                appendScalar(observation.payload, p.unspent_points);
+            } else if constexpr (std::is_same_v<T, AlternateAbilityDefined>) {
+                observation.kind = ProgressionKind::AlternateAbilityDefined;
+                appendScalar(observation.payload, p.ability_id);
+                appendScalar(observation.payload, p.title_string_id);
+            } else {
+                selected = false;
+            }
+            if (selected) out.push_back(std::move(observation));
+        }, event);
+    }
+    return out;
+}
+
+std::vector<seq::v1::Envelope> projectProgression(const Batch& batch)
+{
+    std::vector<seq::v1::Envelope> out;
+    for (const Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, InventorySnapshot>) {
+                for (const auto& item : p.items) {
+                    seq::v1::Envelope envelope;
+                    fillRustItem(envelope.mutable_item_learned()->mutable_item(), item);
+                    out.push_back(std::move(envelope));
+                }
+            } else if constexpr (std::is_same_v<T, InventoryItemUpdated>) {
+                seq::v1::Envelope envelope;
+                fillRustItem(envelope.mutable_item_learned()->mutable_item(), p.item);
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, EquipmentSnapshot>) {
+                seq::v1::Envelope wornEnvelope;
+                auto* worn = wornEnvelope.mutable_worn_set();
+                for (const auto& item : p.items) {
+                    worn->add_slot_indices(item.container_slot);
+                    worn->add_item_ids(item.item_id);
+                }
+                out.push_back(std::move(wornEnvelope));
+                seq::v1::Envelope totals;
+                fillItemTotals(totals.mutable_item_totals(), p.items);
+                out.push_back(std::move(totals));
+            } else if constexpr (std::is_same_v<T, EquipmentSlotUpdated>) {
+                seq::v1::Envelope wornEnvelope;
+                if (p.has_item) {
+                    wornEnvelope.mutable_worn_set()->add_slot_indices(p.slot);
+                    wornEnvelope.mutable_worn_set()->add_item_ids(p.item.item_id);
+                } else {
+                    wornEnvelope.mutable_worn_set();
+                }
+                out.push_back(std::move(wornEnvelope));
+                seq::v1::Envelope totals;
+                if (p.has_item) {
+                    // CXX vectors cannot copy their element, so fill this one
+                    // projection directly instead of manufacturing a vector.
+                    auto* target = totals.mutable_item_totals();
+                    target->set_item_count(1);
+                    target->set_hp(p.item.hp); target->set_mana(p.item.mana);
+                    target->set_endurance(p.item.endurance); target->set_ac(p.item.ac);
+                    for (int32_t v : p.item.stats) target->add_stats(v);
+                    for (int32_t v : p.item.resists) target->add_resists(v);
+                    if (p.item.has_corruption) target->set_corruption(p.item.corruption);
+                } else {
+                    totals.mutable_item_totals();
+                }
+                out.push_back(std::move(totals));
+            } else if constexpr (std::is_same_v<T, MoneyBalanceUpdated>) {
+                seq::v1::Envelope envelope;
+                const uint64_t total = uint64_t(p.platinum) * 1000 +
+                    uint64_t(p.gold) * 100 + uint64_t(p.silver) * 10 + p.copper;
+                envelope.mutable_player_stats()->set_money_copper(
+                    uint32_t(std::min<uint64_t>(total, UINT32_MAX)));
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, SkillsSnapshot>) {
+                seq::v1::Envelope envelope;
+                for (const auto& skill : p.skills) {
+                    auto* target = envelope.mutable_player_stats()->add_skills();
+                    target->set_skill_id(skill.skill_id); target->set_value(skill.value);
+                }
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, SkillValueUpdated>) {
+                seq::v1::Envelope envelope;
+                auto* target = envelope.mutable_player_stats()->add_skills();
+                target->set_skill_id(p.skill_id); target->set_value(p.value);
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, ExperienceUpdated>) {
+                seq::v1::Envelope envelope;
+                auto* stats = envelope.mutable_player_stats();
+                stats->set_exp_cur(p.experience); stats->set_exp_max(100000);
+                if (p.has_level) stats->set_level(p.level);
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, AlternateAdvancementSnapshot>) {
+                seq::v1::Envelope envelope;
+                auto* stats = envelope.mutable_player_stats();
+                stats->set_aa_exp_cur(p.experience); stats->set_aa_exp_max(100000);
+                if (p.has_spent_points) stats->set_aa_points(p.spent_points);
+                stats->set_aa_unspent(p.unspent_points);
+                for (const auto& aa : p.purchased) {
+                    auto* target = stats->add_purchased_aa();
+                    target->set_ability_id(aa.ability_id); target->set_rank(aa.rank);
+                }
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, AlternateAdvancementUpdated>) {
+                seq::v1::Envelope envelope;
+                auto* stats = envelope.mutable_player_stats();
+                stats->set_aa_exp_cur(p.experience); stats->set_aa_exp_max(100000);
+                stats->set_aa_unspent(p.unspent_points);
+                out.push_back(std::move(envelope));
+            }
+        }, event);
+    }
+    return out;
+}
+
+ProgressionComparison compareProgression(
+    const Batch& rustBatch,
+    const std::vector<ProgressionObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections)
+{
+    ProgressionComparison comparison;
+    const auto rustEvents = progressionObservations(rustBatch);
+    const auto rustProjections = projectProgression(rustBatch);
+    comparison.rustEventCount = rustEvents.size();
+    comparison.legacyEventCount = legacyEvents.size();
+    comparison.rustProjectionCount = rustProjections.size();
+    comparison.legacyProjectionCount = legacyProjections.size();
+    comparison.orderedEventsEqual = rustEvents == legacyEvents;
+    comparison.projectionsEqual =
+        rustProjections.size() == legacyProjections.size() &&
+        std::equal(rustProjections.begin(), rustProjections.end(),
+                   legacyProjections.begin(), sameEnvelope);
+    return comparison;
+}
+
 std::vector<seq::v1::Envelope> projectLifecycle(const Batch& batch)
 {
     std::vector<seq::v1::Envelope> projections;
@@ -1082,13 +1422,15 @@ Session::Session(const ProtocolRegistry& registry,
                  size_t journalByteLimit,
                  LifecycleSelector lifecycleSelector,
                  EntitySelector entitySelector,
-                 PlayerSelector playerSelector)
+                 PlayerSelector playerSelector,
+                 ProgressionSelector progressionSelector)
     : m_session(rust::session_new(registry.rustRegistry(), backend))
     , m_journalLimit(std::max<size_t>(journalLimit, 1))
     , m_journalByteLimit(std::max<size_t>(journalByteLimit, sizeof(Record)))
     , m_lifecycleSelector(lifecycleSelector)
     , m_entitySelector(entitySelector)
     , m_playerSelector(playerSelector)
+    , m_progressionSelector(progressionSelector)
 {
 }
 

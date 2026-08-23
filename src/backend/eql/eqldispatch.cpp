@@ -83,6 +83,9 @@ EqlDispatch::EqlDispatch(ZoneMgr* zoneMgr, SpawnShell* spawnShell, Player* playe
                          std::function<bool(seq::shadow::LifecycleKind)>
                              rustLifecycleAccepted,
                          std::function<bool()> rustPlayerOwned,
+                         std::function<bool()> rustProgressionOwned,
+                         std::function<void(seq::shadow::ProgressionKind)>
+                             progressionObserved,
                          std::function<void(const seq::shadow::LifecycleProfile&)>
                              profileObserved)
     : m_zoneMgr(zoneMgr)
@@ -94,6 +97,8 @@ EqlDispatch::EqlDispatch(ZoneMgr* zoneMgr, SpawnShell* spawnShell, Player* playe
     , m_rustLifecycleOwned(std::move(rustLifecycleOwned))
     , m_rustLifecycleAccepted(std::move(rustLifecycleAccepted))
     , m_rustPlayerOwned(std::move(rustPlayerOwned))
+    , m_rustProgressionOwned(std::move(rustProgressionOwned))
+    , m_progressionObserved(std::move(progressionObserved))
     , m_profileObserved(std::move(profileObserved))
     , m_selfTracker(seq::rust::eql_self_tracker_new())
 {
@@ -256,6 +261,8 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
     // bound "by world recency") stopped resetting entirely and piled every zone
     // into one list — 1900+ spawns and stale records under recycled ids.
     const bool rustPlayer = m_rustPlayerOwned && m_rustPlayerOwned();
+    const bool rustProgression =
+        m_rustProgressionOwned && m_rustProgressionOwned();
     m_spawnShell->clear();
     // Rust player events are applied before the compatibility tail. Do not
     // erase the freshly-applied player id while preserving the legacy
@@ -275,14 +282,14 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
     // PlayerStats snapshot, so the seeded skills ride that first snapshot and the
     // Skills window is populated at zone-in. Empty on a short-read (skills then
     // fall back to incremental OP_SkillUpdate).
-    if (!out.skills.empty())
+    if (!rustProgression && !out.skills.empty())
     {
         std::vector<uint32_t> skills(out.skills.begin(), out.skills.end());
         m_player->seedSkills(skills);
     }
     // Seed the purchased-AA list + spent points from the same profile walk
     // (parallel aa_ids/aa_values) so the AA window populates at zone-in.
-    if (!out.aa_ids.empty())
+    if (!rustProgression && !out.aa_ids.empty())
     {
         std::vector<uint32_t> aaIds(out.aa_ids.begin(), out.aa_ids.end());
         std::vector<uint32_t> aaVals(out.aa_values.begin(), out.aa_values.end());
@@ -296,7 +303,7 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
     m_player->seedBaseStats((uint16_t)out.str_, (uint16_t)out.sta,
                             (uint16_t)out.cha, (uint16_t)out.dex,
                             (uint16_t)out.int_, (uint16_t)out.agi,
-                            (uint16_t)out.wis);
+                            (uint16_t)out.wis, !rustProgression);
     if (QString sn = stanceName(out.stance); !sn.isEmpty())
         m_player->setStance(sn);
     if (QString invName = invocationName(out.invocation); !invName.isEmpty())
@@ -311,7 +318,8 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
     // money broadcast can't leave the readout empty. Must come AFTER
     // setIdentity: moneyChanged fires its own PlayerStats snapshot, and emitting
     // it earlier publishes one carrying the still-default identity.
-    m_player->setMoneyCoins(out.platinum, out.gold, out.silver, out.copper);
+    if (!rustProgression)
+        m_player->setMoneyCoins(out.platinum, out.gold, out.silver, out.copper);
 }
 
 void EqlDispatch::zoneChange(const uint8_t*, size_t, uint8_t)
@@ -721,6 +729,9 @@ void EqlDispatch::sendAATable(const uint8_t* data, size_t len, uint8_t dir)
     const QString name = m_dbStrings->nameById(out.title_sid);
     if (!name.isEmpty())
         m_player->setAAName(out.desc_id, name);
+    if (m_progressionObserved)
+        m_progressionObserved(
+            seq::shadow::ProgressionKind::AlternateAbilityDefined);
 }
 
 void EqlDispatch::mobUpdate(const uint8_t* data, size_t len, uint8_t dir)

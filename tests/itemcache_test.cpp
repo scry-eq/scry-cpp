@@ -25,6 +25,9 @@ private slots:
   void duplicateInsertOverwritesAndCountsOnce();
   void roundTripsThroughJson();
   void preservesAllStatFieldsThroughJson();
+  void preservesPhaseSevenOptionalFieldsByteExactly();
+  void semanticSnapshotsReplaceInventoryAndEquipment();
+  void seriallessMoveConsumesPreviousLocation();
   void omitsZeroFieldsFromJson();
   void loadFromMissingFileSucceedsEmpty();
   void wornSlotsTrackTopLevelEquipFire();
@@ -235,6 +238,95 @@ void ItemCacheTest::preservesAllStatFieldsThroughJson()
     QCOMPARE(got.corruption, src.corruption);
     QCOMPARE(got.slotBitmask, src.slotBitmask);
     QCOMPARE(got.flags, src.flags);
+}
+
+void ItemCacheTest::preservesPhaseSevenOptionalFieldsByteExactly()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString path = tmp.path() + QLatin1String("/itemcache.json");
+    ItemTemplate source = sampleArmor();
+    source.serial = QStringLiteral("instance-7");
+    source.icon = 0;
+    source.wireStackCount = 0;
+    source.weightTenths = 8;
+    source.wireFlags = 0;
+    source.wireCorruption = 0;
+    source.containerId = 4;
+    source.containerSlot = 2;
+    source.parentSlot = 0xFFFF;
+
+    QByteArray first;
+    {
+        ItemCache cache;
+        cache.setStorePath(path);
+        cache.applyInventoryItem(source);
+        QVERIFY(cache.save());
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        first = file.readAll();
+        QVERIFY(first.contains("\"icon\": 0"));
+        QVERIFY(first.contains("\"stackCount\": 0"));
+        QVERIFY(first.contains("\"flags\": 0"));
+        QVERIFY(first.contains("\"corruption\": 0"));
+    }
+
+    ItemCache restored;
+    restored.setStorePath(path);
+    ItemTemplate actual;
+    QVERIFY(restored.lookup(source.itemId, &actual));
+    QCOMPARE(actual.serial, source.serial);
+    QVERIFY(actual.icon && *actual.icon == 0);
+    QVERIFY(actual.wireStackCount && *actual.wireStackCount == 0);
+    QVERIFY(actual.weightTenths && *actual.weightTenths == 8);
+    QVERIFY(actual.wireFlags && *actual.wireFlags == 0);
+    QVERIFY(actual.wireCorruption && *actual.wireCorruption == 0);
+    QCOMPARE(actual.containerId, uint32_t(4));
+    QCOMPARE(actual.containerSlot, uint16_t(2));
+    QCOMPARE(actual.parentSlot, uint16_t(0xFFFF));
+    QCOMPARE(restored.wornSlots().value(2), source.itemId);
+    QVERIFY(restored.save());
+    QFile secondFile(path);
+    QVERIFY(secondFile.open(QIODevice::ReadOnly));
+    QCOMPARE(secondFile.readAll(), first);
+}
+
+void ItemCacheTest::semanticSnapshotsReplaceInventoryAndEquipment()
+{
+    ItemCache cache;
+    cache.insert(sampleRing());
+    ItemTemplate armor = sampleArmor();
+    armor.serial = QStringLiteral("armor-instance");
+    armor.containerSlot = 5;
+    armor.parentSlot = 0xFFFF;
+    cache.replaceInventory(QList<ItemTemplate>{armor});
+    QCOMPARE(cache.size(), 1);
+    QVERIFY(!cache.lookup(sampleRing().itemId, nullptr));
+    QVERIFY(cache.lookup(armor.itemId, nullptr));
+
+    QSignalSpy wornChanged(&cache, &ItemCache::wornSlotsChanged);
+    cache.replaceEquipment(QHash<int, uint32_t>{{5, armor.itemId}});
+    QCOMPARE(cache.wornSlots().value(5), armor.itemId);
+    QCOMPARE(wornChanged.count(), 1);
+    cache.clearEquipmentSlot(5);
+    QVERIFY(cache.wornSlots().isEmpty());
+    cache.setEquipmentSlot(15, armor.itemId);
+    QCOMPARE(cache.wornSlots().value(15), armor.itemId);
+    QCOMPARE(wornChanged.count(), 3);
+}
+
+void ItemCacheTest::seriallessMoveConsumesPreviousLocation()
+{
+    ItemCache cache;
+    ItemTemplate item = sampleRing();
+    item.containerId = 0;
+    item.containerSlot = 15;
+    item.parentSlot = 0xFFFF;
+    cache.applyInventoryItem(item);
+    QCOMPARE(cache.inventoryInstanceCount(), 1);
+    item.containerSlot = 24;
+    cache.applyInventoryItem(item, 0, 15, uint16_t(0xFFFF));
+    QCOMPARE(cache.inventoryInstanceCount(), 1);
 }
 
 void ItemCacheTest::omitsZeroFieldsFromJson()

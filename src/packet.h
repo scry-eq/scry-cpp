@@ -94,6 +94,7 @@ class EQPacket : public QObject
 	    seq::shadow::LifecycleSelector lifecycleSelector,
 	    seq::shadow::EntitySelector entitySelector,
 	    seq::shadow::PlayerSelector playerSelector,
+	    seq::shadow::ProgressionSelector progressionSelector,
 	    QObject *parent,
             const char *name);
    ~EQPacket();           
@@ -150,6 +151,8 @@ class EQPacket : public QObject
        std::function<void(const Box*, const seq::shadow::Event&)>;
    using EntityEventHandler = LifecycleEventHandler;
    using PlayerEventHandler = LifecycleEventHandler;
+   using ProgressionBatchHandler =
+       std::function<void(const Box*, const seq::shadow::Batch&)>;
    using LifecycleProjectionEnricher =
        std::function<void(const Box*, bool,
                           std::vector<seq::shadow::LifecycleObservation>&,
@@ -162,6 +165,8 @@ class EQPacket : public QObject
    { m_entityEventHandler = std::move(handler); }
    void setPlayerEventHandler(PlayerEventHandler handler)
    { m_playerEventHandler = std::move(handler); }
+   void setProgressionBatchHandler(ProgressionBatchHandler handler)
+   { m_progressionBatchHandler = std::move(handler); }
    void setLifecycleProjectionEnricher(LifecycleProjectionEnricher enricher)
    { m_lifecycleProjectionEnricher = std::move(enricher); }
    void setLifecycleGlobalOwnershipPredicate(
@@ -175,12 +180,18 @@ class EQPacket : public QObject
    bool legacyPlayersEnabledForCurrentPacket() const;
    bool legacyPlayerAppearanceEnabledForCurrentPacket() const;
    bool rustPlayerAcceptedForCurrentPacket(seq::shadow::PlayerKind kind) const;
+   bool legacyProgressionEnabledForCurrentPacket() const;
+   bool rustProgressionAcceptedForCurrentPacket(
+       seq::shadow::ProgressionKind kind) const;
    void observeLegacyLifecycle(seq::shadow::LifecycleObservation observation);
    void observeLegacyLifecycleProjection(seq::v1::Envelope envelope);
    void observeLegacyEntity(seq::shadow::EntityObservation observation);
    void observeLegacyEntityProjection(seq::v1::Envelope envelope);
    void observeLegacyPlayer(seq::shadow::PlayerObservation observation);
    void observeLegacyPlayerProjection(seq::v1::Envelope envelope);
+   void observeLegacyProgression(
+       seq::shadow::ProgressionObservation observation);
+   void observeLegacyProgressionProjection(seq::v1::Envelope envelope);
    void applyValidatedZoneServerInfo(Box* box, uint16_t port);
 
    void exportHandoffState(const QString& configDir) const;
@@ -300,6 +311,7 @@ class EQPacket : public QObject
    const seq::shadow::LifecycleSelector m_lifecycleSelector;
    const seq::shadow::EntitySelector m_entitySelector;
    const seq::shadow::PlayerSelector m_playerSelector;
+   const seq::shadow::ProgressionSelector m_progressionSelector;
 
    EQPacketStream* m_client2WorldStream;
    EQPacketStream* m_world2ClientStream;
@@ -354,14 +366,25 @@ class EQPacket : public QObject
        std::vector<seq::v1::Envelope> legacyProjections;
    };
    std::optional<PendingPlayerComparison> m_pendingPlayer;
+   struct PendingProgressionComparison {
+       seq::shadow::Session* session = nullptr;
+       const Box* box = nullptr;
+       std::vector<seq::shadow::ProgressionObservation> rustEvents;
+       std::vector<seq::v1::Envelope> rustProjections;
+       std::vector<seq::shadow::ProgressionObservation> legacyEvents;
+       std::vector<seq::v1::Envelope> legacyProjections;
+   };
+   std::optional<PendingProgressionComparison> m_pendingProgression;
    seq::shadow::Session* m_currentLifecycleSession = nullptr;
    std::vector<seq::shadow::LifecycleKind> m_currentRustLifecycleKinds;
    std::vector<seq::shadow::EntityKind> m_currentRustEntityKinds;
    std::vector<seq::shadow::PlayerKind> m_currentRustPlayerKinds;
+   std::vector<seq::shadow::ProgressionKind> m_currentRustProgressionKinds;
    bool m_currentRustPacketDecoded = false;
    LifecycleEventHandler m_lifecycleEventHandler;
    EntityEventHandler m_entityEventHandler;
    PlayerEventHandler m_playerEventHandler;
+   ProgressionBatchHandler m_progressionBatchHandler;
    LifecycleProjectionEnricher m_lifecycleProjectionEnricher;
    LifecycleGlobalOwnershipPredicate m_lifecycleGlobalOwnershipPredicate;
    bool m_lifecycleFatal = false;

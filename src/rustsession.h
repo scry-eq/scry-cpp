@@ -21,6 +21,7 @@ enum class Disposition { Decoded, Ignored, Unhandled, Malformed, Unmapped };
 enum class LifecycleSelector { Legacy, Shadow, Rust };
 using EntitySelector = LifecycleSelector;
 using PlayerSelector = LifecycleSelector;
+using ProgressionSelector = LifecycleSelector;
 enum class LifecycleKind {
     SessionReset,
     EnterWorld,
@@ -51,6 +52,19 @@ enum class PlayerKind {
     SpawnDied,
     SpawnIdentityUpdated,
     PlayerAppearanceUpdated,
+};
+enum class ProgressionKind {
+    InventorySnapshot,
+    InventoryItemUpdated,
+    EquipmentSnapshot,
+    EquipmentSlotUpdated,
+    MoneyBalanceUpdated,
+    SkillsSnapshot,
+    SkillValueUpdated,
+    ExperienceUpdated,
+    AlternateAdvancementSnapshot,
+    AlternateAdvancementUpdated,
+    AlternateAbilityDefined,
 };
 
 struct PlayerIdentityUpdated { rust::EventPlayerIdentity payload; };
@@ -86,6 +100,10 @@ struct GuildRoster { rust::EventGuildRoster payload; };
 struct ZoneServerInfo { rust::EventZoneServerInfo payload; };
 struct ItemSet { rust::EventItemSet payload; };
 struct ItemLearned { rust::EventItemLearned payload; };
+struct InventorySnapshot { rust::EventInventorySnapshot payload; };
+struct InventoryItemUpdated { rust::EventInventoryItemUpdated payload; };
+struct EquipmentSnapshot { rust::EventEquipmentSnapshot payload; };
+struct EquipmentSlotUpdated { rust::EventEquipmentSlotUpdated payload; };
 struct GuildMotd { rust::EventGuildMotdPayload payload; };
 struct GuildRankName { rust::EventGuildRankName payload; };
 struct LoadoutSwap { rust::EventLoadoutSwap payload; };
@@ -99,14 +117,21 @@ struct SpawnCast { rust::EventSpawnCast payload; };
 struct Targeted { rust::EventSpawnId payload; };
 struct Considered { rust::EventSpawnId payload; };
 struct AaTable { rust::EventAaTable payload; };
+struct AlternateAbilityDefined { rust::EventAlternateAbilityDefinition payload; };
 struct Exp { rust::EventExp payload; };
+struct ExperienceUpdated { rust::EventExperienceProgress payload; };
 struct AaExp { rust::EventAaExp payload; };
+struct AlternateAdvancementSnapshot { rust::EventAlternateAdvancementSnapshot payload; };
+struct AlternateAdvancementUpdated { rust::EventAlternateAdvancementProgress payload; };
 struct Stamina { rust::EventStaminaPayload payload; };
 struct ManaUpdate { rust::EventManaUpdate payload; };
 struct SkillUpdate { rust::EventSkillUpdatePayload payload; };
+struct SkillsSnapshot { rust::EventSkillsSnapshot payload; };
+struct SkillValueUpdated { rust::EventSkillValue payload; };
 struct LootTransaction { rust::EventLootTransactionPayload payload; };
 struct LootDrops { rust::EventLootDropsPayload payload; };
 struct Money { rust::EventMoney payload; };
+struct MoneyBalanceUpdated { rust::EventMoneyBalance payload; };
 struct SimpleMessage { rust::EventSimpleMessagePayload payload; };
 struct FormattedMessage { rust::EventFormattedMessagePayload payload; };
 struct SpecialMessage { rust::EventSpecialMessagePayload payload; };
@@ -125,16 +150,20 @@ using Event = std::variant<
     SpawnAdded, SpawnMoved, SpawnRenamed, SpawnRemoved, SpawnKilled, SpawnHp, StatSync,
     SelfPos, SpawnAnimation, SpawnIllusion, GuildsInZone, TimeOfDay,
     ZoneChanged, PlayerProfile, Stance, Invocation, InspectAnswer, GuildRoster,
-    ZoneServerInfo, ItemSet, ItemLearned, GuildMotd, GuildRankName, LoadoutSwap,
+    ZoneServerInfo, ItemSet, ItemLearned, InventorySnapshot,
+    InventoryItemUpdated, EquipmentSnapshot, EquipmentSlotUpdated,
+    GuildMotd, GuildRankName, LoadoutSwap,
     Doors, GroundItemRemoved, GroundItem, CorpseLocated, ZonePoints,
     Combat, SpawnCast, Targeted,
-    Considered, AaTable, Exp, AaExp, Stamina, ManaUpdate, SkillUpdate,
-    LootTransaction, LootDrops, Money, SimpleMessage, FormattedMessage,
+    Considered, AaTable, AlternateAbilityDefined, Exp, ExperienceUpdated,
+    AaExp, AlternateAdvancementSnapshot, AlternateAdvancementUpdated,
+    Stamina, ManaUpdate, SkillUpdate, SkillsSnapshot, SkillValueUpdated,
+    LootTransaction, LootDrops, Money, MoneyBalanceUpdated, SimpleMessage, FormattedMessage,
     SpecialMessage, LootMessage, Chat, BuffList, GroupFollow, GroupDisband,
     LevelUpdate, EnterWorld, SessionReset, ZoneTransition,
     ZoneEnvironmentChanged>;
 
-static_assert(std::variant_size_v<Event> == 63,
+static_assert(std::variant_size_v<Event> == 74,
               "the C++ shadow event model must cover every Rust event kind");
 
 // A copyable, deterministic representation used by shadow comparison. The
@@ -182,6 +211,18 @@ struct PlayerObservation {
 };
 
 using PlayerComparison = LifecycleComparison;
+
+struct ProgressionObservation {
+    ProgressionKind kind = ProgressionKind::InventorySnapshot;
+    std::vector<uint8_t> payload;
+
+    bool operator==(const ProgressionObservation& other) const
+    {
+        return kind == other.kind && payload == other.payload;
+    }
+};
+
+using ProgressionComparison = LifecycleComparison;
 
 struct LifecycleProfile {
     std::string name;
@@ -253,6 +294,12 @@ PlayerComparison comparePlayers(
     const Batch& rustBatch,
     const std::vector<PlayerObservation>& legacyEvents,
     const std::vector<seq::v1::Envelope>& legacyProjections);
+std::vector<ProgressionObservation> progressionObservations(const Batch& batch);
+std::vector<seq::v1::Envelope> projectProgression(const Batch& batch);
+ProgressionComparison compareProgression(
+    const Batch& rustBatch,
+    const std::vector<ProgressionObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections);
 LifecycleObservation observeSessionReset(rust::EventSessionResetReason reason);
 LifecycleObservation observeEnterWorld(const std::string& characterName);
 LifecycleObservation observeZoneServer(const std::string& host, uint16_t port);
@@ -280,6 +327,7 @@ LifecycleComparison compareLifecycle(
 bool isLifecycleEvent(const Event& event);
 bool isEntityEvent(const Event& event);
 bool isPlayerEvent(const Event& event);
+bool isProgressionEvent(const Event& event);
 
 class ProtocolRegistry {
 public:
@@ -302,7 +350,8 @@ public:
             size_t journalByteLimit = 4 * 1024 * 1024,
             LifecycleSelector lifecycleSelector = LifecycleSelector::Shadow,
             EntitySelector entitySelector = EntitySelector::Legacy,
-            PlayerSelector playerSelector = PlayerSelector::Legacy);
+            PlayerSelector playerSelector = PlayerSelector::Legacy,
+            ProgressionSelector progressionSelector = ProgressionSelector::Legacy);
 
     const Record& decode(Stream stream, uint16_t opcode, Direction direction,
                          const uint8_t* payload, size_t payloadSize,
@@ -333,6 +382,13 @@ public:
     { return m_playerSelector == PlayerSelector::Shadow; }
     bool appliesRustPlayers() const
     { return m_playerSelector == PlayerSelector::Rust; }
+    ProgressionSelector progressionSelector() const { return m_progressionSelector; }
+    bool runsLegacyProgression() const
+    { return m_progressionSelector != ProgressionSelector::Rust; }
+    bool comparesProgression() const
+    { return m_progressionSelector == ProgressionSelector::Shadow; }
+    bool appliesRustProgression() const
+    { return m_progressionSelector == ProgressionSelector::Rust; }
     const std::optional<LifecycleComparison>& lastLifecycleComparison() const
     { return m_lastLifecycleComparison; }
     void recordLifecycleComparison(LifecycleComparison comparison)
@@ -345,6 +401,10 @@ public:
     { return m_lastPlayerComparison; }
     void recordPlayerComparison(PlayerComparison comparison)
     { m_lastPlayerComparison = std::move(comparison); }
+    const std::optional<ProgressionComparison>& lastProgressionComparison() const
+    { return m_lastProgressionComparison; }
+    void recordProgressionComparison(ProgressionComparison comparison)
+    { m_lastProgressionComparison = std::move(comparison); }
 
 private:
     const Record& append(Record record);
@@ -356,12 +416,14 @@ private:
     const LifecycleSelector m_lifecycleSelector;
     const EntitySelector m_entitySelector;
     const PlayerSelector m_playerSelector;
+    const ProgressionSelector m_progressionSelector;
     uint64_t m_recordCount = 0;
     uint64_t m_droppedRecordCount = 0;
     std::deque<Record> m_journal;
     std::optional<LifecycleComparison> m_lastLifecycleComparison;
     std::optional<EntityComparison> m_lastEntityComparison;
     std::optional<PlayerComparison> m_lastPlayerComparison;
+    std::optional<ProgressionComparison> m_lastProgressionComparison;
 };
 
 } // namespace seq::shadow

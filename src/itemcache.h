@@ -15,11 +15,13 @@
 #define SHOWEQ_ITEMCACHE_H
 
 #include <QHash>
+#include <QList>
 #include <QObject>
 #include <QString>
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "itempacket.h"
 
@@ -42,11 +44,25 @@ public:
 
     bool lookup(uint32_t itemId, ItemTemplate* out) const;
     int  size() const { return m_cache.size(); }
+    int  inventoryInstanceCount() const { return m_inventory.size(); }
     int  itemsLearnedThisSession() const { return m_learnedCount; }
 
     // Direct insert; useful for tests and re-entry on already-parsed
     // items. Marks the cache dirty.
     void insert(const ItemTemplate& tpl);
+
+    // Phase 7 semantic application. A full inventory snapshot replaces the
+    // current instance view. Live has no snapshot packet, so its cache loaded
+    // from disk remains the seed and incremental updates merge into it.
+    void replaceInventory(const QList<ItemTemplate>& items);
+    void applyInventoryItem(
+        const ItemTemplate& item,
+        std::optional<uint32_t> previousContainerId = std::nullopt,
+        std::optional<uint16_t> previousContainerSlot = std::nullopt,
+        std::optional<uint16_t> previousParentSlot = std::nullopt);
+    void replaceEquipment(const QHash<int, uint32_t>& equipment);
+    void clearEquipmentSlot(int slot);
+    void setEquipmentSlot(int slot, uint32_t itemId);
 
     bool save();
 
@@ -101,6 +117,7 @@ private:
     bool load();
 
     QHash<uint32_t, ItemTemplate> m_cache;
+    QHash<QString, ItemTemplate>  m_inventory;
     QHash<int, uint32_t>          m_wornSlots;
     QString m_storePath;
     QTimer* m_flushTimer   = nullptr;

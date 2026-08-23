@@ -232,6 +232,8 @@ void Player::setDefaultDeity(uint16_t deity)
 
 void Player::loadProfile(const playerProfileStruct& player)
 {
+  const bool applyProgression =
+      !m_progressionMutationGuard || m_progressionMutationGuard();
   setUseDefaults(false);
 
   setGender(player.gender);
@@ -301,26 +303,25 @@ void Player::loadProfile(const playerProfileStruct& player)
   m_tickExp = 1;
 
   // Merge in our new skills...
-  for (int a = 0; a < MAX_KNOWN_SKILLS; a++)
-  {
-    m_playerSkills[a] = player.skills[a];
-
-    emit addSkill (a, m_playerSkills[a]);
+  if (applyProgression) {
+    for (int a = 0; a < MAX_KNOWN_SKILLS; a++)
+    {
+      m_playerSkills[a] = player.skills[a];
+      emit addSkill (a, m_playerSkills[a]);
+    }
   }
 
   // copy in the spell book
   memcpy (&m_spellBookSlots[0], &player.sSpellBook[0], sizeof(m_spellBookSlots));
 
-  m_currentAApts = player.aa_spent;
-  m_currentAAUnspent = player.aa_unspent;
-
-  // Sparse list of purchased AAs. aa_array is dense (zeros in unused slots)
-  // and includes auto-grants at value=0; filter both out — clients that
-  // care about auto-grants can synthesize them from a static list.
-  m_purchasedAA.clear();
-  for (int i = 0; i < MAX_AA; ++i) {
-    if (player.aa_array[i].AA == 0 || player.aa_array[i].value == 0) continue;
-    m_purchasedAA.push_back({player.aa_array[i].AA, player.aa_array[i].value});
+  if (applyProgression) {
+    m_currentAApts = player.aa_spent;
+    m_currentAAUnspent = player.aa_unspent;
+    m_purchasedAA.clear();
+    for (int i = 0; i < MAX_AA; ++i) {
+      if (player.aa_array[i].AA == 0 || player.aa_array[i].value == 0) continue;
+      m_purchasedAA.push_back({player.aa_array[i].AA, player.aa_array[i].value});
+    }
   }
 
   // Buffs: modern spellBuff is 110 bytes (same total as legacy) but the
@@ -398,18 +399,17 @@ void Player::player(const charProfileStruct* player)
     emit addLanguage (a, m_playerLanguages[a]);
   }
 
-  // Exp
-  m_currentExp = player->exp;
-  m_currentAltExp = player->expAA;
-  m_validExp = true;
-  
-  emit expChangedInt (m_currentExp, m_minExp, m_maxExp);
-  emit expAltChangedInt(m_currentAltExp, 0, 100000);
-
-  emit setAltExp(m_currentAltExp, 100000, 100000/100, m_currentAApts);
-
-  if (showeq_params->savePlayerState)
-    savePlayerState();
+  const bool applyProgression =
+      !m_progressionMutationGuard || m_progressionMutationGuard();
+  if (applyProgression) {
+    m_currentExp = player->exp;
+    m_currentAltExp = player->expAA;
+    m_validExp = true;
+    emit expChangedInt (m_currentExp, m_minExp, m_maxExp);
+    emit expAltChangedInt(m_currentAltExp, 0, 100000);
+    emit setAltExp(m_currentAltExp, 100000, 100000/100, m_currentAApts);
+    if (showeq_params->savePlayerState) savePlayerState();
+  }
 
   emit changeItem(this, tSpawnChangedALL);
 }
@@ -425,9 +425,13 @@ void Player::applyProfileSupplement(const charProfileStruct* player)
   // Live's shared profile event does not yet carry skills, AA-unspent, or the
   // derived maximum mana. Preserve those accepted host-only values until their
   // later families migrate.
-  for (int i = 0; i < MAX_KNOWN_SKILLS; ++i)
-    m_playerSkills[i] = player->profile.skills[i];
-  m_currentAAUnspent = player->profile.aa_unspent;
+  const bool applyProgression =
+      !m_progressionMutationGuard || m_progressionMutationGuard();
+  if (applyProgression) {
+    for (int i = 0; i < MAX_KNOWN_SKILLS; ++i)
+      m_playerSkills[i] = player->profile.skills[i];
+    m_currentAAUnspent = player->profile.aa_unspent;
+  }
   m_maxMana = calcMaxMana(m_maxINT, m_maxWIS, m_class, m_level) + m_plusMana;
   memcpy(&m_spellBookSlots[0], &player->profile.sSpellBook[0],
          sizeof(m_spellBookSlots));
@@ -458,16 +462,17 @@ void Player::applyProfileSupplement(const charProfileStruct* player)
     m_playerLanguages[i] = player->languages[i];
     emit addLanguage(i, m_playerLanguages[i]);
   }
-  m_currentExp = player->exp;
-  m_currentAltExp = player->expAA;
-  m_validExp = true;
-  emit expChangedInt(m_currentExp, m_minExp, m_maxExp);
-  emit expAltChangedInt(m_currentAltExp, 0, 100000);
-  emit setAltExp(m_currentAltExp, 100000, 1000, m_currentAApts);
-  emit changeSkill(MAX_KNOWN_SKILLS - 1,
-                   m_playerSkills[MAX_KNOWN_SKILLS - 1]);
-
-  if (showeq_params->savePlayerState) savePlayerState();
+  if (applyProgression) {
+    m_currentExp = player->exp;
+    m_currentAltExp = player->expAA;
+    m_validExp = true;
+    emit expChangedInt(m_currentExp, m_minExp, m_maxExp);
+    emit expAltChangedInt(m_currentAltExp, 0, 100000);
+    emit setAltExp(m_currentAltExp, 100000, 1000, m_currentAApts);
+    emit changeSkill(MAX_KNOWN_SKILLS - 1,
+                     m_playerSkills[MAX_KNOWN_SKILLS - 1]);
+    if (showeq_params->savePlayerState) savePlayerState();
+  }
   emit changeItem(this, tSpawnChangedALL);
 }
 
@@ -1321,9 +1326,73 @@ void Player::seedPurchasedAA(const std::vector<uint32_t>& ids,
     savePlayerState();
 }
 
+void Player::replaceSkills(
+    const std::vector<std::pair<uint32_t, uint32_t>>& skills)
+{
+  std::fill(std::begin(m_playerSkills), std::end(m_playerSkills), 0xFFFFFFFFu);
+  int last = -1;
+  for (const auto& [id, value] : skills) {
+    if (id >= MAX_KNOWN_SKILLS) continue;
+    m_playerSkills[id] = value;
+    last = std::max(last, int(id));
+  }
+  if (last >= 0) emit changeSkill(last, int(m_playerSkills[last]));
+}
+
+void Player::applySkillValue(uint32_t skillId, uint32_t value)
+{
+  if (skillId >= MAX_KNOWN_SKILLS || m_playerSkills[skillId] == value) return;
+  m_playerSkills[skillId] = value;
+  emit changeSkill(int(skillId), int(value));
+}
+
+void Player::applyExperienceProgress(
+    uint32_t experience, std::optional<uint32_t> newLevel,
+    std::optional<uint32_t> /*previousLevel*/)
+{
+  const uint8_t levelValue = newLevel
+      ? uint8_t(std::min<uint32_t>(*newLevel, UINT8_MAX)) : m_level;
+  const bool levelChangedValue = newLevel && levelValue != m_level;
+  m_level = levelValue;
+  m_minExp = 0;
+  m_maxExp = 100000;
+  m_tickExp = 1;
+  m_currentExp = experience;
+  m_validExp = true;
+  emit expChangedInt(m_currentExp, m_minExp, m_maxExp);
+  if (levelChangedValue) {
+    updateLastChanged();
+    emit levelChanged(m_level);
+    emit changeItem(this, tSpawnChangedLevel);
+  }
+}
+
+void Player::replaceAlternateAdvancement(
+    const std::vector<std::pair<uint32_t, uint32_t>>& purchased,
+    std::optional<uint32_t> spent, uint32_t unspent, uint32_t experience)
+{
+  m_purchasedAA.clear();
+  for (const auto& [abilityId, rank] : purchased) {
+    if (abilityId != 0 && rank != 0)
+      m_purchasedAA.push_back({abilityId, rank});
+  }
+  if (spent)
+    m_currentAApts = uint16_t(std::min<uint32_t>(*spent, UINT16_MAX));
+  m_currentAAUnspent = unspent;
+  m_currentAltExp = experience;
+  emit expAltChangedInt(m_currentAltExp, 0, 100000);
+}
+
+void Player::applyAlternateAdvancement(uint32_t experience, uint32_t unspent)
+{
+  m_currentAltExp = experience;
+  m_currentAAUnspent = unspent;
+  emit expAltChangedInt(m_currentAltExp, 0, 100000);
+}
+
 void Player::seedBaseStats(uint16_t str, uint16_t sta, uint16_t cha,
                            uint16_t dex, uint16_t intel, uint16_t agi,
-                           uint16_t wis)
+                           uint16_t wis, bool persist)
 {
   // Assignment, not +=: the profile re-fires per zone-in and would stack the
   // roll. No signal — EqlDispatch::profile calls this before setIdentity,
@@ -1337,7 +1406,7 @@ void Player::seedBaseStats(uint16_t str, uint16_t sta, uint16_t cha,
   m_maxWIS = wis;
   m_validAttributes = true;
 
-  if (showeq_params->savePlayerState)
+  if (persist && showeq_params->savePlayerState)
     savePlayerState();
 }
 

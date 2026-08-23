@@ -24,6 +24,7 @@
 #include <QString>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 // Indices into ItemTemplate::stats[].
 enum ItemStatIndex
@@ -56,9 +57,15 @@ enum ItemResistIndex
 // within the bag.
 struct ItemTemplate
 {
+    QString  serial;
     QString  itemName;
     QString  loreName;
     uint32_t itemId       = 0;
+    std::optional<uint32_t> icon;
+    std::optional<uint32_t> wireStackCount;
+    std::optional<uint32_t> weightTenths;
+    std::optional<uint32_t> wireFlags;
+    std::optional<int32_t>  wireCorruption;
     uint32_t slotBitmask  = 0;
     uint32_t flags        = 0;
     float    weight       = 0.0f;
@@ -73,6 +80,9 @@ struct ItemTemplate
     uint32_t mainSlot     = 0;            // 0 = top-level (worn/inv/cursor)
     uint16_t subSlot      = 0;            // when mainSlot==0, this IS the worn/inv slot index
     uint32_t stackCount   = 0;            // charges or stack count from wrapper
+    uint32_t containerId  = 0;
+    uint16_t containerSlot = 0;
+    uint16_t parentSlot   = 0;
 };
 
 // Parse the full OP_ItemPacket payload (starting at packetType) into

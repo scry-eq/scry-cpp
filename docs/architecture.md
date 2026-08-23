@@ -148,6 +148,11 @@ delta heading, animation, and all nine equipment models. Player ownership
 covers tags 55 through 62, while EQL profile fields assigned to later phases
 remain in its compatibility tail.
 
+`--progression-decoder legacy|shadow|rust` adds the independent Phase-7
+selector for tags 63 through 73. It owns inventory, equipment, money, skills,
+experience, levels, and alternate advancement. The default remains `legacy`
+until capture parity and soak evidence exist for both backends.
+
 Zone projection runs after `loadZoneMap`, so shadow comparison includes
 production map geometry. Rust installs Live/Test NewZone environment before the
 legacy-compatible `zoneEnd` signal and uses EQL's non-clearing `zoneResolved`

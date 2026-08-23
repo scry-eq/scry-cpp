@@ -7,6 +7,7 @@
 
 #include "rustsession.h"
 #include "datetimemgr.h"
+#include "itempacket.h"
 #include "protoencoder.h"
 #include "spawn.h"
 
@@ -44,6 +45,10 @@ SAME_PAYLOAD(GuildRoster, EventGuildRoster);
 SAME_PAYLOAD(ZoneServerInfo, EventZoneServerInfo);
 SAME_PAYLOAD(ItemSet, EventItemSet);
 SAME_PAYLOAD(ItemLearned, EventItemLearned);
+SAME_PAYLOAD(InventorySnapshot, EventInventorySnapshot);
+SAME_PAYLOAD(InventoryItemUpdated, EventInventoryItemUpdated);
+SAME_PAYLOAD(EquipmentSnapshot, EventEquipmentSnapshot);
+SAME_PAYLOAD(EquipmentSlotUpdated, EventEquipmentSlotUpdated);
 SAME_PAYLOAD(GuildMotd, EventGuildMotdPayload);
 SAME_PAYLOAD(GuildRankName, EventGuildRankName);
 SAME_PAYLOAD(LoadoutSwap, EventLoadoutSwap);
@@ -57,14 +62,21 @@ SAME_PAYLOAD(SpawnCast, EventSpawnCast);
 SAME_PAYLOAD(Targeted, EventSpawnId);
 SAME_PAYLOAD(Considered, EventSpawnId);
 SAME_PAYLOAD(AaTable, EventAaTable);
+SAME_PAYLOAD(AlternateAbilityDefined, EventAlternateAbilityDefinition);
 SAME_PAYLOAD(Exp, EventExp);
+SAME_PAYLOAD(ExperienceUpdated, EventExperienceProgress);
 SAME_PAYLOAD(AaExp, EventAaExp);
+SAME_PAYLOAD(AlternateAdvancementSnapshot, EventAlternateAdvancementSnapshot);
+SAME_PAYLOAD(AlternateAdvancementUpdated, EventAlternateAdvancementProgress);
 SAME_PAYLOAD(Stamina, EventStaminaPayload);
 SAME_PAYLOAD(ManaUpdate, EventManaUpdate);
 SAME_PAYLOAD(SkillUpdate, EventSkillUpdatePayload);
+SAME_PAYLOAD(SkillsSnapshot, EventSkillsSnapshot);
+SAME_PAYLOAD(SkillValueUpdated, EventSkillValue);
 SAME_PAYLOAD(LootTransaction, EventLootTransactionPayload);
 SAME_PAYLOAD(LootDrops, EventLootDropsPayload);
 SAME_PAYLOAD(Money, EventMoney);
+SAME_PAYLOAD(MoneyBalanceUpdated, EventMoneyBalance);
 SAME_PAYLOAD(SimpleMessage, EventSimpleMessagePayload);
 SAME_PAYLOAD(FormattedMessage, EventFormattedMessagePayload);
 SAME_PAYLOAD(SpecialMessage, EventSpecialMessagePayload);
@@ -151,6 +163,7 @@ private slots:
     void entityAdapterPreservesOptionalFieldsAndProjectionOrder();
     void entityMotionEquipmentMatchLegacyProjection();
     void playerAdapterPreservesAllPhaseSixEventsInOrder();
+    void progressionAdapterPreservesOptionalFieldsAndProjectsExactly();
     void resetPrecedesProfileAndUsesProductionProjection();
     void publicTimeContractNormalizesWireHourOnce();
     void reconnectResetsBeforeEachEnterWorld();
@@ -230,12 +243,28 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     ADD(spawn_identity_updated, SpawnIdentityUpdated, EventSpawnIdentity);
     ADD(player_appearance_updated, PlayerAppearanceUpdated,
         EventPlayerAppearance);
+    ADD(inventory_snapshot, InventorySnapshot, EventInventorySnapshot);
+    ADD(inventory_item_updated, InventoryItemUpdated,
+        EventInventoryItemUpdated);
+    ADD(equipment_snapshot, EquipmentSnapshot, EventEquipmentSnapshot);
+    ADD(equipment_slot_updated, EquipmentSlotUpdated,
+        EventEquipmentSlotUpdated);
+    ADD(money_balance_updated, MoneyBalanceUpdated, EventMoneyBalance);
+    ADD(skills_snapshot, SkillsSnapshot, EventSkillsSnapshot);
+    ADD(skill_value_updated, SkillValueUpdated, EventSkillValue);
+    ADD(experience_updated, ExperienceUpdated, EventExperienceProgress);
+    ADD(alternate_advancement_snapshot, AlternateAdvancementSnapshot,
+        EventAlternateAdvancementSnapshot);
+    ADD(alternate_advancement_updated, AlternateAdvancementUpdated,
+        EventAlternateAdvancementProgress);
+    ADD(alternate_ability_defined, AlternateAbilityDefined,
+        EventAlternateAbilityDefinition);
 #undef ADD
 
     Batch batch = translate(std::move(raw));
     QCOMPARE(batch.protocolGeneration, uint64_t(77));
     QCOMPARE(batch.disposition, Disposition::Decoded);
-    QCOMPARE(batch.events.size(), size_t(63));
+    QCOMPARE(batch.events.size(), size_t(74));
 
 #define CHECK(index, type) QVERIFY(std::holds_alternative<type>(batch.events[index]))
     CHECK(0, SpawnAdded); CHECK(1, SpawnMoved); CHECK(2, SpawnRenamed);
@@ -262,6 +291,13 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     CHECK(57, PlayerVitalsUpdated); CHECK(58, SpawnHealthUpdated);
     CHECK(59, PlayerDied); CHECK(60, SpawnDied);
     CHECK(61, SpawnIdentityUpdated); CHECK(62, PlayerAppearanceUpdated);
+    CHECK(63, InventorySnapshot); CHECK(64, InventoryItemUpdated);
+    CHECK(65, EquipmentSnapshot); CHECK(66, EquipmentSlotUpdated);
+    CHECK(67, MoneyBalanceUpdated); CHECK(68, SkillsSnapshot);
+    CHECK(69, SkillValueUpdated); CHECK(70, ExperienceUpdated);
+    CHECK(71, AlternateAdvancementSnapshot);
+    CHECK(72, AlternateAdvancementUpdated);
+    CHECK(73, AlternateAbilityDefined);
 #undef CHECK
 }
 
@@ -290,7 +326,9 @@ void RustSessionTest::payloadFieldsSurviveTranslation()
     profile.class_ = 16; profile.level = 17; profile.race = 18;
     profile.deity = 19; profile.cur_hp = 20; profile.mana = 21;
     profile.aa_ids.push_back(22); profile.aa_values.push_back(23);
-    profile.aa_spent = 24; profile.skills.push_back(25); profile.class_mask = 26;
+    profile.aa_spent = 24; profile.aa_assigned = 240;
+    profile.aa_unspent = 241; profile.aa_experience = 242;
+    profile.skills.push_back(25); profile.class_mask = 26;
     profile.str_ = 27; profile.sta = 28; profile.cha = 29; profile.dex = 30;
     profile.int_ = 31; profile.agi = 32; profile.wis = 33;
     profile.platinum = 34; profile.gold = 35; profile.silver = 36;
@@ -302,7 +340,12 @@ void RustSessionTest::payloadFieldsSurviveTranslation()
     item.serial = ::rust::String("serial");
     item.name = ::rust::String("item");
     item.lore_name = ::rust::String("lore");
-    item.item_id = 38; item.icon = 39; item.slot_mask = 40;
+    item.item_id = 38; item.has_icon = true; item.icon = 39;
+    item.has_stack_count = true; item.stack_count = 390;
+    item.has_weight_tenths = false;
+    item.has_flags = true; item.flags = 391;
+    item.has_corruption = true; item.corruption = -39;
+    item.slot_mask = 40;
     item.container_id = 41; item.container_slot = 42; item.parent_slot = 43;
     item.stats.push_back(-44); item.resists.push_back(-45);
     item.hp = -46; item.mana = -47; item.endurance = -48; item.ac = -49;
@@ -350,7 +393,11 @@ void RustSessionTest::payloadFieldsSurviveTranslation()
     QCOMPARE(outProfile.cur_hp, uint32_t(20)); QCOMPARE(outProfile.mana, uint32_t(21));
     QCOMPARE(outProfile.aa_ids[0], uint32_t(22));
     QCOMPARE(outProfile.aa_values[0], uint32_t(23));
-    QCOMPARE(outProfile.aa_spent, uint32_t(24)); QCOMPARE(outProfile.skills[0], uint32_t(25));
+    QCOMPARE(outProfile.aa_spent, uint32_t(24));
+    QCOMPARE(outProfile.aa_assigned, uint32_t(240));
+    QCOMPARE(outProfile.aa_unspent, uint32_t(241));
+    QCOMPARE(outProfile.aa_experience, uint32_t(242));
+    QCOMPARE(outProfile.skills[0], uint32_t(25));
     QCOMPARE(outProfile.class_mask, uint32_t(26)); QCOMPARE(outProfile.str_, uint32_t(27));
     QCOMPARE(outProfile.sta, uint32_t(28)); QCOMPARE(outProfile.cha, uint32_t(29));
     QCOMPARE(outProfile.dex, uint32_t(30)); QCOMPARE(outProfile.int_, uint32_t(31));
@@ -361,7 +408,12 @@ void RustSessionTest::payloadFieldsSurviveTranslation()
     const auto& outItem = std::get<ItemLearned>(batch.events[2]).payload.item;
     QCOMPARE(text(outItem.serial), QString("serial")); QCOMPARE(text(outItem.name), QString("item"));
     QCOMPARE(text(outItem.lore_name), QString("lore")); QCOMPARE(outItem.item_id, uint32_t(38));
-    QCOMPARE(outItem.icon, uint32_t(39)); QCOMPARE(outItem.slot_mask, uint32_t(40));
+    QVERIFY(outItem.has_icon); QCOMPARE(outItem.icon, uint32_t(39));
+    QVERIFY(outItem.has_stack_count); QCOMPARE(outItem.stack_count, uint32_t(390));
+    QVERIFY(!outItem.has_weight_tenths);
+    QVERIFY(outItem.has_flags); QCOMPARE(outItem.flags, uint32_t(391));
+    QVERIFY(outItem.has_corruption); QCOMPARE(outItem.corruption, int32_t(-39));
+    QCOMPARE(outItem.slot_mask, uint32_t(40));
     QCOMPARE(outItem.container_id, uint32_t(41)); QCOMPARE(outItem.container_slot, uint16_t(42));
     QCOMPARE(outItem.parent_slot, uint16_t(43)); QCOMPARE(outItem.stats[0], int32_t(-44));
     QCOMPARE(outItem.resists[0], int32_t(-45)); QCOMPARE(outItem.hp, int32_t(-46));
@@ -599,6 +651,23 @@ void RustSessionTest::lifecycleSelectorIsImmutablePerSession()
     QVERIFY(playerShadow.comparesPlayers());
     QVERIFY(!playerRust.runsLegacyPlayers());
     QVERIFY(playerRust.appliesRustPlayers());
+
+    Session progressionLegacy(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Legacy);
+    Session progressionShadow(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Shadow);
+    Session progressionRust(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Rust);
+    QVERIFY(progressionLegacy.runsLegacyProgression());
+    QVERIFY(progressionShadow.comparesProgression());
+    QVERIFY(!progressionRust.runsLegacyProgression());
+    QVERIFY(progressionRust.appliesRustProgression());
 }
 
 void RustSessionTest::entityAdapterPreservesOptionalFieldsAndProjectionOrder()
@@ -864,6 +933,145 @@ void RustSessionTest::playerAdapterPreservesAllPhaseSixEventsInOrder()
     QVERIFY(projections[4].has_spawn_killed());
     QVERIFY(projections[5].has_spawn_updated());
     const auto comparison = comparePlayers(batch, observations, projections);
+    QVERIFY(comparison.orderedEventsEqual);
+    QVERIFY(comparison.projectionsEqual);
+}
+
+void RustSessionTest::progressionAdapterPreservesOptionalFieldsAndProjectsExactly()
+{
+    auto makeItem = [] {
+        ffi::EventItemTemplate item;
+        item.serial = ::rust::String("instance-1");
+        item.name = ::rust::String("Lantern");
+        item.lore_name = ::rust::String("A lantern");
+        item.item_id = 9979;
+        item.has_icon = false;
+        item.has_stack_count = true; item.stack_count = 7;
+        item.has_weight_tenths = true; item.weight_tenths = 5;
+        item.has_flags = true; item.flags = 0x12345678;
+        item.has_corruption = true; item.corruption = -6;
+        item.slot_mask = 0x4800;
+        item.container_id = 0; item.container_slot = 2;
+        item.parent_slot = 0xFFFF;
+        for (int32_t value : {1, 2, 3, 4, 5, 6, 7})
+            item.stats.push_back(value);
+        for (int32_t value : {8, 9, 10, 11, 12})
+            item.resists.push_back(value);
+        item.hp = 13; item.mana = 14; item.endurance = 15; item.ac = 16;
+        return item;
+    };
+
+    ffi::SessionDecodeBatch raw;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+    ffi::EventInventorySnapshot inventory;
+    inventory.items.push_back(makeItem());
+    addPayload(raw, raw.inventory_snapshot,
+               ffi::SessionEventKind::InventorySnapshot,
+               std::move(inventory));
+    ffi::EventInventoryItemUpdated updated;
+    updated.item = makeItem();
+    updated.has_previous_location = true;
+    updated.previous_location.container_id = 0;
+    updated.previous_location.container_slot = 24;
+    updated.previous_location.parent_slot = 0xFFFF;
+    addPayload(raw, raw.inventory_item_updated,
+               ffi::SessionEventKind::InventoryItemUpdated,
+               std::move(updated));
+    ffi::EventEquipmentSnapshot equipment;
+    equipment.items.push_back(makeItem());
+    addPayload(raw, raw.equipment_snapshot,
+               ffi::SessionEventKind::EquipmentSnapshot,
+               std::move(equipment));
+    ffi::EventEquipmentSlotUpdated slot;
+    slot.slot = 2; slot.has_item = true; slot.item = makeItem();
+    addPayload(raw, raw.equipment_slot_updated,
+               ffi::SessionEventKind::EquipmentSlotUpdated,
+               std::move(slot));
+    ffi::EventMoneyBalance money;
+    money.platinum = 1; money.gold = 2; money.silver = 3; money.copper = 4;
+    addPayload(raw, raw.money_balance_updated,
+               ffi::SessionEventKind::MoneyBalanceUpdated, std::move(money));
+    ffi::EventSkillsSnapshot skills;
+    ffi::EventSkillValue skill;
+    skill.skill_id = 30; skill.value = 12; skills.skills.push_back(skill);
+    addPayload(raw, raw.skills_snapshot, ffi::SessionEventKind::SkillsSnapshot,
+               std::move(skills));
+    ffi::EventSkillValue skillUpdate;
+    skillUpdate.skill_id = 31; skillUpdate.value = 13;
+    addPayload(raw, raw.skill_value_updated,
+               ffi::SessionEventKind::SkillValueUpdated,
+               std::move(skillUpdate));
+    ffi::EventExperienceProgress experience;
+    experience.experience = 97900; experience.has_level = true;
+    experience.level = 60; experience.has_previous_level = true;
+    experience.previous_level = 59;
+    addPayload(raw, raw.experience_updated,
+               ffi::SessionEventKind::ExperienceUpdated,
+               std::move(experience));
+    ffi::EventAlternateAdvancementSnapshot aa;
+    ffi::EventAlternateAbilityRank rank;
+    rank.ability_id = 501; rank.rank = 3; aa.purchased.push_back(rank);
+    aa.has_spent_points = true; aa.spent_points = 9;
+    aa.has_assigned_points = false; aa.unspent_points = 7;
+    aa.experience = 91234;
+    addPayload(raw, raw.alternate_advancement_snapshot,
+               ffi::SessionEventKind::AlternateAdvancementSnapshot,
+               std::move(aa));
+    ffi::EventAlternateAdvancementProgress aaUpdate;
+    aaUpdate.experience = 1234; aaUpdate.unspent_points = 8;
+    addPayload(raw, raw.alternate_advancement_updated,
+               ffi::SessionEventKind::AlternateAdvancementUpdated,
+               std::move(aaUpdate));
+    ffi::EventAlternateAbilityDefinition definition;
+    definition.ability_id = 501; definition.title_string_id = 601;
+    addPayload(raw, raw.alternate_ability_defined,
+               ffi::SessionEventKind::AlternateAbilityDefined,
+               std::move(definition));
+
+    const Batch batch = translate(std::move(raw));
+    const auto observations = progressionObservations(batch);
+    QCOMPARE(observations.size(), size_t(11));
+    QCOMPARE(observations.front().kind, ProgressionKind::InventorySnapshot);
+    QCOMPARE(observations.back().kind,
+             ProgressionKind::AlternateAbilityDefined);
+    const auto& item =
+        std::get<InventoryItemUpdated>(batch.events[1]).payload.item;
+    QVERIFY(!item.has_icon);
+    QVERIFY(item.has_stack_count); QCOMPARE(item.stack_count, uint32_t(7));
+    QVERIFY(item.has_weight_tenths); QCOMPARE(item.weight_tenths, uint32_t(5));
+    QVERIFY(item.has_flags); QCOMPARE(item.flags, uint32_t(0x12345678));
+    QVERIFY(item.has_corruption); QCOMPARE(item.corruption, int32_t(-6));
+    const auto& moved =
+        std::get<InventoryItemUpdated>(batch.events[1]).payload;
+    QVERIFY(moved.has_previous_location);
+    QCOMPARE(moved.previous_location.container_slot, uint16_t(24));
+
+    const auto projections = projectProgression(batch);
+    QCOMPARE(projections.size(), size_t(12));
+    seq::v1::Envelope expectedItem;
+    ItemTemplate legacy;
+    legacy.itemId = 9979; legacy.itemName = QStringLiteral("Lantern");
+    legacy.loreName = QStringLiteral("A lantern");
+    legacy.slotBitmask = 0x4800; legacy.flags = 0x12345678;
+    legacy.weight = 0.5f; legacy.hp = 13; legacy.mana = 14;
+    legacy.endurance = 15; legacy.ac = 16; legacy.corruption = -6;
+    for (int i = 0; i < ITEM_STAT_COUNT; ++i) legacy.stats[i] = int8_t(i + 1);
+    for (int i = 0; i < ITEM_RES_COUNT; ++i) legacy.resists[i] = int8_t(i + 8);
+    seq::encode::fillItem(
+        expectedItem.mutable_item_learned()->mutable_item(), legacy);
+    QCOMPARE(projections[0].SerializeAsString(),
+             expectedItem.SerializeAsString());
+    QCOMPARE(projections[1].SerializeAsString(),
+             expectedItem.SerializeAsString());
+    QCOMPARE(projections[6].player_stats().money_copper(), uint32_t(1234));
+    QCOMPARE(projections[7].player_stats().skills(0).skill_id(), uint32_t(30));
+    QCOMPARE(projections[9].player_stats().exp_cur(), uint32_t(97900));
+    QCOMPARE(projections[10].player_stats().purchased_aa(0).ability_id(),
+             uint32_t(501));
+    QCOMPARE(projections[11].player_stats().aa_unspent(), uint32_t(8));
+
+    const auto comparison =
+        compareProgression(batch, observations, projections);
     QVERIFY(comparison.orderedEventsEqual);
     QVERIFY(comparison.projectionsEqual);
 }
