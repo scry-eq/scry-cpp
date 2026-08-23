@@ -10,6 +10,7 @@
 #include <QTemporaryDir>
 
 #include "lootstore.h"
+#include "messageshell.h"
 
 class LootStoreTest : public QObject
 {
@@ -26,6 +27,7 @@ private slots:
   void reopensAnExistingDatabaseAndAppends();
   void readOnlyServesButNeverWrites();
   void readOnlyOnAMissingDatabaseStaysClosed();
+  void semanticLootWritesExistingSchemaAndProjectsOnce();
 
 private:
   static LootRowRec sale(uint32_t sequence, const QString& item, uint32_t copper,
@@ -236,6 +238,80 @@ void LootStoreTest::readOnlyOnAMissingDatabaseStaysClosed()
   QVERIFY(!ro.setStorePath(dir.filePath("absent.db"), /*readOnly=*/true));
   QVERIFY(!ro.isOpen());
   QVERIFY(ro.recent(10).isEmpty());
+}
+
+void LootStoreTest::semanticLootWritesExistingSchemaAndProjectsOnce()
+{
+  QTemporaryDir dir;
+  LootStore store;
+  QVERIFY(store.setStorePath(dir.filePath("loot.db")));
+  MessageShell shell(nullptr, nullptr, nullptr, nullptr, nullptr,
+                     nullptr, nullptr, nullptr);
+  shell.setLootStore(&store);
+  QSignalSpy acquiredSpy(&shell, &MessageShell::lootTransactionReceived);
+  QSignalSpy snapshotSpy(&shell, &MessageShell::lootDropsReceived);
+
+  seq::rust::EventCorpseLootSnapshot snapshot;
+  snapshot.timestamp = 7000;
+  snapshot.corpse_id = 100;
+  snapshot.corpse_name = ::rust::String("an ice giant");
+  snapshot.corpse_name_normalized = ::rust::String("ice giant");
+  snapshot.zone_short = ::rust::String("permafrost");
+  snapshot.zone_base = ::rust::String("permafrost");
+  snapshot.instance = ::rust::String("solo");
+  snapshot.looter = ::rust::String("Alice");
+  seq::rust::EventLootItemInfo item;
+  item.name = ::rust::String("Diamond Dust");
+  item.icon = 1075; item.item_id = 16884;
+  snapshot.items.push_back(std::move(item));
+  shell.applyCorpseLootSnapshot(snapshot);
+  QCOMPARE(snapshotSpy.size(), 1);
+
+  seq::rust::EventLootAcquisition acquired;
+  acquired.timestamp = 7001;
+  acquired.item_name = ::rust::String("Fine Steel Sword");
+  acquired.has_item_id = true; acquired.item_id = 1007;
+  acquired.quantity = 2;
+  acquired.corpse_name = ::rust::String("an ice giant");
+  acquired.corpse_name_normalized = ::rust::String("ice giant");
+  acquired.has_corpse_id = true; acquired.corpse_id = 100;
+  acquired.zone_short = ::rust::String("permafrost");
+  acquired.zone_base = ::rust::String("permafrost");
+  acquired.instance = ::rust::String("solo");
+  acquired.sold = true; acquired.coin_copper = 123;
+  acquired.disposition = ::rust::String("sold");
+  acquired.looter = ::rust::String("Alice");
+  acquired.has_sequence = true; acquired.sequence = 44;
+  acquired.complete = true;
+  shell.applyLootAcquired(acquired);
+  QCOMPARE(acquiredSpy.size(), 1);
+
+  const auto rows = store.recent(10);
+  QCOMPARE(rows.size(), 2);
+  QCOMPARE(rows[0].source, QString("message"));
+  QCOMPARE(rows[0].itemName, QString("Fine Steel Sword"));
+  QCOMPARE(rows[0].qty, uint32_t(2));
+  QCOMPARE(rows[0].mobNorm, QString("ice giant"));
+  QCOMPARE(rows[0].instance, QString("solo"));
+  QCOMPARE(rows[0].sequence, uint32_t(0));
+  QCOMPARE(rows[1].source, QString("window"));
+  QCOMPARE(rows[1].icon, uint32_t(1075));
+
+  seq::rust::EventLootAcquisition abandoned;
+  abandoned.timestamp = 7002;
+  abandoned.item_name = ::rust::String("Destroyed Thing");
+  abandoned.quantity = 1;
+  abandoned.disposition = ::rust::String("destroyed");
+  abandoned.complete = false;
+  shell.applyLootAcquired(abandoned);
+  QCOMPARE(acquiredSpy.size(), 1);
+  QCOMPARE(store.recent(10).size(), 3);
+
+  // Replayed semantic duplicates stay one row through the existing natural
+  // keys. The projection is live, so callers must apply each Rust event once.
+  shell.applyCorpseLootSnapshot(snapshot);
+  shell.applyLootAcquired(acquired);
+  QCOMPARE(store.recent(10).size(), 3);
 }
 
 QTEST_MAIN(LootStoreTest)

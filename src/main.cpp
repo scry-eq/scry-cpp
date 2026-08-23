@@ -232,6 +232,11 @@ int main(int argc, char** argv)
         "shadow, or rust. The default remains legacy until capture soak "
         "completes. Changing it requires a session restart.",
         "mode", "legacy");
+    QCommandLineOption lootDecoderOpt(QStringList{"loot-decoder"},
+        "Immutable loot correlation and persistence owner for each session: "
+        "legacy, shadow, or rust. The default remains legacy until capture "
+        "soak completes. Changing it requires a session restart.",
+        "mode", "legacy");
     parser.addOption(deviceOpt);
     parser.addOption(ipOpt);
     parser.addOption(listenOpt);
@@ -257,6 +262,7 @@ int main(int argc, char** argv)
     parser.addOption(entityDecoderOpt);
     parser.addOption(playerDecoderOpt);
     parser.addOption(progressionDecoderOpt);
+    parser.addOption(lootDecoderOpt);
     parser.process(app);
 
     DaemonApp::Config cfg;
@@ -327,6 +333,13 @@ int main(int argc, char** argv)
         cfg.progressionDecoder != QLatin1String("shadow") &&
         cfg.progressionDecoder != QLatin1String("rust")) {
         qCritical("--progression-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.lootDecoder = parser.value(lootDecoderOpt).toLower();
+    if (cfg.lootDecoder != QLatin1String("legacy") &&
+        cfg.lootDecoder != QLatin1String("shadow") &&
+        cfg.lootDecoder != QLatin1String("rust")) {
+        qCritical("--loot-decoder must be legacy, shadow, or rust");
         return 2;
     }
     if (parser.isSet(boxIdleTtlOpt)) {

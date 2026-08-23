@@ -161,6 +161,14 @@ DaemonApp::DaemonApp(Config cfg, QObject* parent)
 
 DaemonApp::~DaemonApp()
 {
+    // Rust loot flushes may emit a final incomplete acquisition and write it
+    // through MessageShell. Destroy the packet owner while both the manager
+    // tree and LootStore still exist. QObject's later child cleanup would run
+    // after C++ members such as m_lootStore have already been destroyed.
+    if (m_packet) {
+        delete m_packet;
+        m_packet = nullptr;
+    }
     // The golden adapter's m_sink points at m_goldenSink (a unique_ptr
     // member). Members are torn down in reverse declaration order, but
     // m_goldenAdapter is a raw pointer cleaned up by ~QObject much
@@ -542,6 +550,10 @@ bool DaemonApp::start()
         m_packet->setProgressionBatchHandler(
             [this](const Box* box, const seq::shadow::Batch& batch) {
                 applyRustProgression(box, batch);
+            });
+        m_packet->setLootBatchHandler(
+            [this](const Box* box, const seq::shadow::Batch& batch) {
+                applyRustLoot(box, batch);
             });
         m_packet->setLifecycleProjectionEnricher(
             [this](const Box* box, bool addHostZoneProjection,
@@ -978,6 +990,28 @@ void DaemonApp::applyRustProgression(const Box* box,
     // primitives above never write, which avoids partial profile snapshots.
     if (playerMutated && player && showeq_params->savePlayerState)
         player->savePlayerState();
+}
+
+void DaemonApp::applyRustLoot(const Box* box,
+                              const seq::shadow::Batch& batch)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+    if (!managers->messageShell) return;
+
+    for (const seq::shadow::Event& event : batch.events) {
+        if (const auto* acquired =
+                std::get_if<seq::shadow::LootAcquired>(&event)) {
+            managers->messageShell->applyLootAcquired(acquired->payload);
+        } else if (const auto* snapshot =
+                       std::get_if<seq::shadow::CorpseLootSnapshot>(&event)) {
+            managers->messageShell->applyCorpseLootSnapshot(snapshot->payload);
+        }
+    }
 }
 
 void DaemonApp::applyRustPlayer(const Box* box,
@@ -1584,6 +1618,7 @@ bool DaemonApp::startCapture()
             lifecycleSelector(m_cfg.entityDecoder),
             lifecycleSelector(m_cfg.playerDecoder),
             lifecycleSelector(m_cfg.progressionDecoder),
+            lifecycleSelector(m_cfg.lootDecoder),
             this, "packet");
     } catch (const std::exception& error) {
         qCritical("Rust decoder setup failed: %s", error.what());
@@ -1666,6 +1701,45 @@ ManagerSet DaemonApp::buildManagerSet()
                                        ms.zoneMgr, ms.spawnShell, ms.player,
                                        this, "messageShell");
     ms.messageShell->setLootStore(m_lootStore.get());
+    ms.messageShell->setLootMutationGuard([this] {
+        return !m_packet || m_packet->legacyLootEnabledForCurrentPacket();
+    });
+    connect(ms.messageShell, &MessageShell::lootTransactionReceived, this,
+            [this](uint32_t corpseId, uint32_t itemId, uint32_t quantity,
+                   uint32_t coinCopper, bool fromCorpse) {
+        const auto kind = seq::shadow::LootKind::LootAcquired;
+        if (!m_packet || !m_packet->rustLootAcceptedForCurrentPacket(kind))
+            return;
+        m_packet->observeLegacyLoot({kind, {}});
+        seq::v1::Envelope envelope;
+        auto* loot = envelope.mutable_loot_transaction();
+        loot->set_corpse_id(corpseId);
+        loot->set_item_id(itemId);
+        loot->set_quantity(quantity);
+        loot->set_coin_copper(coinCopper);
+        loot->set_coin_from_corpse(fromCorpse);
+        m_packet->observeLegacyLootProjection(std::move(envelope));
+    });
+    connect(ms.messageShell, &MessageShell::lootDropsReceived, this,
+            [this](uint32_t corpseId, const QString& corpseName,
+                   const QStringList& names, const QVector<uint32_t>& icons,
+                   const QVector<uint32_t>& itemIds) {
+        const auto kind = seq::shadow::LootKind::CorpseLootSnapshot;
+        if (!m_packet || !m_packet->rustLootAcceptedForCurrentPacket(kind))
+            return;
+        m_packet->observeLegacyLoot({kind, {}});
+        seq::v1::Envelope envelope;
+        auto* loot = envelope.mutable_loot_drops();
+        loot->set_corpse_id(corpseId);
+        loot->set_corpse_name(corpseName.toStdString());
+        for (int i = 0; i < names.size(); ++i) {
+            auto* item = loot->add_items();
+            item->set_name(names[i].toStdString());
+            item->set_icon(i < icons.size() ? icons[i] : 0);
+            item->set_item_id(i < itemIds.size() ? itemIds[i] : 0);
+        }
+        m_packet->observeLegacyLootProjection(std::move(envelope));
+    });
 
     // SpellShell tracks active buffs / outgoing casts. Wires player
     // signals + clear-on-zone, mirroring showeq interface.cpp:967-988.

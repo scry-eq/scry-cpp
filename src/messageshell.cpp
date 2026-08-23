@@ -74,6 +74,11 @@ int64_t nowMs()
     return QDateTime::currentMSecsSinceEpoch();
 }
 
+QString qString(const ::rust::String& value)
+{
+    return QString::fromUtf8(value.data(), int(value.size()));
+}
+
 } // namespace
 
 //----------------------------------------------------------------------
@@ -101,7 +106,10 @@ MessageShell::MessageShell(Messages* messages, EQStr* eqStrings,
 // rows are dropped, which is the point: a regression run must not write.
 void MessageShell::recordLoot(const rust::Vec<seq::rust::LootRow>& rows)
 {
-    if (!m_lootStore || rows.empty())
+    // This is the compatibility writer. Rust-owned sessions persist only
+    // through applyLootAcquired/applyCorpseLootSnapshot below.
+    if ((m_lootMutationGuard && !m_lootMutationGuard()) ||
+        !m_lootStore || rows.empty())
         return;
     QVector<LootRowRec> out;
     out.reserve(static_cast<int>(rows.size()));
@@ -128,6 +136,75 @@ void MessageShell::recordLoot(const rust::Vec<seq::rust::LootRow>& rows)
         out.push_back(rec);
     }
     m_lootStore->record(out);
+}
+
+void MessageShell::applyLootAcquired(
+    const seq::rust::EventLootAcquisition& p)
+{
+    if (p.complete || p.has_sequence) {
+        emit lootTransactionReceived(
+            p.has_corpse_id ? p.corpse_id : 0,
+            p.has_item_id ? p.item_id : 0,
+            p.quantity, p.coin_copper, p.from_corpse);
+    }
+    if (!m_lootStore) return;
+    LootRowRec row;
+    row.ts = p.timestamp;
+    row.source = p.from_corpse && !p.has_item_id
+        ? QStringLiteral("coin") : QStringLiteral("message");
+    row.itemName = qString(p.item_name);
+    if (row.itemName.isEmpty() && row.source == QLatin1String("coin"))
+        row.itemName = QStringLiteral("Coin");
+    row.itemId = p.has_item_id ? p.item_id : 0;
+    row.qty = p.quantity;
+    row.mobName = qString(p.corpse_name);
+    row.mobNorm = qString(p.corpse_name_normalized);
+    row.corpseId = p.has_corpse_id ? p.corpse_id : 0;
+    row.zoneShort = qString(p.zone_short);
+    row.zoneBase = qString(p.zone_base);
+    row.instance = qString(p.instance);
+    row.sold = p.sold;
+    row.moneyCopper = p.coin_copper;
+    row.disposition = qString(p.disposition);
+    row.looter = qString(p.looter);
+    row.sequence = p.has_sequence ? p.sequence : 0;
+    m_lootStore->record({row});
+}
+
+void MessageShell::applyCorpseLootSnapshot(
+    const seq::rust::EventCorpseLootSnapshot& p)
+{
+    QStringList names;
+    QVector<uint32_t> icons;
+    QVector<uint32_t> itemIds;
+    QVector<LootRowRec> rows;
+    names.reserve(int(p.items.size()));
+    icons.reserve(int(p.items.size()));
+    itemIds.reserve(int(p.items.size()));
+    rows.reserve(int(p.items.size()));
+    for (const auto& item : p.items) {
+        const QString name = qString(item.name);
+        names.push_back(name);
+        icons.push_back(item.icon);
+        itemIds.push_back(item.item_id);
+        LootRowRec row;
+        row.ts = p.timestamp;
+        row.source = QStringLiteral("window");
+        row.itemName = name;
+        row.itemId = item.item_id;
+        row.icon = item.icon;
+        row.mobName = qString(p.corpse_name);
+        row.mobNorm = qString(p.corpse_name_normalized);
+        row.corpseId = p.corpse_id;
+        row.zoneShort = qString(p.zone_short);
+        row.zoneBase = qString(p.zone_base);
+        row.instance = qString(p.instance);
+        row.looter = qString(p.looter);
+        rows.push_back(std::move(row));
+    }
+    emit lootDropsReceived(p.corpse_id, qString(p.corpse_name),
+                           names, icons, itemIds);
+    if (m_lootStore) m_lootStore->record(rows);
 }
 
 void MessageShell::channelMessage(const uint8_t* data, size_t len, uint8_t dir)
@@ -336,6 +413,7 @@ void MessageShell::lootMessage(const uint8_t* data, size_t len, uint8_t dir)
   m_messages->addMessage(MT_General, text);
   emit chatMessage(static_cast<uint32_t>(MT_General), QString(), QString(),
                    text, out.color);
+  if (m_lootMutationGuard && !m_lootMutationGuard()) return;
   recordLoot(m_lootTracker->on_loot_message(out.color, out.text, out.item_id,
                                             out.item_name, nowMs()));
 }
@@ -353,6 +431,7 @@ void MessageShell::lootTransaction(const uint8_t* data, size_t len, uint8_t dir)
     return;
   if (out.coin_copper > 0)
     m_player->adjustMoney((int64_t)out.coin_copper);
+  if (m_lootMutationGuard && !m_lootMutationGuard()) return;
   emit lootTransactionReceived(out.corpse_id, out.item_id, out.quantity,
                                out.coin_copper, out.from_corpse);
   recordLoot(m_lootTracker->on_loot_transaction(out, nowMs()));
@@ -367,6 +446,7 @@ void MessageShell::lootDrops(const uint8_t* data, size_t len, uint8_t dir)
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok)
     return;
+  if (m_lootMutationGuard && !m_lootMutationGuard()) return;
   QStringList names;
   QVector<uint32_t> icons;
   QVector<uint32_t> itemIds;
@@ -747,7 +827,8 @@ void MessageShell::zoneEnd(const QString& shortZoneName,
 
   // Stamp the zone on rows from here on, and flush any narration still waiting
   // for its confirmation so it keeps the zone it was looted in.
-  recordLoot(m_lootTracker->set_zone(shortZoneName.toStdString()));
+  if (!m_lootMutationGuard || m_lootMutationGuard())
+    recordLoot(m_lootTracker->set_zone(shortZoneName.toStdString()));
 
   // TODO(chat-synthesis): modern EQ renders "You have entered <zone>."
   // client-side rather than sending it as chat, so the web chat panel never

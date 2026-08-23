@@ -504,6 +504,14 @@ Batch translate(rust::SessionDecodeBatch batch)
         case rust::SessionEventKind::LootDrops:
             out.events.emplace_back(LootDrops{takePayload(batch.loot_drops, index)});
             break;
+        case rust::SessionEventKind::CorpseLootSnapshot:
+            out.events.emplace_back(CorpseLootSnapshot{
+                takePayload(batch.corpse_loot_snapshot, index)});
+            break;
+        case rust::SessionEventKind::LootAcquired:
+            out.events.emplace_back(LootAcquired{
+                takePayload(batch.loot_acquired, index)});
+            break;
         case rust::SessionEventKind::Money:
             out.events.emplace_back(Money{takePayload(batch.money, index)});
             break;
@@ -1344,6 +1352,124 @@ ProgressionComparison compareProgression(
     return comparison;
 }
 
+bool isLootEvent(const Event& event)
+{
+    return std::holds_alternative<CorpseLootSnapshot>(event) ||
+           std::holds_alternative<LootAcquired>(event);
+}
+
+std::vector<LootObservation> lootObservations(const Batch& batch)
+{
+    std::vector<LootObservation> out;
+    for (const Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            LootObservation observation;
+            if constexpr (std::is_same_v<T, CorpseLootSnapshot>) {
+                observation.kind = LootKind::CorpseLootSnapshot;
+                appendScalar(observation.payload, p.timestamp);
+                appendScalar(observation.payload, p.corpse_id);
+                appendString(observation.payload, p.corpse_name);
+                appendString(observation.payload, p.corpse_name_normalized);
+                appendString(observation.payload, p.zone_short);
+                appendString(observation.payload, p.zone_base);
+                appendString(observation.payload, p.instance);
+                appendString(observation.payload, p.looter);
+                appendScalar(observation.payload, uint64_t(p.items.size()));
+                for (const auto& item : p.items) {
+                    appendString(observation.payload, item.name);
+                    appendScalar(observation.payload, item.icon);
+                    appendScalar(observation.payload, item.item_id);
+                }
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, LootAcquired>) {
+                observation.kind = LootKind::LootAcquired;
+                appendScalar(observation.payload, p.timestamp);
+                appendString(observation.payload, p.item_name);
+                appendScalar(observation.payload, p.has_item_id);
+                if (p.has_item_id) appendScalar(observation.payload, p.item_id);
+                appendScalar(observation.payload, p.quantity);
+                appendString(observation.payload, p.corpse_name);
+                appendString(observation.payload, p.corpse_name_normalized);
+                appendScalar(observation.payload, p.has_corpse_id);
+                if (p.has_corpse_id) appendScalar(observation.payload, p.corpse_id);
+                appendString(observation.payload, p.zone_short);
+                appendString(observation.payload, p.zone_base);
+                appendString(observation.payload, p.instance);
+                appendScalar(observation.payload, p.sold);
+                appendScalar(observation.payload, p.coin_copper);
+                appendString(observation.payload, p.disposition);
+                appendString(observation.payload, p.looter);
+                appendScalar(observation.payload, p.has_sequence);
+                if (p.has_sequence) appendScalar(observation.payload, p.sequence);
+                appendScalar(observation.payload, p.from_corpse);
+                appendScalar(observation.payload, p.complete);
+                out.push_back(std::move(observation));
+            }
+        }, event);
+    }
+    return out;
+}
+
+std::vector<seq::v1::Envelope> projectLoot(const Batch& batch)
+{
+    std::vector<seq::v1::Envelope> out;
+    for (const Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, CorpseLootSnapshot>) {
+                seq::v1::Envelope envelope;
+                auto* loot = envelope.mutable_loot_drops();
+                loot->set_corpse_id(p.corpse_id);
+                loot->set_corpse_name(std::string(p.corpse_name));
+                for (const auto& item : p.items) {
+                    auto* target = loot->add_items();
+                    target->set_name(std::string(item.name));
+                    target->set_icon(item.icon);
+                    target->set_item_id(item.item_id);
+                }
+                out.push_back(std::move(envelope));
+            } else if constexpr (std::is_same_v<T, LootAcquired>) {
+                // The legacy public event represented a server confirmation.
+                // A narration abandoned at a boundary belongs in history but
+                // must not manufacture a live LootTransaction.
+                if (!p.complete && !p.has_sequence) return;
+                seq::v1::Envelope envelope;
+                auto* loot = envelope.mutable_loot_transaction();
+                loot->set_corpse_id(p.has_corpse_id ? p.corpse_id : 0);
+                loot->set_item_id(p.has_item_id ? p.item_id : 0);
+                loot->set_quantity(p.quantity);
+                loot->set_coin_copper(p.coin_copper);
+                loot->set_coin_from_corpse(p.from_corpse);
+                out.push_back(std::move(envelope));
+            }
+        }, event);
+    }
+    return out;
+}
+
+LootComparison compareLoot(
+    const Batch& rustBatch,
+    const std::vector<LootObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections)
+{
+    LootComparison comparison;
+    const auto rustEvents = lootObservations(rustBatch);
+    const auto rustProjections = projectLoot(rustBatch);
+    comparison.rustEventCount = rustEvents.size();
+    comparison.legacyEventCount = legacyEvents.size();
+    comparison.rustProjectionCount = rustProjections.size();
+    comparison.legacyProjectionCount = legacyProjections.size();
+    comparison.orderedEventsEqual = rustEvents == legacyEvents;
+    comparison.projectionsEqual =
+        rustProjections.size() == legacyProjections.size() &&
+        std::equal(rustProjections.begin(), rustProjections.end(),
+                   legacyProjections.begin(), sameEnvelope);
+    return comparison;
+}
+
 std::vector<seq::v1::Envelope> projectLifecycle(const Batch& batch)
 {
     std::vector<seq::v1::Envelope> projections;
@@ -1423,7 +1549,8 @@ Session::Session(const ProtocolRegistry& registry,
                  LifecycleSelector lifecycleSelector,
                  EntitySelector entitySelector,
                  PlayerSelector playerSelector,
-                 ProgressionSelector progressionSelector)
+                 ProgressionSelector progressionSelector,
+                 LootSelector lootSelector)
     : m_session(rust::session_new(registry.rustRegistry(), backend))
     , m_journalLimit(std::max<size_t>(journalLimit, 1))
     , m_journalByteLimit(std::max<size_t>(journalByteLimit, sizeof(Record)))
@@ -1431,6 +1558,7 @@ Session::Session(const ProtocolRegistry& registry,
     , m_entitySelector(entitySelector)
     , m_playerSelector(playerSelector)
     , m_progressionSelector(progressionSelector)
+    , m_lootSelector(lootSelector)
 {
 }
 

@@ -27,7 +27,9 @@
 #include "messages.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <utility>
 
 #include <QObject>
 
@@ -68,6 +70,11 @@ class MessageShell : public QObject
   // Where completed loot rows go. Left null under --replay so a regression run
   // records nothing; the tracker still runs, it just has nowhere to write.
   void setLootStore(LootStore* store) { m_lootStore = store; }
+  void setLootMutationGuard(std::function<bool()> guard)
+  { m_lootMutationGuard = std::move(guard); }
+  void applyLootAcquired(const seq::rust::EventLootAcquisition& acquisition);
+  void applyCorpseLootSnapshot(
+      const seq::rust::EventCorpseLootSnapshot& snapshot);
 
  public slots:
    void channelMessage(const uint8_t* cmsg, size_t, uint8_t);
@@ -185,8 +192,8 @@ class MessageShell : public QObject
 
    LootStore* m_lootStore = nullptr;
    rust::Box<seq::rust::EqlLootTracker> m_lootTracker;
+   std::function<bool()> m_lootMutationGuard;
 };
 
 
 #endif // _MESSAGESHELL_H_
-

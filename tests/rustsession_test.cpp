@@ -75,6 +75,8 @@ SAME_PAYLOAD(SkillsSnapshot, EventSkillsSnapshot);
 SAME_PAYLOAD(SkillValueUpdated, EventSkillValue);
 SAME_PAYLOAD(LootTransaction, EventLootTransactionPayload);
 SAME_PAYLOAD(LootDrops, EventLootDropsPayload);
+SAME_PAYLOAD(CorpseLootSnapshot, EventCorpseLootSnapshot);
+SAME_PAYLOAD(LootAcquired, EventLootAcquisition);
 SAME_PAYLOAD(Money, EventMoney);
 SAME_PAYLOAD(MoneyBalanceUpdated, EventMoneyBalance);
 SAME_PAYLOAD(SimpleMessage, EventSimpleMessagePayload);
@@ -164,6 +166,7 @@ private slots:
     void entityMotionEquipmentMatchLegacyProjection();
     void playerAdapterPreservesAllPhaseSixEventsInOrder();
     void progressionAdapterPreservesOptionalFieldsAndProjectsExactly();
+    void lootAdapterPreservesContextPresenceAndProjectionOrder();
     void resetPrecedesProfileAndUsesProductionProjection();
     void publicTimeContractNormalizesWireHourOnce();
     void reconnectResetsBeforeEachEnterWorld();
@@ -259,12 +262,15 @@ void RustSessionTest::everyVariantTranslatesInOrder()
         EventAlternateAdvancementProgress);
     ADD(alternate_ability_defined, AlternateAbilityDefined,
         EventAlternateAbilityDefinition);
+    ADD(corpse_loot_snapshot, CorpseLootSnapshot,
+        EventCorpseLootSnapshot);
+    ADD(loot_acquired, LootAcquired, EventLootAcquisition);
 #undef ADD
 
     Batch batch = translate(std::move(raw));
     QCOMPARE(batch.protocolGeneration, uint64_t(77));
     QCOMPARE(batch.disposition, Disposition::Decoded);
-    QCOMPARE(batch.events.size(), size_t(74));
+    QCOMPARE(batch.events.size(), size_t(76));
 
 #define CHECK(index, type) QVERIFY(std::holds_alternative<type>(batch.events[index]))
     CHECK(0, SpawnAdded); CHECK(1, SpawnMoved); CHECK(2, SpawnRenamed);
@@ -298,6 +304,7 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     CHECK(71, AlternateAdvancementSnapshot);
     CHECK(72, AlternateAdvancementUpdated);
     CHECK(73, AlternateAbilityDefined);
+    CHECK(74, CorpseLootSnapshot); CHECK(75, LootAcquired);
 #undef CHECK
 }
 
@@ -370,6 +377,7 @@ void RustSessionTest::payloadFieldsSurviveTranslation()
     loot.sold = true; loot.money_copper = 61;
     loot.disposition = ::rust::String("acquired");
     loot.looter = ::rust::String("looter"); loot.sequence = 62;
+    loot.complete = true;
     raw.loot_rows.push_back(std::move(loot));
 
     Batch batch = translate(std::move(raw));
@@ -438,6 +446,7 @@ void RustSessionTest::payloadFieldsSurviveTranslation()
     QVERIFY(outLoot.sold); QCOMPARE(outLoot.money_copper, uint32_t(61));
     QCOMPARE(text(outLoot.disposition), QString("acquired"));
     QCOMPARE(text(outLoot.looter), QString("looter")); QCOMPARE(outLoot.sequence, uint32_t(62));
+    QVERIFY(outLoot.complete);
 }
 
 void RustSessionTest::diagnosticsAndJournalAreOrdered()
@@ -668,6 +677,26 @@ void RustSessionTest::lifecycleSelectorIsImmutablePerSession()
     QVERIFY(progressionShadow.comparesProgression());
     QVERIFY(!progressionRust.runsLegacyProgression());
     QVERIFY(progressionRust.appliesRustProgression());
+
+    Session lootLegacy(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Legacy,
+        LootSelector::Legacy);
+    Session lootShadow(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Legacy,
+        LootSelector::Shadow);
+    Session lootRust(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Legacy,
+        LootSelector::Rust);
+    QVERIFY(lootLegacy.runsLegacyLoot());
+    QVERIFY(lootShadow.comparesLoot());
+    QVERIFY(!lootRust.runsLegacyLoot());
+    QVERIFY(lootRust.appliesRustLoot());
 }
 
 void RustSessionTest::entityAdapterPreservesOptionalFieldsAndProjectionOrder()
@@ -1072,6 +1101,111 @@ void RustSessionTest::progressionAdapterPreservesOptionalFieldsAndProjectsExactl
 
     const auto comparison =
         compareProgression(batch, observations, projections);
+    QVERIFY(comparison.orderedEventsEqual);
+    QVERIFY(comparison.projectionsEqual);
+}
+
+void RustSessionTest::lootAdapterPreservesContextPresenceAndProjectionOrder()
+{
+    ffi::SessionDecodeBatch raw;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+
+    ffi::EventCorpseLootSnapshot snapshot;
+    snapshot.timestamp = 1001;
+    snapshot.corpse_id = 17;
+    snapshot.corpse_name = ::rust::String("an ice giant");
+    snapshot.corpse_name_normalized = ::rust::String("ice giant");
+    snapshot.zone_short = ::rust::String("permafrost");
+    snapshot.zone_base = ::rust::String("permafrost");
+    snapshot.instance = ::rust::String("solo");
+    snapshot.looter = ::rust::String("Alice");
+    ffi::EventLootItemInfo item;
+    item.name = ::rust::String("Fine Steel Sword");
+    item.icon = 611;
+    item.item_id = 1007;
+    snapshot.items.push_back(std::move(item));
+    addPayload(raw, raw.corpse_loot_snapshot,
+               ffi::SessionEventKind::CorpseLootSnapshot,
+               std::move(snapshot));
+
+    ffi::EventLootAcquisition acquired;
+    acquired.timestamp = 1002;
+    acquired.item_name = ::rust::String("Fine Steel Sword");
+    acquired.has_item_id = true; acquired.item_id = 1007;
+    acquired.quantity = 2;
+    acquired.corpse_name = ::rust::String("an ice giant");
+    acquired.corpse_name_normalized = ::rust::String("ice giant");
+    acquired.has_corpse_id = true; acquired.corpse_id = 17;
+    acquired.zone_short = ::rust::String("permafrost");
+    acquired.zone_base = ::rust::String("permafrost");
+    acquired.instance = ::rust::String("solo");
+    acquired.sold = true; acquired.coin_copper = 123;
+    acquired.disposition = ::rust::String("sold");
+    acquired.looter = ::rust::String("Alice");
+    acquired.has_sequence = true; acquired.sequence = 42;
+    acquired.from_corpse = false; acquired.complete = true;
+    addPayload(raw, raw.loot_acquired,
+               ffi::SessionEventKind::LootAcquired,
+               std::move(acquired));
+
+    ffi::EventLootAcquisition incomplete;
+    incomplete.timestamp = 1003;
+    incomplete.item_name = ::rust::String("Destroyed Thing");
+    incomplete.has_item_id = false;
+    incomplete.quantity = 1;
+    incomplete.has_corpse_id = false;
+    incomplete.disposition = ::rust::String("destroyed");
+    incomplete.has_sequence = false;
+    incomplete.complete = false;
+    addPayload(raw, raw.loot_acquired,
+               ffi::SessionEventKind::LootAcquired,
+               std::move(incomplete));
+    ffi::EventLootAcquisition orphanConfirmation;
+    orphanConfirmation.timestamp = 1004;
+    orphanConfirmation.has_item_id = true;
+    orphanConfirmation.item_id = 2001;
+    orphanConfirmation.quantity = 1;
+    orphanConfirmation.has_sequence = true;
+    orphanConfirmation.sequence = 43;
+    orphanConfirmation.complete = false;
+    addPayload(raw, raw.loot_acquired,
+               ffi::SessionEventKind::LootAcquired,
+               std::move(orphanConfirmation));
+
+    const Batch batch = translate(std::move(raw));
+    QCOMPARE(batch.events.size(), size_t(4));
+    const auto& outSnapshot =
+        std::get<CorpseLootSnapshot>(batch.events[0]).payload;
+    QCOMPARE(outSnapshot.timestamp, int64_t(1001));
+    QCOMPARE(text(outSnapshot.corpse_name_normalized),
+             QString("ice giant"));
+    QCOMPARE(text(outSnapshot.instance), QString("solo"));
+    QCOMPARE(outSnapshot.items.size(), size_t(1));
+    const auto& outAcquired = std::get<LootAcquired>(batch.events[1]).payload;
+    QVERIFY(outAcquired.has_item_id && outAcquired.has_corpse_id);
+    QVERIFY(outAcquired.has_sequence && outAcquired.complete);
+    QCOMPARE(outAcquired.sequence, uint32_t(42));
+    const auto& outIncomplete =
+        std::get<LootAcquired>(batch.events[2]).payload;
+    QVERIFY(!outIncomplete.has_item_id && !outIncomplete.has_corpse_id);
+    QVERIFY(!outIncomplete.has_sequence && !outIncomplete.complete);
+
+    const auto observations = lootObservations(batch);
+    QCOMPARE(observations.size(), size_t(4));
+    QCOMPARE(observations[0].kind, LootKind::CorpseLootSnapshot);
+    QCOMPARE(observations[1].kind, LootKind::LootAcquired);
+    QVERIFY(observations[1].payload != observations[2].payload);
+
+    const auto projections = projectLoot(batch);
+    QCOMPARE(projections.size(), size_t(3));
+    QCOMPARE(projections[0].loot_drops().corpse_id(), uint32_t(17));
+    QCOMPARE(projections[0].loot_drops().items(0).item_id(), uint32_t(1007));
+    QCOMPARE(projections[1].loot_transaction().item_id(), uint32_t(1007));
+    QCOMPARE(projections[1].loot_transaction().quantity(), uint32_t(2));
+    QCOMPARE(projections[1].loot_transaction().coin_copper(), uint32_t(123));
+    QCOMPARE(projections[2].loot_transaction().item_id(), uint32_t(2001));
+
+    const auto comparison = compareLoot(batch, observations, projections);
     QVERIFY(comparison.orderedEventsEqual);
     QVERIFY(comparison.projectionsEqual);
 }

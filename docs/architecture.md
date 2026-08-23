@@ -391,6 +391,15 @@ fetch <scry-proto-checkout> main && git reset --hard FETCH_HEAD`, then
 silently lag (scry surfaces it as a compile-time
 `Seq.V1.<Msg>.__struct__/1 undefined`; web as an unknown-field no-op).
 
+## Loot ownership
+
+`--loot-decoder` selects the immutable per-session loot correlation and
+persistence owner. Legacy and shadow use `MessageShell`'s compatibility
+tracker. Rust mode consumes `CorpseLootSnapshot` and `LootAcquired`, projects
+them through the existing `seq.v1` signals, and writes the existing SQLite
+schema. The two persistence paths are mutually exclusive. See
+`docs/ELIXIR_NATIVE_PHASE8.md` for flush behavior and the current capture gaps.
+
 ## Provenance
 
 The daemon's packet + state-manager layers were extracted from `showeq-c`
