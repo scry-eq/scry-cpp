@@ -35,7 +35,6 @@ class PacketCaptureProviderThread
 
         virtual void startOffline(const char* filename, int playbackSpeed) = 0;
         virtual void setPlaybackSpeed(int playbackSpeed) = 0;
-        virtual int getPlaybackSpeed() = 0;
 
         virtual void start (const char *device, const char *host, bool realtime, uint8_t address_type) = 0;
         virtual void stop () = 0;

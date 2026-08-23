@@ -54,7 +54,6 @@ class RemoteCaptureThread : public PacketCaptureProviderThread
 
         void startOffline(const char* filename, int playbackSpeed);
         void setPlaybackSpeed(int) {}
-        int getPlaybackSpeed() { return 0; }
 
         // `device` is ignored (frames come from the agent). `hostname`/
         // `address_type` scope the BPF filter requested from the agent, exactly
