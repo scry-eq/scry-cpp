@@ -26,13 +26,10 @@
 #include "lootstore.h"
 #include "eqstr.h"
 #include "messages.h"
-#include "everquest.h"
 #include "spells.h"
-#include "zonemgr.h"
 #include "spawnshell.h"
 #include "player.h"
 #include "packetcommon.h"
-#include "filtermgr.h"
 #include "util.h"
 
 #include <QDateTime>
@@ -76,14 +73,13 @@ int64_t nowMs()
 //----------------------------------------------------------------------
 // MessageShell
 MessageShell::MessageShell(Messages* messages, EQStr* eqStrings,
-			   Spells* spells, ZoneMgr* zoneMgr,
-			   SpawnShell* spawnShell, Player* player,
+			   Spells* spells, SpawnShell* spawnShell,
+			   Player* player,
                            QObject* parent, const char* name)
   : QObject(parent),
     m_messages(messages),
     m_eqStrings(eqStrings),
     m_spells(spells),
-    m_zoneMgr(zoneMgr),
     m_spawnShell(spawnShell),
     m_player(player),
     m_lootTracker(seq::rust::eql_loot_tracker_new())
@@ -754,86 +750,3 @@ void MessageShell::consMessage(const uint8_t* data, size_t, uint8_t dir)
 
   m_messages->addMessage(MT_Consider, msg);
 } // end consMessage()
-
-
-void MessageShell::addItem(const Item* item)
-{
-  uint32_t filterFlags = item->filterFlags();
-
-  if (filterFlags == 0)
-    return;
-
-  QString prefix("Spawn");
-
-  // first handle alert
-  if (filterFlags & FILTER_FLAG_ALERT)
-    filterMessage(prefix, MT_Alert, item);
-
-  if (filterFlags & FILTER_FLAG_DANGER)
-    filterMessage(prefix, MT_Danger, item);
-
-  if (filterFlags & FILTER_FLAG_CAUTION)
-    filterMessage(prefix, MT_Caution, item);
-
-  if (filterFlags & FILTER_FLAG_HUNT)
-    filterMessage(prefix, MT_Hunt, item);
-
-  if (filterFlags & FILTER_FLAG_LOCATE)
-    filterMessage(prefix, MT_Locate, item);
-}
-
-void MessageShell::delItem(const Item* item)
-{
-  // if it's an alert log the despawn
-  if (item->filterFlags() & FILTER_FLAG_ALERT)
-    filterMessage("DeSpawn", MT_Alert, item);
-}
-
-void MessageShell::killSpawn(const Item* item)
-{
-  // if it's an alert log the kill
-  if (item->filterFlags() & FILTER_FLAG_ALERT)
-    filterMessage("Died", MT_Alert, item);
-
-  // if this is the player spawn, note the place of death
-  if (item->id() != m_player->id())
-    return;
-
-  QString message;
-  
-  // use appropriate format depending on coordinate ordering
-  if (!showeq_params->retarded_coords)
-    message = "Died in zone '%1' at %2,%3,%4";
-  else
-    message = "Died in zone '%1' at %3,%2,%4";
-  
-  m_messages->addMessage(MT_Player, 
-			 message.arg(m_zoneMgr->shortZoneName())
-			 .arg(item->x()).arg(item->y()).arg(item->z()));
-}
-
-void MessageShell::filterMessage(const QString& prefix, MessageType type,
-				 const Item* item)
-{
-  QString message;
-  QString spawnInfo;
-
-  // try to get a Spawn
-  const Spawn* spawn = spawnType(item);
-
-  // extra info if it is a spawn
-  if (spawn)
-    spawnInfo = QString::asprintf(" LVL %d, HP %d/%d", 
-		      spawn->level(), spawn->HP(), spawn->maxHP());
-
-  // use appropriate format depending on coordinate ordering
-  if (!showeq_params->retarded_coords)
-    message = "%1: %2/%3/%4 at %5,%6,%7%8";
-  else
-    message = "%1: %2/%3/%4 at %6,%5,%7%8";
-  
-  m_messages->addMessage(type, message.arg(prefix).arg(item->transformedName())
-			 .arg(item->raceString()).arg(item->classString())
-			 .arg(item->x()).arg(item->y()).arg(item->z())
-			 .arg(spawnInfo));
-}

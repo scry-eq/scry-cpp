@@ -727,7 +727,7 @@ ManagerSet DaemonApp::buildManagerSet()
     // MessageShell parses chat / system / NPC text into structured
     // signals. Needs the global MessageFilters + Messages.
     ms.messageShell = new MessageShell(m_messages, m_eqStrings, m_spells,
-                                       ms.zoneMgr, ms.spawnShell, ms.player,
+                                       ms.spawnShell, ms.player,
                                        this, "messageShell");
     ms.messageShell->setLootStore(m_lootStore.get());
 

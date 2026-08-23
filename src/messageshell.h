@@ -40,9 +40,7 @@ class QString;
 class EQStr;
 class LootStore;
 class Spells;
-class ZoneMgr;
 class SpawnShell;
-class Item;
 class Player;
 
 struct ServerZoneEntryStruct;
@@ -56,7 +54,7 @@ class MessageShell : public QObject
   Q_OBJECT
  public:
   MessageShell(Messages* messages, EQStr* eqStrings, Spells* spells,
-	       ZoneMgr* zoneMgr, SpawnShell* spawnShell,
+	       SpawnShell* spawnShell,
                Player* player, QObject* parent = 0, const char* name = 0);
 
   // Where completed loot rows go. Left null under --replay so a regression run
@@ -86,12 +84,6 @@ class MessageShell : public QObject
    void player(const charProfileStruct* player);
    void consMessage(const uint8_t* data, size_t, uint8_t dir);
 
-   void addItem(const Item* item);
-   void delItem(const Item* item);
-   void killSpawn(const Item* item);
-   void filterMessage(const QString& prefix, MessageType type,
-		      const Item* item);
-
  signals:
    // Structured emission of a player-to-player chat message, in addition
    // to the formatted addMessage() call further down channelMessage().
@@ -120,7 +112,6 @@ class MessageShell : public QObject
    Messages* m_messages;
    EQStr* m_eqStrings;
    Spells* m_spells;
-   ZoneMgr* m_zoneMgr;
    SpawnShell* m_spawnShell;
    Player* m_player;
    // Loot history. The tracker is per-box session state (one acquisition spans
