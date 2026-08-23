@@ -679,117 +679,6 @@ void MessageShell::ucsChatMessage(const uint8_t* data, size_t len, uint8_t dir,
   }
 }
 
-void MessageShell::guildMOTD(const uint8_t* data, size_t, uint8_t dir)
-{
-  // avoid client chatter and do nothing if not viewing channel messages
-  if (dir == DIR_Client)
-    return;
-
-  const guildMOTDStruct* gmotd = (const guildMOTDStruct*)data;
-
-  m_messages->addMessage(MT_Guild, 
-			 QString("MOTD: %1 - %2")
-			 .arg(QString::fromUtf8(gmotd->sender))
-			 .arg(QString::fromUtf8(gmotd->message)));
-}
-
-
-void MessageShell::moneyOnCorpse(const uint8_t* data)
-{
-  const moneyOnCorpseStruct* money = (const moneyOnCorpseStruct*)data;
-
-  QString tempStr;
-
-  if( money->platinum || money->gold || money->silver || money->copper )
-  {
-    bool bneedComma = false;
-    
-    tempStr = "You receive ";
-    
-    if(money->platinum)
-    {
-      tempStr += QString::number(money->platinum) + " platinum";
-      bneedComma = true;
-    }
-    
-    if(money->gold)
-    {
-      if(bneedComma)
-	tempStr += ", ";
-      
-      tempStr += QString::number(money->gold) + " gold";
-      bneedComma = true;
-    }
-    
-    if(money->silver)
-    {
-      if(bneedComma)
-	tempStr += ", ";
-      
-      tempStr += QString::number(money->silver) + " silver";
-      bneedComma = true;
-    }
-    
-    if(money->copper)
-      {
-	if(bneedComma)
-	  tempStr += ", ";
-	
-	tempStr += QString::number(money->copper) + " copper";
-      }
-    
-    tempStr += " from the corpse";
-    
-    m_messages->addMessage(MT_Money, tempStr);
-  }
-}
-
-void MessageShell::moneyUpdate(const uint8_t* data)
-{
-  //  const moneyUpdateStruct* money = (const moneyUpdateStruct*)data;
-  m_messages->addMessage(MT_Money, "Update");
-}
-
-void MessageShell::moneyThing(const uint8_t* data)
-{
-  //  const moneyUpdateStruct* money = (const moneyUpdateStruct*)data;
-  m_messages->addMessage(MT_Money, "Thing");
-}
-
-void MessageShell::randomRequest(const uint8_t* data)
-{
-  const randomReqStruct* randr = (const randomReqStruct*)data;
-  QString tempStr;
-
-  tempStr = QString::asprintf("Request random number between %d and %d",
-		  randr->bottom,
-		  randr->top);
-  
-  m_messages->addMessage(MT_Random, tempStr);
-}
-
-void MessageShell::random(const uint8_t* data)
-{
-  const randomStruct* randr = (const randomStruct*)data;
-  QString tempStr;
-
-  tempStr = QString::asprintf("Random number %d rolled between %d and %d by %s",
-		  randr->result,
-		  randr->bottom,
-		  randr->top,
-		  randr->name);
-  
-  m_messages->addMessage(MT_Random, tempStr);
-}
-
-void MessageShell::emoteText(const uint8_t* data)
-{
-  const emoteTextStruct* emotetext = (const emoteTextStruct*)data;
-  QString tempStr;
-
-  m_messages->addMessage(MT_Emote, emotetext->text);
-}
-
 void MessageShell::inspectData(const uint8_t* data)
 {
   const inspectDataStruct *inspt = (const inspectDataStruct *)data;
@@ -811,11 +700,6 @@ void MessageShell::inspectData(const uint8_t* data)
   }
 
   emit inspectReceived(inspt);
-}
-
-void MessageShell::logOut(const uint8_t*, size_t, uint8_t)
-{
-  m_messages->addMessage(MT_Zone, "LogoutCode: Client logged out of server");
 }
 
 void MessageShell::zoneEntryClient(const ClientZoneEntryStruct* zsentry)
@@ -892,12 +776,6 @@ void MessageShell::zoneChanged(const QString& shortZoneName)
   m_messages->addMessage(MT_Zone, tempStr);
 }
 
-
-void MessageShell::worldMOTD(const uint8_t* data)
-{ 
-  const worldMOTDStruct* motd = (const worldMOTDStruct*)data;
-  m_messages->addMessage(MT_Motd, QString::fromUtf8(motd->message));
-}
 
 void MessageShell::syncDateTime(const QDateTime& dt)
 {
@@ -1324,19 +1202,6 @@ void MessageShell::updateLevel(const uint8_t* data)
   m_messages->addMessage(MT_Player, tempStr);
 }
   
-void MessageShell::consent(const uint8_t* data, size_t, uint8_t dir)
-{
-  const consentResponseStruct* consent = (const consentResponseStruct*)data;
-
-  m_messages->addMessage(MT_General, 
-      QString("Consent: %1 %4 permission to drag %2's corpse in %3")
-	  		 .arg(QString::fromUtf8(consent->consentee))
-			 .arg(QString::fromUtf8(consent->consenter))
-             .arg(QString::fromUtf8(consent->corpseZoneName))
-             .arg((consent->allow == 1 ? "granted" : "denied")));
-}
-
-
 void MessageShell::consMessage(const uint8_t* data, size_t, uint8_t dir) 
 {
   const considerStruct * con = (const considerStruct*)data;

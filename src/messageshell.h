@@ -98,25 +98,14 @@ class MessageShell : public QObject
    // live/test (Rust stub is empty).
    void ucsChatMessage(const uint8_t* data, size_t len, uint8_t dir,
                        uint32_t clientAddr);
-   void guildMOTD(const uint8_t* gmotd, size_t, uint8_t);
-   void consent(const uint8_t* consent, size_t, uint8_t);
-   void moneyOnCorpse(const uint8_t* money);
-   void moneyUpdate(const uint8_t* money);
-   void moneyThing(const uint8_t* money);
-   void randomRequest(const uint8_t* randr);
-   void random(const uint8_t* randr);
-   void emoteText(const uint8_t* emotetext);
    void inspectData(const uint8_t* inspt);
 
-   void logOut(const uint8_t*, size_t, uint8_t);
    void zoneEntryClient(const ClientZoneEntryStruct* zsentry);
    void zoneNew(const uint8_t* zoneNew, size_t, uint8_t);
    void zoneChanged(const zoneChangeStruct*, size_t, uint8_t);
    void zoneBegin(const QString& shortZoneName);
    void zoneEnd(const QString& shortZoneName, const QString& longZoneName);
    void zoneChanged(const QString& shortZoneName);
-
-   void worldMOTD(const uint8_t* motd);
 
    void handleSpell(const uint8_t* mem, size_t, uint8_t);
    void beginCast(const uint8_t* bcast);
