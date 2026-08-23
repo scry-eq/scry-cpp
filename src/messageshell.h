@@ -36,7 +36,6 @@
 //----------------------------------------------------------------------
 // forward declarations
 class QString;
-class QDateTime;
 
 class EQStr;
 class LootStore;
@@ -84,24 +83,8 @@ class MessageShell : public QObject
                        uint32_t clientAddr);
    void inspectData(const uint8_t* inspt);
 
-   void syncDateTime(const QDateTime&);
-
    void player(const charProfileStruct* player);
-   void increaseSkill(const uint8_t* data);
-   void updateLevel(const uint8_t* data);
    void consMessage(const uint8_t* data, size_t, uint8_t dir);
-
-   void setExp(uint32_t totalExp, uint32_t totalTick,
-	       uint32_t minExpLevel, uint32_t maxExpLevel, 
-	       uint32_t tickExpLevel);
-
-   void newExp(uint32_t newExp, uint32_t totalExp, uint32_t totalTick,
-	       uint32_t minExpLevel, uint32_t maxExpLevel, 
-	       uint32_t tickExpLevel);
-   void setAltExp(uint32_t totalExp,
-		  uint32_t maxExp, uint32_t tickExp, uint32_t aapoints);
-   void newAltExp(uint32_t newExp, uint32_t totalExp, uint32_t totalTick, 
-		  uint32_t maxExp, uint32_t tickExp, uint32_t aapoints);
 
    void addItem(const Item* item);
    void delItem(const Item* item);
