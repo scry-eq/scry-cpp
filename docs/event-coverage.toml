@@ -10,7 +10,7 @@ name = "SessionReset"
 projection = "not_applicable"
 state = "rust"
 persistence = "not_applicable"
-notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+notes = "Rust owns session reset state; reset results use existing snapshot payloads."
 
 [[events]]
 name = "PlayerIdentityUpdated"
@@ -154,10 +154,10 @@ notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still
 
 [[events]]
 name = "ZoneTransition"
-projection = "rust"
+projection = "not_applicable"
 state = "rust"
 persistence = "not_applicable"
-notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still pending."
+notes = "Rust owns zoning state; ZoneChanged owns the public zone payload."
 
 [[events]]
 name = "ZoneChanged"
@@ -171,14 +171,14 @@ name = "ZoneEnvironmentChanged"
 projection = "not_applicable"
 state = "rust"
 persistence = "not_applicable"
-notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+notes = "Rust owns zone-environment state; seq.v1 has no standalone environment payload."
 
 [[events]]
 name = "PlayerProfile"
 projection = "not_applicable"
 state = "rust"
 persistence = "not_applicable"
-notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+notes = "Rust seeds player state; final semantic events own the public payloads."
 
 [[events]]
 name = "Stance"
@@ -346,7 +346,7 @@ name = "ZonePoints"
 projection = "not_applicable"
 state = "rust"
 persistence = "not_applicable"
-notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+notes = "Rust owns host navigation state; seq.v1 has no zone-points payload."
 
 [[events]]
 name = "Combat"
@@ -374,7 +374,7 @@ name = "SpellActionResolved"
 projection = "not_applicable"
 state = "rust"
 persistence = "not_applicable"
-notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+notes = "Rust completes cast correlation; damage and buff events own public payloads."
 
 [[events]]
 name = "SpellCastRequest"
@@ -430,7 +430,7 @@ name = "AlternateAbilityDefined"
 projection = "not_applicable"
 state = "rust"
 persistence = "not_applicable"
-notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+notes = "Rust stores ability-name enrichment used by later PlayerStats payloads."
 
 [[events]]
 name = "Exp"
@@ -675,7 +675,7 @@ name = "DynamicZoneUpdated"
 projection = "not_applicable"
 state = "rust"
 persistence = "not_applicable"
-notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+notes = "Rust owns dynamic-zone state; seq.v1 has no dynamic-zone payload."
 
 [[events]]
 name = "LevelUpdate"
@@ -686,7 +686,7 @@ notes = "Internal-only by contract."
 
 [[events]]
 name = "EnterWorld"
-projection = "rust"
+projection = "not_applicable"
 state = "rust"
 persistence = "not_applicable"
-notes = "Rust owns typed host state; there is no standalone seq.v1 or durable record for this event."
+notes = "Rust establishes session identity; seq.v1 has no enter-world payload."
