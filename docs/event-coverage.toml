@@ -400,9 +400,9 @@ notes = "Typed Rust state and seq.v1 projection are wired; capture soak is still
 [[events]]
 name = "SpellCastInterrupted"
 projection = "not_applicable"
-state = "missing"
+state = "rust"
 persistence = "not_applicable"
-notes = "The event is bridged and compared, but C++ has no typed interruption reducer yet."
+notes = "The typed Rust event clears only the matching active cast; seq.v1 has no interruption envelope."
 
 [[events]]
 name = "Targeted"

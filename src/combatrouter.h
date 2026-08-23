@@ -4,6 +4,7 @@
 #include <QString>
 #include <cstdint>
 #include <cstddef>
+#include <map>
 #include <optional>
 
 class SpawnShell;
@@ -16,6 +17,21 @@ class Spells;
 class CombatRouter : public QObject {
     Q_OBJECT
 public:
+    struct ActiveCast {
+        std::optional<uint32_t> casterId;
+        std::optional<uint32_t> targetId;
+        uint32_t spellId = 0;
+        std::optional<uint32_t> castTimeMs;
+        std::optional<int32_t> slot;
+
+        bool operator==(const ActiveCast& other) const
+        {
+            return casterId == other.casterId && targetId == other.targetId &&
+                   spellId == other.spellId && castTimeMs == other.castTimeMs &&
+                   slot == other.slot;
+        }
+    };
+
     CombatRouter(SpawnShell* spawnShell, Spells* spells,
                  QObject* parent = nullptr);
 
@@ -23,8 +39,16 @@ public:
                      std::optional<uint32_t> targetId, uint32_t type,
                      int32_t damage, std::optional<uint32_t> spellId);
     void applyCastStarted(std::optional<uint32_t> casterId,
-                          uint32_t spellId,
-                          std::optional<uint32_t> castTimeMs);
+                          std::optional<uint32_t> targetId, uint32_t spellId,
+                          std::optional<uint32_t> castTimeMs,
+                          std::optional<int32_t> slot);
+    void applyCastInterrupted(std::optional<uint32_t> casterId,
+                              uint32_t spellId);
+    void applyCastResolved(std::optional<uint32_t> casterId,
+                           std::optional<uint32_t> spellId);
+    std::optional<ActiveCast> activeCast(
+        std::optional<uint32_t> casterId) const;
+    size_t activeCastCount() const { return m_activeCasts.size(); }
 
 public slots:
     // Wired to OP_Action2 by DaemonApp. Layout matches struct
@@ -46,6 +70,10 @@ signals:
                    uint32_t castTimeMs);
 
 private:
+    void finishCast(std::optional<uint32_t> casterId,
+                    std::optional<uint32_t> spellId);
+
     SpawnShell* m_spawnShell;
     Spells*     m_spells;
+    std::map<std::optional<uint32_t>, ActiveCast> m_activeCasts;
 };

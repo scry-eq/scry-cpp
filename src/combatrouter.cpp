@@ -37,6 +37,8 @@ void CombatRouter::applyDamage(std::optional<uint32_t> sourceId,
                                uint32_t type, int32_t damage,
                                std::optional<uint32_t> spellId)
 {
+    finishCast(sourceId, spellId);
+
     const auto spawnName = [this](std::optional<uint32_t> id) {
         return id && *id <= UINT16_MAX
             ? lookupSpawnName(m_spawnShell, uint16_t(*id)) : QString();
@@ -55,9 +57,19 @@ void CombatRouter::applyDamage(std::optional<uint32_t> sourceId,
 }
 
 void CombatRouter::applyCastStarted(std::optional<uint32_t> casterId,
+                                    std::optional<uint32_t> targetId,
                                     uint32_t spellId,
-                                    std::optional<uint32_t> castTimeMs)
+                                    std::optional<uint32_t> castTimeMs,
+                                    std::optional<int32_t> slot)
 {
+    const auto unknown = m_activeCasts.find(std::nullopt);
+    if (casterId && unknown != m_activeCasts.end() &&
+        unknown->second.spellId == spellId) {
+        m_activeCasts.erase(unknown);
+    }
+    m_activeCasts[casterId] =
+        ActiveCast{casterId, targetId, spellId, castTimeMs, slot};
+
     if (!castTimeMs) return;
     QString casterName;
     if (casterId && *casterId <= UINT16_MAX)
@@ -69,6 +81,45 @@ void CombatRouter::applyCastStarted(std::optional<uint32_t> casterId,
     }
     emit spawnCast(casterId.value_or(0), casterName, spellId, spellName,
                    *castTimeMs);
+}
+
+void CombatRouter::applyCastInterrupted(std::optional<uint32_t> casterId,
+                                        uint32_t spellId)
+{
+    const auto found = m_activeCasts.find(casterId);
+    if (found != m_activeCasts.end() && found->second.spellId == spellId)
+        m_activeCasts.erase(found);
+}
+
+void CombatRouter::applyCastResolved(std::optional<uint32_t> casterId,
+                                     std::optional<uint32_t> spellId)
+{
+    finishCast(casterId, spellId);
+}
+
+std::optional<CombatRouter::ActiveCast> CombatRouter::activeCast(
+    std::optional<uint32_t> casterId) const
+{
+    const auto found = m_activeCasts.find(casterId);
+    if (found == m_activeCasts.end()) return std::nullopt;
+    return found->second;
+}
+
+void CombatRouter::finishCast(std::optional<uint32_t> casterId,
+                              std::optional<uint32_t> spellId)
+{
+    if (!spellId) return;
+    const auto found = m_activeCasts.find(casterId);
+    if (found != m_activeCasts.end() && found->second.spellId == *spellId) {
+        m_activeCasts.erase(found);
+        return;
+    }
+    if (!casterId) return;
+    const auto unknown = m_activeCasts.find(std::nullopt);
+    if (unknown != m_activeCasts.end() &&
+        unknown->second.spellId == *spellId) {
+        m_activeCasts.erase(unknown);
+    }
 }
 
 void CombatRouter::action2(const uint8_t* data, size_t len, uint8_t /*dir*/)

@@ -204,6 +204,7 @@ private slots:
     void progressionAdapterPreservesOptionalFieldsAndProjectsExactly();
     void lootAdapterPreservesContextPresenceAndProjectionOrder();
     void combatAdapterPreservesPresenceOrderAndCompatibilityProjection();
+    void combatCastReducerAppliesInterruptionsInOrder();
     void communicationAdapterPreservesStateOrderAndProjection();
     void combatProjectionUsesCompatibilityZeroAndUnknownSpellFallback();
     void spellProjectionUsesDatabaseMetadataAndUnknownFallback();
@@ -1449,6 +1450,15 @@ void RustSessionTest::combatAdapterPreservesPresenceOrderAndCompatibilityProject
     QVERIFY(!translatedDamage->payload.has_source_id);
     QCOMPARE(translatedDamage->payload.source_id, uint32_t(999));
     QVERIFY(!translatedDamage->payload.has_spell_id);
+    const auto* translatedInterruption =
+        std::get_if<SpellCastInterrupted>(&batch.events[4]);
+    QVERIFY(translatedInterruption);
+    QVERIFY(translatedInterruption->payload.has_caster_id);
+    QCOMPARE(translatedInterruption->payload.caster_id, uint32_t(11));
+    QVERIFY(!translatedInterruption->payload.has_target_id);
+    QCOMPARE(translatedInterruption->payload.spell_id, uint32_t(99'999));
+    QCOMPARE(translatedInterruption->payload.reason,
+             ffi::EventCastInterruptionReason::Superseded);
 
     const auto projections = projectCombat(batch);
     QCOMPARE(projections.size(), size_t(3));
@@ -1640,15 +1650,65 @@ void RustSessionTest::combatProjectionUsesCompatibilityZeroAndUnknownSpellFallba
     QCOMPARE(damageArgs[6].toUInt(), uint32_t(99'999));
     QVERIFY(damageArgs[7].toString().isEmpty());
 
-    router.applyCastStarted(std::nullopt, 99'999, std::nullopt);
+    router.applyCastStarted(std::nullopt, std::nullopt, 99'999,
+                            std::nullopt, std::nullopt);
     QCOMPARE(casts.count(), 0);
-    router.applyCastStarted(std::nullopt, 99'999, uint32_t(2'500));
+    router.applyCastStarted(std::nullopt, std::nullopt, 99'999,
+                            uint32_t(2'500), std::nullopt);
     QCOMPARE(casts.count(), 1);
     const auto started = casts.takeFirst();
     QCOMPARE(started[0].toUInt(), uint32_t(0));
     QCOMPARE(started[2].toUInt(), uint32_t(99'999));
     QVERIFY(started[3].toString().isEmpty());
     QCOMPARE(started[4].toUInt(), uint32_t(2'500));
+}
+
+void RustSessionTest::combatCastReducerAppliesInterruptionsInOrder()
+{
+    CombatRouter router(nullptr, nullptr);
+    QSignalSpy casts(&router, &CombatRouter::spawnCast);
+
+    router.applyCastStarted(std::nullopt, uint32_t(88), 70'001,
+                            std::nullopt, int32_t(3));
+    QCOMPARE(casts.count(), 0);
+    QCOMPARE(router.activeCastCount(), size_t(1));
+    const auto unknown = router.activeCast(std::nullopt);
+    QVERIFY(unknown);
+    QCOMPARE(unknown->targetId, std::optional<uint32_t>(88));
+    QCOMPARE(unknown->spellId, uint32_t(70'001));
+    QCOMPARE(unknown->slot, std::optional<int32_t>(3));
+
+    // A later attributed start for the same spell replaces the cold-attach
+    // key instead of leaving two active casts.
+    router.applyCastStarted(uint32_t(11), uint32_t(88), 70'001,
+                            uint32_t(2'500), int32_t(3));
+    QCOMPARE(casts.count(), 1);
+    QCOMPARE(router.activeCastCount(), size_t(1));
+    QVERIFY(!router.activeCast(std::nullopt));
+    QVERIFY(router.activeCast(uint32_t(11)));
+
+    // An interruption is state-only. It has no seq.v1 compatibility event,
+    // and it cannot erase a newer cast with a different spell id.
+    router.applyCastInterrupted(uint32_t(11), 99'999);
+    QCOMPARE(router.activeCastCount(), size_t(1));
+    QCOMPARE(casts.count(), 1);
+    router.applyCastInterrupted(uint32_t(11), 70'001);
+    QCOMPARE(router.activeCastCount(), size_t(0));
+    QCOMPARE(casts.count(), 1);
+
+    router.applyCastStarted(std::nullopt, uint32_t(88), 70'002,
+                            std::nullopt, std::nullopt);
+    router.applyCastResolved(uint32_t(11), uint32_t(70'002));
+    QCOMPARE(router.activeCastCount(), size_t(0));
+
+    router.applyCastStarted(uint32_t(11), uint32_t(88), 70'003,
+                            std::nullopt, std::nullopt);
+    router.applyDamage(uint32_t(11), uint32_t(88), 0xe7, 12,
+                       std::nullopt);
+    QCOMPARE(router.activeCastCount(), size_t(1));
+    router.applyDamage(uint32_t(11), uint32_t(88), 0xe7, 12,
+                       uint32_t(70'003));
+    QCOMPARE(router.activeCastCount(), size_t(0));
 }
 
 void RustSessionTest::spellProjectionUsesDatabaseMetadataAndUnknownFallback()

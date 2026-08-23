@@ -1069,6 +1069,13 @@ void DaemonApp::applyRustCombat(const Box* box,
                                    : std::nullopt);
             } else if constexpr (
                 std::is_same_v<T, seq::shadow::SpellActionResolved>) {
+                if (managers->combatRouter) {
+                    managers->combatRouter->applyCastResolved(
+                        p.has_source_id
+                            ? std::optional<uint32_t>(p.source_id)
+                            : std::nullopt,
+                        p.spell_id);
+                }
                 if (!managers->spellShell) return;
                 managers->spellShell->applySpellAction(
                     p.has_source_id ? std::optional<uint32_t>(p.source_id)
@@ -1082,14 +1089,25 @@ void DaemonApp::applyRustCombat(const Box* box,
                     p.kind);
             } else if constexpr (
                 std::is_same_v<T, seq::shadow::SpellCastStarted>) {
-                if (!managers->combatRouter || !p.has_cast_time_ms) return;
+                if (!managers->combatRouter) return;
                 managers->combatRouter->applyCastStarted(
                     p.has_caster_id ? std::optional<uint32_t>(p.caster_id)
+                                    : std::nullopt,
+                    p.has_target_id ? std::optional<uint32_t>(p.target_id)
                                     : std::nullopt,
                     p.spell_id,
                     p.has_cast_time_ms
                         ? std::optional<uint32_t>(p.cast_time_ms)
-                        : std::nullopt);
+                        : std::nullopt,
+                    p.has_slot ? std::optional<int32_t>(p.slot)
+                               : std::nullopt);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::SpellCastInterrupted>) {
+                if (!managers->combatRouter) return;
+                managers->combatRouter->applyCastInterrupted(
+                    p.has_caster_id ? std::optional<uint32_t>(p.caster_id)
+                                    : std::nullopt,
+                    p.spell_id);
             } else if constexpr (
                 std::is_same_v<T, seq::shadow::BuffAdded> ||
                 std::is_same_v<T, seq::shadow::BuffUpdated>) {
