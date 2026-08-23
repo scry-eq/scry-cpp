@@ -23,6 +23,8 @@
  */
 
 #include "spellshell.h"
+
+#include <climits>
 #include "seq-bridge-cxx/lib.h"
 #include "util.h"
 #include "player.h"
@@ -537,47 +539,57 @@ void SpellShell::action(const uint8_t* data, size_t len, uint8_t)
                ? seq::rust::decode_action_alt(slice)
                : seq::rust::decode_action(slice);
   if (!out.ok) return;
-  actionStruct tmp{};
-  tmp.target = out.target;
-  tmp.source = out.source;
-  tmp.spell  = out.spell;
-  tmp.level  = out.level;
-  tmp.type   = out.kind;
-  const actionStruct* a = &tmp;
+  applySpellAction(out.source ? std::optional<uint32_t>(out.source) : std::nullopt,
+                   out.target ? std::optional<uint32_t>(out.target) : std::nullopt,
+                   out.spell, out.level, out.kind);
+}
 
-  if (a->type != 0xe7) // only things to do if action is a spell
+void SpellShell::applySpellAction(std::optional<uint32_t> sourceId,
+                                  std::optional<uint32_t> targetId,
+                                  uint32_t spellId,
+                                  std::optional<uint8_t> casterLevel,
+                                  uint32_t kind)
+{
+  if (kind != 0xe7 || spellId == 0 || spellId == UINT32_MAX)
     return;
+  if ((sourceId && *sourceId > UINT16_MAX) ||
+      (targetId && *targetId > UINT16_MAX))
+    return;
+
+  const uint16_t source = sourceId ? uint16_t(*sourceId) : 0;
+  const uint16_t target = targetId ? uint16_t(*targetId) : 0;
+  emit spellActionResolved();
 
   const Item* s;
   QString targetName;
 
-  if (a->target && 
-      ((s = m_spawnShell->findID(tSpawn, a->target))))
+  if (target && ((s = m_spawnShell->findID(tSpawn, target))))
     targetName = s->name();
 
-  SpellItem *item = findSpell(a->spell, a->target, targetName);
+  SpellItem *item = targetId ? findSpell(spellId, target, targetName) : nullptr;
+  const bool targetIsPlayer = targetId && m_player->id() != 0 &&
+                              target == m_player->id();
 
-  if (item || (a->target == m_player->id()))
+  if (item || targetIsPlayer)
   {
     int duration = 0;
-    const Spell* spell = m_spells->spell(a->spell);
-    if (spell)
-      duration = spell->calcDuration(a->level) * 6;
+    const Spell* spell = m_spells->spell(spellId);
+    if (spell && casterLevel)
+      duration = spell->calcDuration(*casterLevel) * 6;
     
     QString casterName;
-    if (a->source && 
-	((s = m_spawnShell->findID(tSpawn, a->source))))
+    if (source && ((s = m_spawnShell->findID(tSpawn, source))))
       casterName = s->name();
 
     if (item)
     {
 #ifdef DIAG_SPELLSHELL
-      seqDebug("action - found - source=%d (lvl: %d) cast id=%d on target=%d causing %d damage", 
-	       a->source, a->level, a->spell, a->target, a->damage);
+      seqDebug("action - found - source=%u cast id=%u on target=%u",
+               source, spellId, target);
 #endif // DIAG_SPELLSHELL
       
-      item->update(a->spell, spell, duration,
-		   a->source, casterName, a->target, targetName);
+      item->update(spellId, spell, duration,
+		   source, casterName, target, targetName);
       emit changeSpell(item);
     }
     else if (duration > 0)
@@ -588,14 +600,14 @@ void SpellShell::action(const uint8_t* data, size_t len, uint8_t)
       // treated as permanent, so the sweep never removes them).
       // otherwise check for spells cast on us
 #ifdef DIAG_SPELLSHELL
-      seqDebug("action - new - source=%d (lvl: %d) cast id=%d on target=%d causing %d damage", 
-	       a->source, a->level, a->spell, a->target, a->damage);
+      seqDebug("action - new - source=%u cast id=%u on target=%u",
+               source, spellId, target);
 #endif // DIAG_SPELLSHELL
       
       // only way to get here is if there wasn't an existing spell, so...
       item = new SpellItem();
-      item->update(a->spell, spell, duration, 
-		   a->source, casterName, a->target, targetName);
+      item->update(spellId, spell, duration,
+		   source, casterName, target, targetName);
       m_spellList.append(item);
       if ((m_spellList.count() > 0) && (!m_timer->isActive()))
 	m_timer->start(1000 *
@@ -603,37 +615,154 @@ void SpellShell::action(const uint8_t* data, size_t len, uint8_t)
       emit addSpell(item);
     }
   }
-  else if (a->source == m_player->id() && a->target != 0)
+  else if (sourceId && targetId && m_player->id() != 0 &&
+           source == m_player->id() && target != 0)
   {
     // The PLAYER cast a spell ON a mob (source == us, target != us). Track it
     // as a target effect (DoT/debuff/snare) attributed to the mob spawn, in
     // the SEPARATE m_targetEffects list so it never reaches the buff panel.
     int duration = 0;
-    const Spell* spell = m_spells->spell(a->spell);
-    if (spell)
-      duration = spell->calcDuration(a->level) * 6;
+    const Spell* spell = m_spells->spell(spellId);
+    if (spell && casterLevel)
+      duration = spell->calcDuration(*casterLevel) * 6;
     // A pure-damage nuke (no buff duration) leaves nothing lingering to show.
     if (duration <= 0)
       return;
 
-    SpellItem* eff = findEffect(a->spell, a->target);
+    SpellItem* eff = findEffect(spellId, target);
     if (eff)
     {
-      eff->update(a->spell, spell, duration,
-		  a->source, m_player->name(), a->target, targetName);
+      eff->update(spellId, spell, duration,
+		  source, m_player->name(), target, targetName);
       emit changeEffect(eff);
     }
     else
     {
       eff = new SpellItem();
-      eff->update(a->spell, spell, duration,
-		  a->source, m_player->name(), a->target, targetName);
+      eff->update(spellId, spell, duration,
+		  source, m_player->name(), target, targetName);
       m_targetEffects.append(eff);
       if (!m_timer->isActive())
 	m_timer->start(1000 *
 		       pSEQPrefs->getPrefInt("SpellTimer", "SpellList", 6));
       emit addEffect(eff);
     }
+  }
+}
+
+void SpellShell::applyActiveBuff(std::optional<uint32_t> ownerId,
+                                 uint32_t spellId,
+                                 std::optional<int32_t> remainingTicks,
+                                 std::optional<uint32_t> slot,
+                                 std::optional<uint32_t> casterId,
+                                 const std::optional<QString>& casterName)
+{
+  if (!ownerId || *ownerId > UINT16_MAX || spellId == 0 ||
+      spellId == UINT32_MAX)
+    return;
+  const uint16_t owner = uint16_t(*ownerId);
+  const uint16_t caster = casterId && *casterId <= UINT16_MAX
+      ? uint16_t(*casterId) : 0;
+  const Spell* spell = m_spells ? m_spells->spell(spellId) : nullptr;
+  int duration = 0;
+  bool permanent = false;
+  if (remainingTicks) {
+    permanent = *remainingTicks <= 0;
+    const int64_t seconds = int64_t(*remainingTicks) * 6;
+    duration = permanent ? SpellItem::PERMANENT_DURATION
+                         : seconds > INT_MAX ? INT_MAX : int(seconds);
+  } else if (spell) {
+    duration = spell->calcDuration(m_player->level()) * 6;
+    if (duration <= 0) {
+      permanent = true;
+      duration = SpellItem::PERMANENT_DURATION;
+    }
+  } else {
+    // Initial-sync packets omit duration. Keep an unknown positive spell id
+    // visible even when the local spell database has no duration metadata.
+    permanent = true;
+    duration = SpellItem::PERMANENT_DURATION;
+  }
+
+  auto nameFor = [this](uint16_t id) {
+    if (!id) return QString();
+    const Item* item = m_spawnShell->findID(tSpawn, id);
+    if (!item) item = m_spawnShell->findID(tPlayer, id);
+    return item ? item->name() : QString();
+  };
+  const QString targetName = owner == m_player->id()
+      ? m_player->name() : nameFor(owner);
+  const QString resolvedCaster = casterName && !casterName->isEmpty()
+      ? *casterName : nameFor(caster);
+  const bool playerBuff = owner == m_player->id();
+  SpellItem* item = playerBuff ? findSpell(spellId, owner, targetName)
+                               : findEffect(spellId, owner);
+  if (item) {
+    item->update(spellId, spell, duration, caster, resolvedCaster,
+                 owner, targetName);
+    if (!spell) {
+      item->setSpellName(QString());
+      item->setIcon(0);
+    }
+    item->setPermanent(permanent);
+    if (slot) item->setBuffSlot(int(*slot));
+    if (playerBuff) emit changeSpell(item);
+    else emit changeEffect(item);
+    return;
+  }
+
+  // An update without prior host state can happen after a cold attach. Rust's
+  // semantic event is authoritative, so materialize it instead of dropping it.
+  item = new SpellItem();
+  item->update(spellId, spell, duration, caster, resolvedCaster,
+               owner, targetName);
+  if (!spell) {
+    item->setSpellName(QString());
+    item->setIcon(0);
+  }
+  item->setPermanent(permanent);
+  if (slot) item->setBuffSlot(int(*slot));
+  if (playerBuff) {
+    m_spellList.append(item);
+    emit addSpell(item);
+  } else {
+    m_targetEffects.append(item);
+    emit addEffect(item);
+  }
+  if (!m_timer->isActive() && duration > 0)
+    m_timer->start(1000 *
+                   pSEQPrefs->getPrefInt("SpellTimer", "SpellList", 6));
+}
+
+void SpellShell::removeActiveBuff(std::optional<uint32_t> ownerId,
+                                  uint32_t spellId,
+                                  std::optional<uint32_t> slot)
+{
+  if (!ownerId || *ownerId > UINT16_MAX) return;
+  const uint16_t owner = uint16_t(*ownerId);
+  if (owner == m_player->id()) {
+    SpellItem* found = nullptr;
+    for (SpellItem* item : m_spellList) {
+      if (item && item->spellId() == spellId && item->targetId() == owner &&
+          (!slot || item->buffSlot() == int(*slot))) {
+        found = item;
+        break;
+      }
+    }
+    if (found) deleteSpell(found);
+    return;
+  }
+
+  for (auto it = m_targetEffects.begin(); it != m_targetEffects.end(); ++it) {
+    SpellItem* item = *it;
+    if (!item || item->spellId() != spellId || item->targetId() != owner ||
+        (slot && item->buffSlot() != int(*slot)))
+      continue;
+    m_targetEffects.erase(it);
+    emit delEffect(item);
+    delete item;
+    if (m_spellList.isEmpty() && m_targetEffects.isEmpty()) m_timer->stop();
+    return;
   }
 }
 

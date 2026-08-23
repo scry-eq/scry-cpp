@@ -33,6 +33,7 @@
 #include <QList>
 #include <ctime>
 #include <cstdio>
+#include <optional>
 #include <sys/time.h>
 #include "everquest.h"
 
@@ -223,6 +224,17 @@ class SpellShell : public QObject
   // personal buff panel.
   const QList<SpellItem*>& targetEffects() const { return m_targetEffects; }
 
+  void applySpellAction(std::optional<uint32_t> sourceId,
+                        std::optional<uint32_t> targetId, uint32_t spellId,
+                        std::optional<uint8_t> casterLevel, uint32_t kind);
+  void applyActiveBuff(std::optional<uint32_t> ownerId, uint32_t spellId,
+                       std::optional<int32_t> remainingTicks,
+                       std::optional<uint32_t> slot,
+                       std::optional<uint32_t> casterId,
+                       const std::optional<QString>& casterName);
+  void removeActiveBuff(std::optional<uint32_t> ownerId, uint32_t spellId,
+                        std::optional<uint32_t> slot);
+
  signals:
   void addSpell(const SpellItem *); // done
   void delSpell(const SpellItem *); // done
@@ -233,6 +245,7 @@ class SpellShell : public QObject
   void delEffect(const SpellItem *);
   void changeEffect(const SpellItem *);
   void clearEffects();
+  void spellActionResolved();
 
  public slots:
   void clear();

@@ -96,6 +96,7 @@ class EQPacket : public QObject
 	    seq::shadow::PlayerSelector playerSelector,
 	    seq::shadow::ProgressionSelector progressionSelector,
 	    seq::shadow::LootSelector lootSelector,
+	    seq::shadow::CombatSelector combatSelector,
 	    QObject *parent,
             const char *name);
    ~EQPacket();           
@@ -156,6 +157,7 @@ class EQPacket : public QObject
        std::function<void(const Box*, const seq::shadow::Batch&)>;
    using LootBatchHandler =
        std::function<void(const Box*, const seq::shadow::Batch&)>;
+   using CombatBatchHandler = LootBatchHandler;
    using LifecycleProjectionEnricher =
        std::function<void(const Box*, bool,
                           std::vector<seq::shadow::LifecycleObservation>&,
@@ -172,6 +174,8 @@ class EQPacket : public QObject
    { m_progressionBatchHandler = std::move(handler); }
    void setLootBatchHandler(LootBatchHandler handler)
    { m_lootBatchHandler = std::move(handler); }
+   void setCombatBatchHandler(CombatBatchHandler handler)
+   { m_combatBatchHandler = std::move(handler); }
    void setLifecycleProjectionEnricher(LifecycleProjectionEnricher enricher)
    { m_lifecycleProjectionEnricher = std::move(enricher); }
    void setLifecycleGlobalOwnershipPredicate(
@@ -190,8 +194,12 @@ class EQPacket : public QObject
        seq::shadow::ProgressionKind kind) const;
    bool legacyLootEnabledForCurrentPacket() const;
    bool rustLootAcceptedForCurrentPacket(seq::shadow::LootKind kind) const;
+   bool legacyCombatEnabledForCurrentPacket() const;
+   bool rustCombatAcceptedForCurrentPacket(seq::shadow::CombatKind kind) const;
    void observeLegacyLoot(seq::shadow::LootObservation observation);
    void observeLegacyLootProjection(seq::v1::Envelope envelope);
+   void observeLegacyCombat(seq::shadow::CombatObservation observation);
+   void observeLegacyCombatProjection(seq::v1::Envelope envelope);
    void observeLegacyLifecycle(seq::shadow::LifecycleObservation observation);
    void observeLegacyLifecycleProjection(seq::v1::Envelope envelope);
    void observeLegacyEntity(seq::shadow::EntityObservation observation);
@@ -322,6 +330,7 @@ class EQPacket : public QObject
    const seq::shadow::PlayerSelector m_playerSelector;
    const seq::shadow::ProgressionSelector m_progressionSelector;
    const seq::shadow::LootSelector m_lootSelector;
+   const seq::shadow::CombatSelector m_combatSelector;
 
    EQPacketStream* m_client2WorldStream;
    EQPacketStream* m_world2ClientStream;
@@ -394,6 +403,15 @@ class EQPacket : public QObject
        std::vector<seq::v1::Envelope> legacyProjections;
    };
    std::optional<PendingLootComparison> m_pendingLoot;
+   struct PendingCombatComparison {
+       seq::shadow::Session* session = nullptr;
+       const Box* box = nullptr;
+       std::vector<seq::shadow::CombatObservation> rustEvents;
+       std::vector<seq::v1::Envelope> rustProjections;
+       std::vector<seq::shadow::CombatObservation> legacyEvents;
+       std::vector<seq::v1::Envelope> legacyProjections;
+   };
+   std::optional<PendingCombatComparison> m_pendingCombat;
    struct PendingRustLootApplication {
        const Box* box = nullptr;
        const seq::shadow::Batch* batch = nullptr;
@@ -405,12 +423,14 @@ class EQPacket : public QObject
    std::vector<seq::shadow::PlayerKind> m_currentRustPlayerKinds;
    std::vector<seq::shadow::ProgressionKind> m_currentRustProgressionKinds;
    std::vector<seq::shadow::LootKind> m_currentRustLootKinds;
+   std::vector<seq::shadow::CombatKind> m_currentRustCombatKinds;
    bool m_currentRustPacketDecoded = false;
    LifecycleEventHandler m_lifecycleEventHandler;
    EntityEventHandler m_entityEventHandler;
    PlayerEventHandler m_playerEventHandler;
    ProgressionBatchHandler m_progressionBatchHandler;
    LootBatchHandler m_lootBatchHandler;
+   CombatBatchHandler m_combatBatchHandler;
    LifecycleProjectionEnricher m_lifecycleProjectionEnricher;
    LifecycleGlobalOwnershipPredicate m_lifecycleGlobalOwnershipPredicate;
    bool m_lifecycleFatal = false;

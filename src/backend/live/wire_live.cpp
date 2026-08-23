@@ -107,6 +107,13 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
                 handler(data, len, dir);
         };
     };
+    auto combat = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet || m_packet->legacyCombatEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
     ms.player->setProgressionMutationGuard([this] {
         return !m_packet ||
                m_packet->legacyProgressionEnabledForCurrentPacket();
@@ -355,19 +362,19 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // OP_BuffList on EQL — all player-scoped.
     wire("OP_Buff", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.spellShell, &SpellShell::buff));
+         combat(seqBind(ms.spellShell, &SpellShell::buff)));
     wire("OP_Action", SP_Zone, DIR_Server | DIR_Client,
          "actionStruct", SZC_Match,
-         seqBind(ms.spellShell, &SpellShell::action));
+         combat(seqBind(ms.spellShell, &SpellShell::action)));
     wire("OP_Action", SP_Zone, DIR_Server | DIR_Client,
          "actionAltStruct", SZC_Match,
-         seqBind(ms.spellShell, &SpellShell::action));
+         combat(seqBind(ms.spellShell, &SpellShell::action)));
     wire("OP_SimpleMessage", SP_Zone, DIR_Server,
          "simpleMessageStruct", SZC_Match,
-         seqBind(ms.spellShell, &SpellShell::simpleMessage));
+         combat(seqBind(ms.spellShell, &SpellShell::simpleMessage)));
 
     // --- CombatRouter.
     wire("OP_Action2", SP_Zone, DIR_Client | DIR_Server,
          "action2Struct", SZC_Match,
-         seqBind(ms.combatRouter, &CombatRouter::action2));
+         combat(seqBind(ms.combatRouter, &CombatRouter::action2)));
 }

@@ -32,6 +32,45 @@ static QString lookupSpawnName(SpawnShell* shell, uint16_t id)
     return it->name();
 }
 
+void CombatRouter::applyDamage(std::optional<uint32_t> sourceId,
+                               std::optional<uint32_t> targetId,
+                               uint32_t type, int32_t damage,
+                               std::optional<uint32_t> spellId)
+{
+    const auto spawnName = [this](std::optional<uint32_t> id) {
+        return id && *id <= UINT16_MAX
+            ? lookupSpawnName(m_spawnShell, uint16_t(*id)) : QString();
+    };
+    QString spellName;
+    if (spellId && m_spells) {
+        if (const Spell* spell = m_spells->spell(*spellId))
+            spellName = spell->name();
+    }
+
+    // seq.v1 predates optional ids. Preserve absence until this signal, then
+    // use its documented compatibility zero at the protobuf edge.
+    emit combatEvent(sourceId.value_or(0), spawnName(sourceId),
+                     targetId.value_or(0), spawnName(targetId), type, damage,
+                     spellId.value_or(0), spellName);
+}
+
+void CombatRouter::applyCastStarted(std::optional<uint32_t> casterId,
+                                    uint32_t spellId,
+                                    std::optional<uint32_t> castTimeMs)
+{
+    if (!castTimeMs) return;
+    QString casterName;
+    if (casterId && *casterId <= UINT16_MAX)
+        casterName = lookupSpawnName(m_spawnShell, uint16_t(*casterId));
+    QString spellName;
+    if (m_spells) {
+        if (const Spell* spell = m_spells->spell(spellId))
+            spellName = spell->name();
+    }
+    emit spawnCast(casterId.value_or(0), casterName, spellId, spellName,
+                   *castTimeMs);
+}
+
 void CombatRouter::action2(const uint8_t* data, size_t len, uint8_t /*dir*/)
 {
     if (!data || len < sizeof(action2Struct)) return;

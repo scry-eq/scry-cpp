@@ -23,6 +23,7 @@ using EntitySelector = LifecycleSelector;
 using PlayerSelector = LifecycleSelector;
 using ProgressionSelector = LifecycleSelector;
 using LootSelector = LifecycleSelector;
+using CombatSelector = LifecycleSelector;
 enum class LifecycleKind {
     SessionReset,
     EnterWorld,
@@ -68,6 +69,15 @@ enum class ProgressionKind {
     AlternateAbilityDefined,
 };
 enum class LootKind { CorpseLootSnapshot, LootAcquired };
+enum class CombatKind {
+    CombatDamage,
+    SpellActionResolved,
+    SpellCastStarted,
+    SpellCastInterrupted,
+    BuffAdded,
+    BuffUpdated,
+    BuffRemoved,
+};
 
 struct PlayerIdentityUpdated { rust::EventPlayerIdentity payload; };
 struct PlayerMoved { rust::EventPlayerMoved payload; };
@@ -115,7 +125,13 @@ struct GroundItem { rust::EventGroundItem payload; };
 struct CorpseLocated { rust::EventCorpseLocated payload; };
 struct ZonePoints { rust::EventZonePoints payload; };
 struct Combat { rust::EventCombat payload; };
+struct CombatDamage { rust::EventCombatDamage payload; };
+struct SpellAction { rust::EventSpellAction payload; };
+struct SpellActionResolved { rust::EventSpellActionResolved payload; };
+struct SpellCastRequest { rust::EventSpellCastRequest payload; };
 struct SpawnCast { rust::EventSpawnCast payload; };
+struct SpellCastStarted { rust::EventSpellCastStarted payload; };
+struct SpellCastInterrupted { rust::EventSpellCastInterrupted payload; };
 struct Targeted { rust::EventSpawnId payload; };
 struct Considered { rust::EventSpawnId payload; };
 struct AaTable { rust::EventAaTable payload; };
@@ -142,6 +158,10 @@ struct SpecialMessage { rust::EventSpecialMessagePayload payload; };
 struct LootMessage { rust::EventLootMessagePayload payload; };
 struct Chat { rust::EventChat payload; };
 struct BuffList { rust::EventBuffList payload; };
+struct BuffWire { rust::EventBuffWire payload; };
+struct BuffAdded { rust::EventActiveBuff payload; };
+struct BuffUpdated { rust::EventActiveBuff payload; };
+struct BuffRemoved { rust::EventBuffRemoved payload; };
 struct GroupFollow { rust::EventGroupFollowPayload payload; };
 struct GroupDisband { rust::EventGroupDisbandPayload payload; };
 struct LevelUpdate { rust::EventLevelUpdatePayload payload; };
@@ -158,17 +178,19 @@ using Event = std::variant<
     InventoryItemUpdated, EquipmentSnapshot, EquipmentSlotUpdated,
     GuildMotd, GuildRankName, LoadoutSwap,
     Doors, GroundItemRemoved, GroundItem, CorpseLocated, ZonePoints,
-    Combat, SpawnCast, Targeted,
+    Combat, CombatDamage, SpellAction, SpellActionResolved, SpellCastRequest,
+    SpawnCast, SpellCastStarted, SpellCastInterrupted, Targeted,
     Considered, AaTable, AlternateAbilityDefined, Exp, ExperienceUpdated,
     AaExp, AlternateAdvancementSnapshot, AlternateAdvancementUpdated,
     Stamina, ManaUpdate, SkillUpdate, SkillsSnapshot, SkillValueUpdated,
     LootTransaction, LootDrops, CorpseLootSnapshot, LootAcquired,
     Money, MoneyBalanceUpdated, SimpleMessage, FormattedMessage,
-    SpecialMessage, LootMessage, Chat, BuffList, GroupFollow, GroupDisband,
+    SpecialMessage, LootMessage, Chat, BuffList, BuffWire, BuffAdded,
+    BuffUpdated, BuffRemoved, GroupFollow, GroupDisband,
     LevelUpdate, EnterWorld, SessionReset, ZoneTransition,
     ZoneEnvironmentChanged>;
 
-static_assert(std::variant_size_v<Event> == 76,
+static_assert(std::variant_size_v<Event> == 86,
               "the C++ shadow event model must cover every Rust event kind");
 
 // A copyable, deterministic representation used by shadow comparison. The
@@ -240,6 +262,18 @@ struct LootObservation {
 };
 
 using LootComparison = LifecycleComparison;
+
+struct CombatObservation {
+    CombatKind kind = CombatKind::CombatDamage;
+    std::vector<uint8_t> payload;
+
+    bool operator==(const CombatObservation& other) const
+    {
+        return kind == other.kind && payload == other.payload;
+    }
+};
+
+using CombatComparison = LifecycleComparison;
 
 struct LifecycleProfile {
     std::string name;
@@ -323,6 +357,12 @@ LootComparison compareLoot(
     const Batch& rustBatch,
     const std::vector<LootObservation>& legacyEvents,
     const std::vector<seq::v1::Envelope>& legacyProjections);
+std::vector<CombatObservation> combatObservations(const Batch& batch);
+std::vector<seq::v1::Envelope> projectCombat(const Batch& batch);
+CombatComparison compareCombat(
+    const Batch& rustBatch,
+    const std::vector<CombatObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections);
 LifecycleObservation observeSessionReset(rust::EventSessionResetReason reason);
 LifecycleObservation observeEnterWorld(const std::string& characterName);
 LifecycleObservation observeZoneServer(const std::string& host, uint16_t port);
@@ -352,6 +392,7 @@ bool isEntityEvent(const Event& event);
 bool isPlayerEvent(const Event& event);
 bool isProgressionEvent(const Event& event);
 bool isLootEvent(const Event& event);
+bool isCombatEvent(const Event& event);
 
 class ProtocolRegistry {
 public:
@@ -376,7 +417,8 @@ public:
             EntitySelector entitySelector = EntitySelector::Legacy,
             PlayerSelector playerSelector = PlayerSelector::Legacy,
             ProgressionSelector progressionSelector = ProgressionSelector::Legacy,
-            LootSelector lootSelector = LootSelector::Legacy);
+            LootSelector lootSelector = LootSelector::Legacy,
+            CombatSelector combatSelector = CombatSelector::Legacy);
 
     const Record& decode(Stream stream, uint16_t opcode, Direction direction,
                          const uint8_t* payload, size_t payloadSize,
@@ -421,6 +463,13 @@ public:
     { return m_lootSelector == LootSelector::Shadow; }
     bool appliesRustLoot() const
     { return m_lootSelector == LootSelector::Rust; }
+    CombatSelector combatSelector() const { return m_combatSelector; }
+    bool runsLegacyCombat() const
+    { return m_combatSelector != CombatSelector::Rust; }
+    bool comparesCombat() const
+    { return m_combatSelector == CombatSelector::Shadow; }
+    bool appliesRustCombat() const
+    { return m_combatSelector == CombatSelector::Rust; }
     const std::optional<LifecycleComparison>& lastLifecycleComparison() const
     { return m_lastLifecycleComparison; }
     void recordLifecycleComparison(LifecycleComparison comparison)
@@ -441,6 +490,10 @@ public:
     { return m_lastLootComparison; }
     void recordLootComparison(LootComparison comparison)
     { m_lastLootComparison = std::move(comparison); }
+    const std::optional<CombatComparison>& lastCombatComparison() const
+    { return m_lastCombatComparison; }
+    void recordCombatComparison(CombatComparison comparison)
+    { m_lastCombatComparison = std::move(comparison); }
 
 private:
     const Record& append(Record record);
@@ -454,6 +507,7 @@ private:
     const PlayerSelector m_playerSelector;
     const ProgressionSelector m_progressionSelector;
     const LootSelector m_lootSelector;
+    const CombatSelector m_combatSelector;
     uint64_t m_recordCount = 0;
     uint64_t m_droppedRecordCount = 0;
     std::deque<Record> m_journal;
@@ -462,6 +516,7 @@ private:
     std::optional<PlayerComparison> m_lastPlayerComparison;
     std::optional<ProgressionComparison> m_lastProgressionComparison;
     std::optional<LootComparison> m_lastLootComparison;
+    std::optional<CombatComparison> m_lastCombatComparison;
 };
 
 } // namespace seq::shadow

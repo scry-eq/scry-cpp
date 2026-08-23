@@ -555,6 +555,10 @@ bool DaemonApp::start()
             [this](const Box* box, const seq::shadow::Batch& batch) {
                 applyRustLoot(box, batch);
             });
+        m_packet->setCombatBatchHandler(
+            [this](const Box* box, const seq::shadow::Batch& batch) {
+                applyRustCombat(box, batch);
+            });
         m_packet->setLifecycleProjectionEnricher(
             [this](const Box* box, bool addHostZoneProjection,
                    std::vector<seq::shadow::LifecycleObservation>& events,
@@ -600,6 +604,7 @@ bool DaemonApp::start()
         connectEntityObservers();
         connectPlayerObservers();
         connectProgressionObservers();
+        connectCombatObservers();
 
         // Tap decoded packets BEFORE the regular wiring so the logger
         // sees every dispatch (it doesn't matter for correctness — the
@@ -1011,6 +1016,86 @@ void DaemonApp::applyRustLoot(const Box* box,
                        std::get_if<seq::shadow::CorpseLootSnapshot>(&event)) {
             managers->messageShell->applyCorpseLootSnapshot(snapshot->payload);
         }
+    }
+}
+
+void DaemonApp::applyRustCombat(const Box* box,
+                                const seq::shadow::Batch& batch)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+
+    for (const seq::shadow::Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, seq::shadow::CombatDamage>) {
+                if (!managers->combatRouter) return;
+                managers->combatRouter->applyDamage(
+                    p.has_source_id ? std::optional<uint32_t>(p.source_id)
+                                    : std::nullopt,
+                    p.has_target_id ? std::optional<uint32_t>(p.target_id)
+                                    : std::nullopt,
+                    p.kind, p.damage,
+                    p.has_spell_id ? std::optional<uint32_t>(p.spell_id)
+                                   : std::nullopt);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::SpellActionResolved>) {
+                if (!managers->spellShell) return;
+                managers->spellShell->applySpellAction(
+                    p.has_source_id ? std::optional<uint32_t>(p.source_id)
+                                    : std::nullopt,
+                    p.has_target_id ? std::optional<uint32_t>(p.target_id)
+                                    : std::nullopt,
+                    p.spell_id,
+                    p.has_caster_level
+                        ? std::optional<uint8_t>(p.caster_level)
+                        : std::nullopt,
+                    p.kind);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::SpellCastStarted>) {
+                if (!managers->combatRouter || !p.has_cast_time_ms) return;
+                managers->combatRouter->applyCastStarted(
+                    p.has_caster_id ? std::optional<uint32_t>(p.caster_id)
+                                    : std::nullopt,
+                    p.spell_id,
+                    p.has_cast_time_ms
+                        ? std::optional<uint32_t>(p.cast_time_ms)
+                        : std::nullopt);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::BuffAdded> ||
+                std::is_same_v<T, seq::shadow::BuffUpdated>) {
+                if (!managers->spellShell) return;
+                const std::optional<QString> casterName = p.has_caster_name
+                    ? std::optional<QString>(qString(p.caster_name))
+                    : std::nullopt;
+                managers->spellShell->applyActiveBuff(
+                    p.has_owner_id ? std::optional<uint32_t>(p.owner_id)
+                                   : std::nullopt,
+                    p.spell_id,
+                    p.has_remaining_ticks
+                        ? std::optional<int32_t>(p.remaining_ticks)
+                        : std::nullopt,
+                    p.has_slot ? std::optional<uint32_t>(p.slot)
+                               : std::nullopt,
+                    p.has_caster_id ? std::optional<uint32_t>(p.caster_id)
+                                    : std::nullopt,
+                    casterName);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::BuffRemoved>) {
+                if (!managers->spellShell) return;
+                managers->spellShell->removeActiveBuff(
+                    p.has_owner_id ? std::optional<uint32_t>(p.owner_id)
+                                   : std::nullopt,
+                    p.spell_id,
+                    p.has_slot ? std::optional<uint32_t>(p.slot)
+                               : std::nullopt);
+            }
+        }, event);
     }
 }
 
@@ -1549,6 +1634,97 @@ void DaemonApp::connectProgressionObservers()
     });
 }
 
+void DaemonApp::connectCombatObservers()
+{
+    if (!m_packet || !m_combatRouter || !m_spellShell) return;
+    auto accepted = [this](seq::shadow::CombatKind kind) {
+        return m_packet->rustCombatAcceptedForCurrentPacket(kind);
+    };
+    auto observe = [this](seq::shadow::CombatKind kind) {
+        m_packet->observeLegacyCombat({kind, {}});
+    };
+
+    connect(m_combatRouter, &CombatRouter::combatEvent, this,
+            [this, accepted, observe](uint32_t sourceId,
+                                      const QString& sourceName,
+                                      uint32_t targetId,
+                                      const QString& targetName,
+                                      uint32_t type, int32_t damage,
+                                      uint32_t spellId,
+                                      const QString& spellName) {
+        const auto kind = seq::shadow::CombatKind::CombatDamage;
+        if (!accepted(kind)) return;
+        observe(kind);
+        seq::v1::Envelope envelope;
+        auto* combat = envelope.mutable_combat();
+        combat->set_source_id(sourceId);
+        combat->set_source_name(sourceName.toStdString());
+        combat->set_target_id(targetId);
+        combat->set_target_name(targetName.toStdString());
+        combat->set_type(type);
+        combat->set_damage(damage);
+        combat->set_spell_id(spellId);
+        combat->set_spell_name(spellName.toStdString());
+        m_packet->observeLegacyCombatProjection(std::move(envelope));
+    });
+    connect(m_combatRouter, &CombatRouter::spawnCast, this,
+            [this, accepted, observe](uint32_t casterId,
+                                      const QString& casterName,
+                                      uint32_t spellId,
+                                      const QString& spellName,
+                                      uint32_t castTimeMs) {
+        const auto kind = accepted(seq::shadow::CombatKind::SpellCastStarted)
+            ? seq::shadow::CombatKind::SpellCastStarted
+            : seq::shadow::CombatKind::SpellCastInterrupted;
+        if (!accepted(kind)) return;
+        observe(kind);
+        seq::v1::Envelope envelope;
+        auto* cast = envelope.mutable_spawn_cast();
+        cast->set_caster_id(casterId);
+        cast->set_caster_name(casterName.toStdString());
+        cast->set_spell_id(spellId);
+        cast->set_spell_name(spellName.toStdString());
+        cast->set_cast_time_ms(castTimeMs);
+        m_packet->observeLegacyCombatProjection(std::move(envelope));
+    });
+
+    connect(m_spellShell, &SpellShell::spellActionResolved, this,
+            [accepted, observe] {
+        const auto kind = seq::shadow::CombatKind::SpellActionResolved;
+        if (accepted(kind)) observe(kind);
+    });
+    auto observeSpellMutation = [accepted, observe](
+                                     seq::shadow::CombatKind buffKind) {
+        if (accepted(buffKind)) observe(buffKind);
+    };
+    connect(m_spellShell, &SpellShell::addSpell, this,
+            [observeSpellMutation](const SpellItem*) {
+        observeSpellMutation(seq::shadow::CombatKind::BuffAdded);
+    });
+    connect(m_spellShell, &SpellShell::changeSpell, this,
+            [observeSpellMutation](const SpellItem*) {
+        observeSpellMutation(seq::shadow::CombatKind::BuffUpdated);
+    });
+    connect(m_spellShell, &SpellShell::delSpell, this,
+            [accepted, observe](const SpellItem*) {
+        const auto kind = seq::shadow::CombatKind::BuffRemoved;
+        if (accepted(kind)) observe(kind);
+    });
+    connect(m_spellShell, &SpellShell::addEffect, this,
+            [observeSpellMutation](const SpellItem*) {
+        observeSpellMutation(seq::shadow::CombatKind::BuffAdded);
+    });
+    connect(m_spellShell, &SpellShell::changeEffect, this,
+            [observeSpellMutation](const SpellItem*) {
+        observeSpellMutation(seq::shadow::CombatKind::BuffUpdated);
+    });
+    connect(m_spellShell, &SpellShell::delEffect, this,
+            [accepted, observe](const SpellItem*) {
+        const auto kind = seq::shadow::CombatKind::BuffRemoved;
+        if (accepted(kind)) observe(kind);
+    });
+}
+
 bool DaemonApp::startServer()
 {
     if (!m_ws->listen(m_cfg.listenHost, m_cfg.listenPort)) {
@@ -1619,6 +1795,7 @@ bool DaemonApp::startCapture()
             lifecycleSelector(m_cfg.playerDecoder),
             lifecycleSelector(m_cfg.progressionDecoder),
             lifecycleSelector(m_cfg.lootDecoder),
+            lifecycleSelector(m_cfg.combatDecoder),
             this, "packet");
     } catch (const std::exception& error) {
         qCritical("Rust decoder setup failed: %s", error.what());

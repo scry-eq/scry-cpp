@@ -446,8 +446,32 @@ Batch translate(rust::SessionDecodeBatch batch)
         case rust::SessionEventKind::Combat:
             out.events.emplace_back(Combat{takePayload(batch.combat, index)});
             break;
+        case rust::SessionEventKind::CombatDamage:
+            out.events.emplace_back(CombatDamage{
+                takePayload(batch.combat_damage, index)});
+            break;
+        case rust::SessionEventKind::SpellAction:
+            out.events.emplace_back(SpellAction{
+                takePayload(batch.spell_action, index)});
+            break;
+        case rust::SessionEventKind::SpellActionResolved:
+            out.events.emplace_back(SpellActionResolved{
+                takePayload(batch.spell_action_resolved, index)});
+            break;
+        case rust::SessionEventKind::SpellCastRequest:
+            out.events.emplace_back(SpellCastRequest{
+                takePayload(batch.spell_cast_request, index)});
+            break;
         case rust::SessionEventKind::SpawnCast:
             out.events.emplace_back(SpawnCast{takePayload(batch.spawn_cast, index)});
+            break;
+        case rust::SessionEventKind::SpellCastStarted:
+            out.events.emplace_back(SpellCastStarted{
+                takePayload(batch.spell_cast_started, index)});
+            break;
+        case rust::SessionEventKind::SpellCastInterrupted:
+            out.events.emplace_back(SpellCastInterrupted{
+                takePayload(batch.spell_cast_interrupted, index)});
             break;
         case rust::SessionEventKind::Targeted:
             out.events.emplace_back(Targeted{takePayload(batch.spawn_id, index)});
@@ -539,6 +563,22 @@ Batch translate(rust::SessionDecodeBatch batch)
             break;
         case rust::SessionEventKind::BuffList:
             out.events.emplace_back(BuffList{takePayload(batch.buff_list, index)});
+            break;
+        case rust::SessionEventKind::BuffWire:
+            out.events.emplace_back(BuffWire{
+                takePayload(batch.buff_wire, index)});
+            break;
+        case rust::SessionEventKind::BuffAdded:
+            out.events.emplace_back(BuffAdded{
+                takePayload(batch.buff_added, index)});
+            break;
+        case rust::SessionEventKind::BuffUpdated:
+            out.events.emplace_back(BuffUpdated{
+                takePayload(batch.buff_updated, index)});
+            break;
+        case rust::SessionEventKind::BuffRemoved:
+            out.events.emplace_back(BuffRemoved{
+                takePayload(batch.buff_removed, index)});
             break;
         case rust::SessionEventKind::GroupFollow:
             out.events.emplace_back(GroupFollow{takePayload(batch.group_follow, index)});
@@ -1358,6 +1398,17 @@ bool isLootEvent(const Event& event)
            std::holds_alternative<LootAcquired>(event);
 }
 
+bool isCombatEvent(const Event& event)
+{
+    return std::holds_alternative<CombatDamage>(event) ||
+           std::holds_alternative<SpellActionResolved>(event) ||
+           std::holds_alternative<SpellCastStarted>(event) ||
+           std::holds_alternative<SpellCastInterrupted>(event) ||
+           std::holds_alternative<BuffAdded>(event) ||
+           std::holds_alternative<BuffUpdated>(event) ||
+           std::holds_alternative<BuffRemoved>(event);
+}
+
 std::vector<LootObservation> lootObservations(const Batch& batch)
 {
     std::vector<LootObservation> out;
@@ -1470,6 +1521,138 @@ LootComparison compareLoot(
     return comparison;
 }
 
+std::vector<CombatObservation> combatObservations(const Batch& batch)
+{
+    std::vector<CombatObservation> out;
+    for (const Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            CombatObservation observation;
+            if constexpr (std::is_same_v<T, CombatDamage>) {
+                observation.kind = CombatKind::CombatDamage;
+                appendScalar(observation.payload, p.has_source_id);
+                if (p.has_source_id) appendScalar(observation.payload, p.source_id);
+                appendScalar(observation.payload, p.has_target_id);
+                if (p.has_target_id) appendScalar(observation.payload, p.target_id);
+                appendScalar(observation.payload, p.kind);
+                appendScalar(observation.payload, p.damage);
+                appendScalar(observation.payload, p.has_spell_id);
+                if (p.has_spell_id) appendScalar(observation.payload, p.spell_id);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, SpellActionResolved>) {
+                observation.kind = CombatKind::SpellActionResolved;
+                appendScalar(observation.payload, p.has_source_id);
+                if (p.has_source_id) appendScalar(observation.payload, p.source_id);
+                appendScalar(observation.payload, p.has_target_id);
+                if (p.has_target_id) appendScalar(observation.payload, p.target_id);
+                appendScalar(observation.payload, p.spell_id);
+                appendScalar(observation.payload, p.has_caster_level);
+                if (p.has_caster_level)
+                    appendScalar(observation.payload, p.caster_level);
+                appendScalar(observation.payload, p.kind);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, SpellCastStarted>) {
+                observation.kind = CombatKind::SpellCastStarted;
+                appendScalar(observation.payload, p.has_caster_id);
+                if (p.has_caster_id) appendScalar(observation.payload, p.caster_id);
+                appendScalar(observation.payload, p.has_target_id);
+                if (p.has_target_id) appendScalar(observation.payload, p.target_id);
+                appendScalar(observation.payload, p.spell_id);
+                appendScalar(observation.payload, p.has_cast_time_ms);
+                if (p.has_cast_time_ms)
+                    appendScalar(observation.payload, p.cast_time_ms);
+                appendScalar(observation.payload, p.has_slot);
+                if (p.has_slot) appendScalar(observation.payload, p.slot);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, SpellCastInterrupted>) {
+                observation.kind = CombatKind::SpellCastInterrupted;
+                appendScalar(observation.payload, p.has_caster_id);
+                if (p.has_caster_id) appendScalar(observation.payload, p.caster_id);
+                appendScalar(observation.payload, p.has_target_id);
+                if (p.has_target_id) appendScalar(observation.payload, p.target_id);
+                appendScalar(observation.payload, p.spell_id);
+                appendScalar(observation.payload, p.reason);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, BuffAdded> ||
+                                 std::is_same_v<T, BuffUpdated>) {
+                observation.kind = std::is_same_v<T, BuffAdded>
+                    ? CombatKind::BuffAdded : CombatKind::BuffUpdated;
+                appendScalar(observation.payload, p.has_owner_id);
+                if (p.has_owner_id) appendScalar(observation.payload, p.owner_id);
+                appendScalar(observation.payload, p.spell_id);
+                appendScalar(observation.payload, p.has_remaining_ticks);
+                if (p.has_remaining_ticks)
+                    appendScalar(observation.payload, p.remaining_ticks);
+                appendScalar(observation.payload, p.has_slot);
+                if (p.has_slot) appendScalar(observation.payload, p.slot);
+                appendScalar(observation.payload, p.has_caster_id);
+                if (p.has_caster_id) appendScalar(observation.payload, p.caster_id);
+                appendScalar(observation.payload, p.has_caster_name);
+                if (p.has_caster_name) appendString(observation.payload, p.caster_name);
+                out.push_back(std::move(observation));
+            } else if constexpr (std::is_same_v<T, BuffRemoved>) {
+                observation.kind = CombatKind::BuffRemoved;
+                appendScalar(observation.payload, p.has_owner_id);
+                if (p.has_owner_id) appendScalar(observation.payload, p.owner_id);
+                appendScalar(observation.payload, p.spell_id);
+                appendScalar(observation.payload, p.has_slot);
+                if (p.has_slot) appendScalar(observation.payload, p.slot);
+                out.push_back(std::move(observation));
+            }
+        }, event);
+    }
+    return out;
+}
+
+std::vector<seq::v1::Envelope> projectCombat(const Batch& batch)
+{
+    std::vector<seq::v1::Envelope> out;
+    for (const Event& event : batch.events) {
+        if (const auto* value = std::get_if<CombatDamage>(&event)) {
+            const auto& p = value->payload;
+            seq::v1::Envelope envelope;
+            auto* combat = envelope.mutable_combat();
+            combat->set_source_id(p.has_source_id ? p.source_id : 0);
+            combat->set_target_id(p.has_target_id ? p.target_id : 0);
+            combat->set_type(p.kind);
+            combat->set_damage(p.damage);
+            combat->set_spell_id(p.has_spell_id ? p.spell_id : 0);
+            out.push_back(std::move(envelope));
+        } else if (const auto* value = std::get_if<SpellCastStarted>(&event)) {
+            const auto& p = value->payload;
+            if (!p.has_cast_time_ms) continue;
+            seq::v1::Envelope envelope;
+            auto* cast = envelope.mutable_spawn_cast();
+            cast->set_caster_id(p.has_caster_id ? p.caster_id : 0);
+            cast->set_spell_id(p.spell_id);
+            cast->set_cast_time_ms(p.has_cast_time_ms ? p.cast_time_ms : 0);
+            out.push_back(std::move(envelope));
+        }
+    }
+    return out;
+}
+
+CombatComparison compareCombat(
+    const Batch& rustBatch,
+    const std::vector<CombatObservation>& legacyEvents,
+    const std::vector<seq::v1::Envelope>& legacyProjections)
+{
+    CombatComparison comparison;
+    const auto rustEvents = combatObservations(rustBatch);
+    const auto rustProjections = projectCombat(rustBatch);
+    comparison.rustEventCount = rustEvents.size();
+    comparison.legacyEventCount = legacyEvents.size();
+    comparison.rustProjectionCount = rustProjections.size();
+    comparison.legacyProjectionCount = legacyProjections.size();
+    comparison.orderedEventsEqual = rustEvents == legacyEvents;
+    comparison.projectionsEqual =
+        rustProjections.size() == legacyProjections.size() &&
+        std::equal(rustProjections.begin(), rustProjections.end(),
+                   legacyProjections.begin(), sameEnvelope);
+    return comparison;
+}
+
 std::vector<seq::v1::Envelope> projectLifecycle(const Batch& batch)
 {
     std::vector<seq::v1::Envelope> projections;
@@ -1550,7 +1733,8 @@ Session::Session(const ProtocolRegistry& registry,
                  EntitySelector entitySelector,
                  PlayerSelector playerSelector,
                  ProgressionSelector progressionSelector,
-                 LootSelector lootSelector)
+                 LootSelector lootSelector,
+                 CombatSelector combatSelector)
     : m_session(rust::session_new(registry.rustRegistry(), backend))
     , m_journalLimit(std::max<size_t>(journalLimit, 1))
     , m_journalByteLimit(std::max<size_t>(journalByteLimit, sizeof(Record)))
@@ -1559,6 +1743,7 @@ Session::Session(const ProtocolRegistry& registry,
     , m_playerSelector(playerSelector)
     , m_progressionSelector(progressionSelector)
     , m_lootSelector(lootSelector)
+    , m_combatSelector(combatSelector)
 {
 }
 

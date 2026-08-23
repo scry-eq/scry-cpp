@@ -4,6 +4,7 @@
 #include <QString>
 #include <cstdint>
 #include <cstddef>
+#include <optional>
 
 class SpawnShell;
 class Spells;
@@ -17,6 +18,13 @@ class CombatRouter : public QObject {
 public:
     CombatRouter(SpawnShell* spawnShell, Spells* spells,
                  QObject* parent = nullptr);
+
+    void applyDamage(std::optional<uint32_t> sourceId,
+                     std::optional<uint32_t> targetId, uint32_t type,
+                     int32_t damage, std::optional<uint32_t> spellId);
+    void applyCastStarted(std::optional<uint32_t> casterId,
+                          uint32_t spellId,
+                          std::optional<uint32_t> castTimeMs);
 
 public slots:
     // Wired to OP_Action2 by DaemonApp. Layout matches struct

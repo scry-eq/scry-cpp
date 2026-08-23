@@ -6,10 +6,13 @@
 #include <type_traits>
 
 #include "rustsession.h"
+#include "combatrouter.h"
 #include "datetimemgr.h"
 #include "itempacket.h"
 #include "protoencoder.h"
 #include "spawn.h"
+#include "spells.h"
+#include "spellshell.h"
 
 namespace {
 
@@ -58,7 +61,13 @@ SAME_PAYLOAD(GroundItem, EventGroundItem);
 SAME_PAYLOAD(CorpseLocated, EventCorpseLocated);
 SAME_PAYLOAD(ZonePoints, EventZonePoints);
 SAME_PAYLOAD(Combat, EventCombat);
+SAME_PAYLOAD(CombatDamage, EventCombatDamage);
+SAME_PAYLOAD(SpellAction, EventSpellAction);
+SAME_PAYLOAD(SpellActionResolved, EventSpellActionResolved);
+SAME_PAYLOAD(SpellCastRequest, EventSpellCastRequest);
 SAME_PAYLOAD(SpawnCast, EventSpawnCast);
+SAME_PAYLOAD(SpellCastStarted, EventSpellCastStarted);
+SAME_PAYLOAD(SpellCastInterrupted, EventSpellCastInterrupted);
 SAME_PAYLOAD(Targeted, EventSpawnId);
 SAME_PAYLOAD(Considered, EventSpawnId);
 SAME_PAYLOAD(AaTable, EventAaTable);
@@ -85,6 +94,10 @@ SAME_PAYLOAD(SpecialMessage, EventSpecialMessagePayload);
 SAME_PAYLOAD(LootMessage, EventLootMessagePayload);
 SAME_PAYLOAD(Chat, EventChat);
 SAME_PAYLOAD(BuffList, EventBuffList);
+SAME_PAYLOAD(BuffWire, EventBuffWire);
+SAME_PAYLOAD(BuffAdded, EventActiveBuff);
+SAME_PAYLOAD(BuffUpdated, EventActiveBuff);
+SAME_PAYLOAD(BuffRemoved, EventBuffRemoved);
 SAME_PAYLOAD(GroupFollow, EventGroupFollowPayload);
 SAME_PAYLOAD(GroupDisband, EventGroupDisbandPayload);
 SAME_PAYLOAD(LevelUpdate, EventLevelUpdatePayload);
@@ -137,6 +150,17 @@ uint16_t enterWorldOpcode()
 #endif
 }
 
+uint16_t actionOpcode()
+{
+#if defined(SEQ_TARGET_LIVE)
+    return 0xa831;
+#elif defined(SEQ_TARGET_TEST)
+    return 0x8ac8;
+#elif defined(SEQ_TARGET_EQL)
+    return 0x5c0d;
+#endif
+}
+
 ffi::SessionBackend backend()
 {
 #if defined(SEQ_TARGET_LIVE)
@@ -167,6 +191,10 @@ private slots:
     void playerAdapterPreservesAllPhaseSixEventsInOrder();
     void progressionAdapterPreservesOptionalFieldsAndProjectsExactly();
     void lootAdapterPreservesContextPresenceAndProjectionOrder();
+    void combatAdapterPreservesPresenceOrderAndCompatibilityProjection();
+    void combatProjectionUsesCompatibilityZeroAndUnknownSpellFallback();
+    void spellProjectionUsesDatabaseMetadataAndUnknownFallback();
+    void malformedCombatDoesNotMutateOrProject();
     void resetPrecedesProfileAndUsesProductionProjection();
     void publicTimeContractNormalizesWireHourOnce();
     void reconnectResetsBeforeEachEnterWorld();
@@ -265,12 +293,24 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     ADD(corpse_loot_snapshot, CorpseLootSnapshot,
         EventCorpseLootSnapshot);
     ADD(loot_acquired, LootAcquired, EventLootAcquisition);
+    ADD(combat_damage, CombatDamage, EventCombatDamage);
+    ADD(spell_action, SpellAction, EventSpellAction);
+    ADD(spell_action_resolved, SpellActionResolved,
+        EventSpellActionResolved);
+    ADD(spell_cast_request, SpellCastRequest, EventSpellCastRequest);
+    ADD(spell_cast_started, SpellCastStarted, EventSpellCastStarted);
+    ADD(spell_cast_interrupted, SpellCastInterrupted,
+        EventSpellCastInterrupted);
+    ADD(buff_wire, BuffWire, EventBuffWire);
+    ADD(buff_added, BuffAdded, EventActiveBuff);
+    ADD(buff_updated, BuffUpdated, EventActiveBuff);
+    ADD(buff_removed, BuffRemoved, EventBuffRemoved);
 #undef ADD
 
     Batch batch = translate(std::move(raw));
     QCOMPARE(batch.protocolGeneration, uint64_t(77));
     QCOMPARE(batch.disposition, Disposition::Decoded);
-    QCOMPARE(batch.events.size(), size_t(76));
+    QCOMPARE(batch.events.size(), size_t(86));
 
 #define CHECK(index, type) QVERIFY(std::holds_alternative<type>(batch.events[index]))
     CHECK(0, SpawnAdded); CHECK(1, SpawnMoved); CHECK(2, SpawnRenamed);
@@ -305,6 +345,11 @@ void RustSessionTest::everyVariantTranslatesInOrder()
     CHECK(72, AlternateAdvancementUpdated);
     CHECK(73, AlternateAbilityDefined);
     CHECK(74, CorpseLootSnapshot); CHECK(75, LootAcquired);
+    CHECK(76, CombatDamage); CHECK(77, SpellAction);
+    CHECK(78, SpellActionResolved); CHECK(79, SpellCastRequest);
+    CHECK(80, SpellCastStarted); CHECK(81, SpellCastInterrupted);
+    CHECK(82, BuffWire); CHECK(83, BuffAdded); CHECK(84, BuffUpdated);
+    CHECK(85, BuffRemoved);
 #undef CHECK
 }
 
@@ -697,6 +742,26 @@ void RustSessionTest::lifecycleSelectorIsImmutablePerSession()
     QVERIFY(lootShadow.comparesLoot());
     QVERIFY(!lootRust.runsLegacyLoot());
     QVERIFY(lootRust.appliesRustLoot());
+
+    Session combatLegacy(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Legacy,
+        LootSelector::Legacy, CombatSelector::Legacy);
+    Session combatShadow(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Legacy,
+        LootSelector::Legacy, CombatSelector::Shadow);
+    Session combatRust(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Legacy,
+        LootSelector::Legacy, CombatSelector::Rust);
+    QVERIFY(combatLegacy.runsLegacyCombat());
+    QVERIFY(combatShadow.comparesCombat());
+    QVERIFY(!combatRust.runsLegacyCombat());
+    QVERIFY(combatRust.appliesRustCombat());
 }
 
 void RustSessionTest::entityAdapterPreservesOptionalFieldsAndProjectionOrder()
@@ -1208,6 +1273,235 @@ void RustSessionTest::lootAdapterPreservesContextPresenceAndProjectionOrder()
     const auto comparison = compareLoot(batch, observations, projections);
     QVERIFY(comparison.orderedEventsEqual);
     QVERIFY(comparison.projectionsEqual);
+}
+
+void RustSessionTest::combatAdapterPreservesPresenceOrderAndCompatibilityProjection()
+{
+    ffi::SessionDecodeBatch raw;
+    raw.disposition = ffi::SessionDisposition::Decoded;
+
+    ffi::EventCombatDamage damage;
+    damage.has_source_id = false;
+    damage.source_id = 999;
+    damage.has_target_id = true;
+    damage.target_id = 42;
+    damage.kind = 7;
+    damage.damage = 123;
+    damage.has_spell_id = false;
+    damage.spell_id = 999;
+    addPayload(raw, raw.combat_damage,
+               ffi::SessionEventKind::CombatDamage, std::move(damage));
+
+    ffi::EventCombatDamage spellDamage;
+    spellDamage.has_source_id = true;
+    spellDamage.source_id = 11;
+    spellDamage.has_target_id = true;
+    spellDamage.target_id = 42;
+    spellDamage.kind = 0xe7;
+    spellDamage.damage = 456;
+    spellDamage.has_spell_id = true;
+    spellDamage.spell_id = 70'001;
+    addPayload(raw, raw.combat_damage,
+               ffi::SessionEventKind::CombatDamage,
+               std::move(spellDamage));
+
+    ffi::EventSpellActionResolved action;
+    action.has_source_id = true;
+    action.source_id = 11;
+    action.has_target_id = false;
+    action.target_id = 999;
+    action.spell_id = 70'001;
+    action.has_caster_level = true;
+    action.caster_level = 125;
+    action.kind = 0xe7;
+    addPayload(raw, raw.spell_action_resolved,
+               ffi::SessionEventKind::SpellActionResolved,
+               std::move(action));
+
+    ffi::EventSpellCastStarted started;
+    started.has_caster_id = false;
+    started.caster_id = 999;
+    started.has_target_id = true;
+    started.target_id = 42;
+    started.spell_id = 99'999;
+    started.has_cast_time_ms = true;
+    started.cast_time_ms = 2'500;
+    started.has_slot = true;
+    started.slot = 3;
+    addPayload(raw, raw.spell_cast_started,
+               ffi::SessionEventKind::SpellCastStarted,
+               std::move(started));
+
+    ffi::EventSpellCastInterrupted interrupted;
+    interrupted.has_caster_id = true;
+    interrupted.caster_id = 11;
+    interrupted.has_target_id = false;
+    interrupted.spell_id = 99'999;
+    interrupted.reason = ffi::EventCastInterruptionReason::Superseded;
+    addPayload(raw, raw.spell_cast_interrupted,
+               ffi::SessionEventKind::SpellCastInterrupted,
+               std::move(interrupted));
+
+    ffi::EventBuffRemoved removed;
+    removed.has_owner_id = true;
+    removed.owner_id = 42;
+    removed.spell_id = 100;
+    removed.has_slot = true;
+    removed.slot = 1;
+    addPayload(raw, raw.buff_removed, ffi::SessionEventKind::BuffRemoved,
+               std::move(removed));
+
+    ffi::EventActiveBuff added;
+    added.has_owner_id = true;
+    added.owner_id = 42;
+    added.spell_id = 101;
+    added.has_remaining_ticks = true;
+    added.remaining_ticks = -1;
+    added.has_slot = true;
+    added.slot = 1;
+    added.has_caster_id = false;
+    added.has_caster_name = true;
+    added.caster_name = ::rust::String("Unknown caster");
+    addPayload(raw, raw.buff_added, ffi::SessionEventKind::BuffAdded,
+               std::move(added));
+
+    ffi::EventActiveBuff updated;
+    updated.has_owner_id = false;
+    updated.spell_id = 102;
+    updated.has_remaining_ticks = false;
+    updated.has_slot = false;
+    updated.has_caster_id = true;
+    updated.caster_id = 11;
+    updated.has_caster_name = false;
+    addPayload(raw, raw.buff_updated, ffi::SessionEventKind::BuffUpdated,
+               std::move(updated));
+
+    Batch batch = translate(std::move(raw));
+    const auto observations = combatObservations(batch);
+    QCOMPARE(observations.size(), size_t(8));
+    QCOMPARE(observations[0].kind, CombatKind::CombatDamage);
+    QCOMPARE(observations[1].kind, CombatKind::CombatDamage);
+    QCOMPARE(observations[2].kind, CombatKind::SpellActionResolved);
+    QCOMPARE(observations[3].kind, CombatKind::SpellCastStarted);
+    QCOMPARE(observations[4].kind, CombatKind::SpellCastInterrupted);
+    QCOMPARE(observations[5].kind, CombatKind::BuffRemoved);
+    QCOMPARE(observations[6].kind, CombatKind::BuffAdded);
+    QCOMPARE(observations[7].kind, CombatKind::BuffUpdated);
+
+    QVERIFY(isCombatEvent(batch.events[0]));
+    const auto* translatedDamage = std::get_if<CombatDamage>(&batch.events[0]);
+    QVERIFY(translatedDamage);
+    QVERIFY(!translatedDamage->payload.has_source_id);
+    QCOMPARE(translatedDamage->payload.source_id, uint32_t(999));
+    QVERIFY(!translatedDamage->payload.has_spell_id);
+
+    const auto projections = projectCombat(batch);
+    QCOMPARE(projections.size(), size_t(3));
+    QVERIFY(projections[0].has_combat());
+    QCOMPARE(projections[0].combat().source_id(), uint32_t(0));
+    QCOMPARE(projections[0].combat().target_id(), uint32_t(42));
+    QCOMPARE(projections[0].combat().spell_id(), uint32_t(0));
+    QVERIFY(projections[1].has_combat());
+    QCOMPARE(projections[1].combat().source_id(), uint32_t(11));
+    QCOMPARE(projections[1].combat().target_id(), uint32_t(42));
+    QCOMPARE(projections[1].combat().spell_id(), uint32_t(70'001));
+    QVERIFY(projections[2].has_spawn_cast());
+    QCOMPARE(projections[2].spawn_cast().caster_id(), uint32_t(0));
+    QCOMPARE(projections[2].spawn_cast().spell_id(), uint32_t(99'999));
+    QCOMPARE(projections[2].spawn_cast().cast_time_ms(), uint32_t(2'500));
+    ffi::SessionDecodeBatch lowLevelRaw;
+    lowLevelRaw.disposition = ffi::SessionDisposition::Decoded;
+    addPayload(lowLevelRaw, lowLevelRaw.combat,
+               ffi::SessionEventKind::Combat, ffi::EventCombat{});
+    addPayload(lowLevelRaw, lowLevelRaw.spell_action,
+               ffi::SessionEventKind::SpellAction, ffi::EventSpellAction{});
+    addPayload(lowLevelRaw, lowLevelRaw.spell_cast_request,
+               ffi::SessionEventKind::SpellCastRequest,
+               ffi::EventSpellCastRequest{});
+    addPayload(lowLevelRaw, lowLevelRaw.buff_wire,
+               ffi::SessionEventKind::BuffWire, ffi::EventBuffWire{});
+    const Batch lowLevel = translate(std::move(lowLevelRaw));
+    QCOMPARE(lowLevel.events.size(), size_t(4));
+    for (const auto& event : lowLevel.events) QVERIFY(!isCombatEvent(event));
+    QVERIFY(combatObservations(lowLevel).empty());
+}
+
+void RustSessionTest::combatProjectionUsesCompatibilityZeroAndUnknownSpellFallback()
+{
+    CombatRouter router(nullptr, nullptr);
+    QSignalSpy damage(&router, &CombatRouter::combatEvent);
+    QSignalSpy casts(&router, &CombatRouter::spawnCast);
+
+    router.applyDamage(std::nullopt, uint32_t(42), 7, 123,
+                       uint32_t(99'999));
+    QCOMPARE(damage.count(), 1);
+    const auto damageArgs = damage.takeFirst();
+    QCOMPARE(damageArgs[0].toUInt(), uint32_t(0));
+    QVERIFY(damageArgs[1].toString().isEmpty());
+    QCOMPARE(damageArgs[2].toUInt(), uint32_t(42));
+    QCOMPARE(damageArgs[4].toUInt(), uint32_t(7));
+    QCOMPARE(damageArgs[5].toInt(), int32_t(123));
+    QCOMPARE(damageArgs[6].toUInt(), uint32_t(99'999));
+    QVERIFY(damageArgs[7].toString().isEmpty());
+
+    router.applyCastStarted(std::nullopt, 99'999, std::nullopt);
+    QCOMPARE(casts.count(), 0);
+    router.applyCastStarted(std::nullopt, 99'999, uint32_t(2'500));
+    QCOMPARE(casts.count(), 1);
+    const auto started = casts.takeFirst();
+    QCOMPARE(started[0].toUInt(), uint32_t(0));
+    QCOMPARE(started[2].toUInt(), uint32_t(99'999));
+    QVERIFY(started[3].toString().isEmpty());
+    QCOMPARE(started[4].toUInt(), uint32_t(2'500));
+}
+
+void RustSessionTest::spellProjectionUsesDatabaseMetadataAndUnknownFallback()
+{
+    QStringList fields;
+    fields.fill(QStringLiteral("0"), 80);
+    fields[0] = QStringLiteral("70001");
+    fields[1] = QStringLiteral("Known Spell");
+    fields[11] = QStringLiteral("1");
+    fields[12] = QStringLiteral("10");
+    fields[28] = QStringLiteral("1");
+    fields[43] = QStringLiteral("1");
+    fields[75] = QStringLiteral("321");
+    Spell spell(fields.join(QLatin1Char('^')));
+    QCOMPARE(spell.calcDuration(20), int16_t(10));
+
+    SpellItem known;
+    known.update(70'001, &spell, spell.calcDuration(20) * 6,
+                 11, QStringLiteral("Caster"),
+                 42, QStringLiteral("Target"));
+    QCOMPARE(known.spellName(), QStringLiteral("Known Spell"));
+    QCOMPARE(known.duration(), 60);
+    QCOMPARE(known.icon(), uint16_t(321));
+    QVERIFY(known.beneficial());
+    QVERIFY(known.isSong());
+
+    SpellItem unknown;
+    unknown.update(99'999, nullptr, 30, 0, QString(), 42, QString());
+    QCOMPARE(unknown.icon(), uint16_t(0));
+    QVERIFY(unknown.beneficial());
+    QCOMPARE(unknown.duration(), 30);
+}
+
+void RustSessionTest::malformedCombatDoesNotMutateOrProject()
+{
+    ProtocolRegistry registry;
+    Session session(
+        registry, backend(), 256, 4 * 1024 * 1024,
+        LifecycleSelector::Shadow, EntitySelector::Legacy,
+        PlayerSelector::Legacy, ProgressionSelector::Legacy,
+        LootSelector::Legacy, CombatSelector::Rust);
+    const uint8_t malformed[2] = {1, 2};
+    const Record& record = session.decode(
+        Stream::Zone, actionOpcode(), Direction::ServerToClient,
+        malformed, sizeof(malformed), 1000);
+    QCOMPARE(record.batch.disposition, Disposition::Malformed);
+    QVERIFY(combatObservations(record.batch).empty());
+    QVERIFY(projectCombat(record.batch).empty());
+    QCOMPARE(session.recordCount(), uint64_t(1));
 }
 
 void RustSessionTest::resetPrecedesProfileAndUsesProductionProjection()

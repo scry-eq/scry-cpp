@@ -147,6 +147,7 @@ public:
         // Loot correlation remains rollback-first until Live/Test capture
         // proof exists. EQL is the only backend with known wire coverage.
         QString      lootDecoder = QStringLiteral("legacy");
+        QString      combatDecoder = QStringLiteral("legacy");
         // --replay --wait-for-client: pause the .vpk playback until
         // the first WebSocket client attaches a SessionAdapter (so
         // early envelopes aren't dropped), and don't quit at EOF so
@@ -264,10 +265,12 @@ private:
     void applyRustProgression(const Box* box,
                               const seq::shadow::Batch& batch);
     void applyRustLoot(const Box* box, const seq::shadow::Batch& batch);
+    void applyRustCombat(const Box* box, const seq::shadow::Batch& batch);
     void connectLifecycleObservers();
     void connectEntityObservers();
     void connectPlayerObservers();
     void connectProgressionObservers();
+    void connectCombatObservers();
 
     // --only-session helpers -------------------------------------------------
     // Parsed index form of Config::onlySession: N for "N"/"first"(=1),

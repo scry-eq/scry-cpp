@@ -237,6 +237,11 @@ int main(int argc, char** argv)
         "legacy, shadow, or rust. The default remains legacy until capture "
         "soak completes. Changing it requires a session restart.",
         "mode", "legacy");
+    QCommandLineOption combatDecoderOpt(QStringList{"combat-decoder"},
+        "Immutable combat, spells, casting, damage, and buffs owner for each "
+        "session: legacy, shadow, or rust. The default remains legacy until "
+        "capture soak completes. Changing it requires a session restart.",
+        "mode", "legacy");
     parser.addOption(deviceOpt);
     parser.addOption(ipOpt);
     parser.addOption(listenOpt);
@@ -263,6 +268,7 @@ int main(int argc, char** argv)
     parser.addOption(playerDecoderOpt);
     parser.addOption(progressionDecoderOpt);
     parser.addOption(lootDecoderOpt);
+    parser.addOption(combatDecoderOpt);
     parser.process(app);
 
     DaemonApp::Config cfg;
@@ -340,6 +346,13 @@ int main(int argc, char** argv)
         cfg.lootDecoder != QLatin1String("shadow") &&
         cfg.lootDecoder != QLatin1String("rust")) {
         qCritical("--loot-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.combatDecoder = parser.value(combatDecoderOpt).toLower();
+    if (cfg.combatDecoder != QLatin1String("legacy") &&
+        cfg.combatDecoder != QLatin1String("shadow") &&
+        cfg.combatDecoder != QLatin1String("rust")) {
+        qCritical("--combat-decoder must be legacy, shadow, or rust");
         return 2;
     }
     if (parser.isSet(boxIdleTtlOpt)) {
