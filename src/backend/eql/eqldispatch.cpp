@@ -474,7 +474,7 @@ void EqlDispatch::death(const uint8_t* data, size_t len, uint8_t dir)
         // respawned PC is simply re-broadcast as an ordinary OP_ZoneEntry NewSpawn
         // and the C>S self-pos stream switches to the new id (confirmed on
         // eqlegends-corpsepin: self-id 12636 -> 12913, no id-0 dip). The Live
-        // death chain (killSpawn -> corpse-in-place, then respawnFromHover +
+        // death chain (killSpawn -> corpse-in-place, then hover respawn +
         // OP_ZoneEntry re-init) never completes here, so routing the player's own
         // death to killSpawn pins the PC record to the death spot as a renamed
         // corpse forever — the marker never follows the respawn (the reported
