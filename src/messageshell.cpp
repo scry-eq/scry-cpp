@@ -26,7 +26,6 @@
 #include "lootstore.h"
 #include "eqstr.h"
 #include "messages.h"
-#include "spells.h"
 #include "spawnshell.h"
 #include "player.h"
 #include "packetcommon.h"
@@ -78,13 +77,12 @@ QString qString(const ::rust::String& value)
 //----------------------------------------------------------------------
 // MessageShell
 MessageShell::MessageShell(Messages* messages, EQStr* eqStrings,
-			   Spells* spells, SpawnShell* spawnShell,
+			   SpawnShell* spawnShell,
 			   Player* player,
                            QObject* parent, const char* name)
   : QObject(parent),
     m_messages(messages),
     m_eqStrings(eqStrings),
-    m_spells(spells),
     m_spawnShell(spawnShell),
     m_player(player),
     m_lootTracker(seq::rust::eql_loot_tracker_new())
@@ -696,186 +694,3 @@ void MessageShell::inspectData(const uint8_t* data)
 
   emit inspectReceived(inspt);
 }
-
-void MessageShell::player(const charProfileStruct* player)
-{
-  QString message;
-
-  message = QString::asprintf("Name: '%s' Last: '%s'", 
-		  player->name, player->lastName);
-  m_messages->addMessage(MT_Player, message);
-
-  message = QString::asprintf("Level: %d", player->profile.level);
-  m_messages->addMessage(MT_Player, message);
-  
-  message = QString::asprintf("PlayerMoney: P=%d G=%d S=%d C=%d",
-		 player->profile.platinum, player->profile.gold, 
-		 player->profile.silver, player->profile.copper);
-  m_messages->addMessage(MT_Player, message);
-  
-  message = QString::asprintf("BankMoney: P=%d G=%d S=%d C=%d",
-		  player->platinum_bank, player->gold_bank, 
-		  player->silver_bank, player->copper_bank);
-  m_messages->addMessage(MT_Player, message);
-
-  message = QString::asprintf("CursorMoney: P=%d G=%d S=%d C=%d",
-		  player->profile.platinum_cursor, player->profile.gold_cursor, 
-		  player->profile.silver_cursor, player->profile.copper_cursor);
-  m_messages->addMessage(MT_Player, message);
-
-  message = QString::asprintf("SharedMoney: P=%d",
-		  player->platinum_shared);
-  m_messages->addMessage(MT_Player, message);
-
-  message = QString::asprintf("DoN Crystals: Radiant=%d Ebon=%d",
-          player->currentRadCrystals, player->currentEbonCrystals);
-  m_messages->addMessage(MT_Player, message);
-
-// charProfileStruct.exp hasn't been found
-//   message = "Exp: " + Commanate(player->exp);
-//   m_messages->addMessage(MT_Player, message);
-
-  message = "ExpAA: (spent: " + Commanate(player->profile.aa_spent) + 
-      ", unspent: " + Commanate(player->profile.aa_unspent) + ")";
-  m_messages->addMessage(MT_Player, message);
-
-#if 0 
-  // Format for the aa values used to 0-1000 for group, 0-2000 for raid,
-  // but now it's different. Just drop it for now. %%%
-  message = "GroupLeadAA: " + Commanate(player->expGroupLeadAA) + 
-      " (unspent: " + Commanate(player->groupLeadAAUnspent) + ")";
-  m_messages->addMessage(MT_Player, message);
-  message = "RaidLeadAA: " + Commanate(player->expRaidLeadAA) + 
-      " (unspent: " + Commanate(player->raidLeadAAUnspent) + ")";
-  m_messages->addMessage(MT_Player, message);
-#endif
-
-// 09/03/2008 patch - this is no longer sent in charProfile
-//   message.sprintf("Group: %s %s %s %s %s %s", player->groupMembers[0],
-//     player->groupMembers[1],
-//     player->groupMembers[2],
-//     player->groupMembers[3],
-//     player->groupMembers[4],
-//     player->groupMembers[5]);
-//   m_messages->addMessage(MT_Player, message);
-
-  int buffnumber;
-  QString spellName;
-
-  for (buffnumber=0;buffnumber<MAX_BUFFS;buffnumber++)
-  {
-    if (player->profile.buffs[buffnumber].spellid && 
-            player->profile.buffs[buffnumber].duration)
-    {
-      const Spell* spell = m_spells->spell(player->profile.buffs[buffnumber].spellid);
-      if(spell)
-         spellName = spell->name();
-      else
-         spellName = spell_name(player->profile.buffs[buffnumber].spellid);
-
-      if(player->profile.buffs[buffnumber].duration == -1)
-        message = QString::asprintf("You have buff %s (permanent).", spellName.toLatin1().data());
-      else
-        message = QString::asprintf("You have buff %s duration left is %d in ticks.",
-                spellName.toLatin1().data(), player->profile.buffs[buffnumber].duration);
-
-      m_messages->addMessage(MT_Player, message);
-    }
-  }
-
-  message = "LDoN Earned Guk Points: " + Commanate(player->ldon_guk_points);
-  m_messages->addMessage(MT_Player, message);
-  message = "LDoN Earned Mira Points: " + Commanate(player->ldon_mir_points);
-  m_messages->addMessage(MT_Player, message);
-  message = "LDoN Earned MMC Points: " + Commanate(player->ldon_mmc_points);
-  m_messages->addMessage(MT_Player, message);
-  message = "LDoN Earned Ruj Points: " + Commanate(player->ldon_ruj_points);
-  m_messages->addMessage(MT_Player, message);
-  message = "LDoN Earned Tak Points: " + Commanate(player->ldon_tak_points);
-  m_messages->addMessage(MT_Player, message);
-  message = "LDoN Unspent Points: " + Commanate(player->ldon_avail_points);
-  m_messages->addMessage(MT_Player, message);
-}
-
-void MessageShell::consMessage(const uint8_t* data, size_t, uint8_t dir) 
-{
-  const considerStruct * con = (const considerStruct*)data;
-  const Item* item;
-
-  QString lvl("");
-  QString hps("");
-  QString cn("");
-  QString deity;
-
-  QString msg("Your faction standing with ");
-
-  // is it you that you've conned?
-  if (con->playerid == con->targetid) 
-  {
-    deity = m_player->deityName();
-    
-    // well, this is You
-    msg += m_player->name();
-  }
-  else 
-  {
-    // find the spawn if it exists
-    item = m_spawnShell->findID(tSpawn, con->targetid);
-    
-    // has the spawn been seen before?
-    if (item != NULL)
-    {
-      Spawn* spawn = (Spawn*)item;
-
-      // yes
-      deity = spawn->deityName();
-
-      lvl = QString::number(spawn->level());
-
-      msg += item->name() + " (Lvl: " + lvl + ")";
-    } // end if spawn found
-    else
-      msg += "Spawn:" + QString::number(con->targetid, 16);
-  } // else not yourself
-  
-  switch (con->level) 
-  {
-  case 0:
-  case 5:
-  case 20:
-    msg += " (even)";
-    break;
-  case 1:
-    msg += " (grey)";
-    break;
-  case 2:
-    msg += " (green)";
-    break;
-  case 4:
-    msg += " (blue)";
-    break;
-  case 7:
-  case 13:
-    msg += " (red)";
-    break;
-  case 6:
-  case 15:
-    msg += " (yellow)";
-    break;
-  case 3:
-  case 18:
-    msg += " (cyan)";
-    break;
-  default:
-    msg += " (unknown: " + QString::number(con->level) + ")";
-    break;
-  }
-
-  if (!deity.isEmpty())
-    msg += QString(" [") + deity + "]";
-
-  msg += QString(" is: ") + print_faction(con->faction) + " (" 
-    + QString::number(con->faction) + ")!";
-
-  m_messages->addMessage(MT_Consider, msg);
-} // end consMessage()

@@ -245,8 +245,7 @@ void LootStoreTest::semanticLootWritesExistingSchemaAndProjectsOnce()
   QTemporaryDir dir;
   LootStore store;
   QVERIFY(store.setStorePath(dir.filePath("loot.db")));
-  MessageShell shell(nullptr, nullptr, nullptr, nullptr, nullptr,
-                     nullptr, nullptr);
+  MessageShell shell(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
   shell.setLootStore(&store);
   QSignalSpy acquiredSpy(&shell, &MessageShell::lootTransactionReceived);
   QSignalSpy snapshotSpy(&shell, &MessageShell::lootDropsReceived);
