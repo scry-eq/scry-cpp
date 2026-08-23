@@ -43,8 +43,6 @@ DefaultLastName = ""
 [Misc]
 # Create Unknown Spawns for those spawns with incomplete information
 CreateUnknownSpawns = true
-# Enable / disable spell casting messages
-ShowSpellMessages = true
 # enable logging of spawns
 LogSpawns = false
 # enable logging of items

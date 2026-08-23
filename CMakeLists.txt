@@ -226,7 +226,6 @@ set(SEQ_DAEMON_CORE_NEW_SOURCES
   src/lootstore.cpp
   src/zoneservermgr.cpp
   src/dbstrings.cpp
-  src/spellmessages.cpp
 )
 
 # The opcode table is the ONE part of conf/ that varies per target: Live's lives
