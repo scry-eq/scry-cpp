@@ -106,8 +106,8 @@ void GroupMgr::groupUpdate(const uint8_t* /*data*/, size_t /*size*/)
   // (name@64, no member roster — count field is 0), NOT the variable full
   // roster the legends groupRosterEQL format carries. Member identity rides
   // OP_GroupFollow (addGroupMember) and departures OP_GroupDisband/2
-  // (removeGroupMember), so this noops. (decode_group_roster stays available
-  // for a server that does send the variable roster on this id.)
+  // (removeGroupMember), so this noops. The ordered Rust session likewise
+  // ignores this fixed-status form and derives its roster from those deltas.
 }
 
 void GroupMgr::applyRoster(const std::vector<GroupRosterEntry>& members,
