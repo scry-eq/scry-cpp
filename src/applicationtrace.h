@@ -1,8 +1,8 @@
 #ifndef APPLICATIONTRACE_H
 #define APPLICATIONTRACE_H
 
-#include <QSaveFile>
 #include <QString>
+#include <QTemporaryFile>
 
 #include <cstddef>
 #include <cstdint>
@@ -15,7 +15,8 @@ enum class Stream;
 enum class Direction;
 
 // Writes strict seq-app-packet-trace version 1 documents. Each part stays in
-// a QSaveFile until finalize() commits it with an atomic rename.
+// a same-directory temporary file until finalize() publishes it atomically
+// without replacing an existing trace.
 class ApplicationTraceWriter {
 public:
     ApplicationTraceWriter(QString outputPrefix, QString backend,
@@ -49,7 +50,7 @@ private:
     uint64_t m_packetCount = 0;
     uint64_t m_partPacketCount = 0;
     std::optional<int64_t> m_lastTimestamp;
-    std::unique_ptr<QSaveFile> m_file;
+    std::unique_ptr<QTemporaryFile> m_file;
 };
 
 } // namespace seq::shadow

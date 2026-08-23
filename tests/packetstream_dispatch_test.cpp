@@ -10,12 +10,15 @@
  */
 
 #include <QtTest/QtTest>
+#include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
 
+#include "applicationtrace.h"
 #include "packetinfo.h"
 #include "packetcommon.h"
 #include "packetstream.h"
+#include "rustsession.h"
 
 namespace {
 
@@ -43,6 +46,7 @@ class TestStream : public EQPacketStream
 public:
     using EQPacketStream::EQPacketStream;
     using EQPacketStream::dispatchPacket;
+    using EQPacketStream::dispatchPacketAt;
 
     void cacheThenDrain(EQProtocolPacket& packet)
     {
@@ -50,7 +54,57 @@ public:
         m_arqSeqExp = packet.arqSeq();
         processCache();
     }
+
+    void cache(EQProtocolPacket& packet) { setCache(packet.arqSeq(), packet); }
+    void expect(uint16_t sequence) { m_arqSeqExp = sequence; }
+    void process(EQProtocolPacket& packet) { processPacket(packet, false); }
+    void drain() { processCache(); }
 };
+
+seq::rust::SessionBackend backend()
+{
+#if defined(SEQ_TARGET_LIVE)
+    return seq::rust::SessionBackend::Live;
+#elif defined(SEQ_TARGET_TEST)
+    return seq::rust::SessionBackend::Test;
+#elif defined(SEQ_TARGET_EQL)
+    return seq::rust::SessionBackend::Eql;
+#endif
+}
+
+QString backendName()
+{
+#if defined(SEQ_TARGET_LIVE)
+    return QStringLiteral("live");
+#elif defined(SEQ_TARGET_TEST)
+    return QStringLiteral("test");
+#elif defined(SEQ_TARGET_EQL)
+    return QStringLiteral("eql");
+#endif
+}
+
+QString tracePath(const QString& prefix)
+{
+    return prefix + QStringLiteral("-part-0001.trace.json");
+}
+
+QByteArray sequencedApplication(uint16_t sequence, uint16_t opcode,
+                                TestStream& stream)
+{
+    QByteArray bytes(9, '\0');
+    bytes[0] = 0x00; bytes[1] = 0x09; // OP_Packet
+    bytes[2] = 0x00;                  // flags
+    bytes[3] = char(sequence >> 8);
+    bytes[4] = char(sequence & 0xff);
+    bytes[5] = char(opcode & 0xff);
+    bytes[6] = char(opcode >> 8);
+    EQProtocolPacket packet(reinterpret_cast<uint8_t*>(bytes.data()),
+                            uint32_t(bytes.size()));
+    const uint16_t crc = stream.calculateCRC(packet);
+    bytes[7] = char(crc >> 8);
+    bytes[8] = char(crc & 0xff);
+    return bytes;
+}
 
 } // namespace
 
@@ -71,6 +125,8 @@ private slots:
     void completionHookRunsAfterLegacyOrMutedDispatch();
     void rejectedApplicationStopsObserversAndLegacy();
     void cachedApplicationKeepsOriginalMetadata();
+    void arqTimestampRegressionDisablesOnlyTrace();
+    void crossStreamTimestampRegressionDisablesOnlyTrace();
 
 private:
     QTemporaryDir m_tmp;
@@ -312,6 +368,97 @@ void PacketStreamDispatchTest::cachedApplicationKeepsOriginalMetadata()
 
     stream.cacheThenDrain(packet);
     QCOMPARE(calls, 1);
+}
+
+void PacketStreamDispatchTest::arqTimestampRegressionDisablesOnlyTrace()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString prefix = directory.filePath(QStringLiteral("arq"));
+    TestStream stream(zone2client, DIR_Server, 32, m_opcodeDB);
+    seq::shadow::ProtocolRegistry registry;
+    seq::shadow::Session session(registry, backend());
+    session.setTraceWriter(std::make_unique<seq::shadow::ApplicationTraceWriter>(
+        prefix, backendName(),
+        QString::fromStdString(registry.contentHash(backend())), true));
+    int calls = 0;
+    stream.setApplicationPacketHook(
+        [&session, &calls](EQStreamID, uint8_t, uint16_t opcode,
+                           const uint8_t* payload, size_t size,
+                           int64_t timestamp, EQPacketFlowKey,
+                           uintptr_t) -> bool {
+            ++calls;
+            session.decode(seq::shadow::Stream::Zone, opcode,
+                           seq::shadow::Direction::ServerToClient,
+                           payload, size, timestamp);
+            return true;
+        }, {});
+
+    QByteArray laterBytes = sequencedApplication(8, 0xffff, stream);
+    EQProtocolPacket later(
+        reinterpret_cast<uint8_t*>(laterBytes.data()),
+        uint32_t(laterBytes.size()));
+    later.setCaptureTimeMs(100);
+    QByteArray expectedBytes = sequencedApplication(7, 0xffff, stream);
+    EQProtocolPacket expected(
+        reinterpret_cast<uint8_t*>(expectedBytes.data()),
+        uint32_t(expectedBytes.size()));
+    expected.setCaptureTimeMs(200);
+
+    stream.cache(later);
+    stream.expect(7);
+    stream.process(expected);
+    stream.drain();
+
+    QCOMPARE(calls, 2);
+    QCOMPARE(session.recordCount(), uint64_t(2));
+    QVERIFY(!session.traceEnabled());
+    QVERIFY(!QFile::exists(tracePath(prefix)));
+    QCOMPARE(QDir(directory.path()).entryList(
+                 QStringList{QStringLiteral(".*.tmp.*")},
+                 QDir::Files | QDir::Hidden),
+             QStringList());
+}
+
+void PacketStreamDispatchTest::crossStreamTimestampRegressionDisablesOnlyTrace()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString prefix = directory.filePath(QStringLiteral("streams"));
+    TestStream world(world2client, DIR_Server, 32, m_opcodeDB);
+    TestStream zone(zone2client, DIR_Server, 32, m_opcodeDB);
+    seq::shadow::ProtocolRegistry registry;
+    seq::shadow::Session session(registry, backend());
+    session.setTraceWriter(std::make_unique<seq::shadow::ApplicationTraceWriter>(
+        prefix, backendName(),
+        QString::fromStdString(registry.contentHash(backend())), true));
+    int calls = 0;
+    auto hook = [&session, &calls](EQStreamID streamId, uint8_t,
+                                   uint16_t opcode, const uint8_t* payload,
+                                   size_t size, int64_t timestamp,
+                                   EQPacketFlowKey, uintptr_t) -> bool {
+        ++calls;
+        session.decode(streamId == world2client
+                           ? seq::shadow::Stream::World
+                           : seq::shadow::Stream::Zone,
+                       opcode, seq::shadow::Direction::ServerToClient,
+                       payload, size, timestamp);
+        return true;
+    };
+    world.setApplicationPacketHook(hook, {});
+    zone.setApplicationPacketHook(hook, {});
+
+    world.dispatchPacketAt(nullptr, 0, 0xffff, nullptr, 200, {}, 0);
+    zone.dispatchPacketAt(nullptr, 0, 0xffff, nullptr, 100, {}, 0);
+
+    QCOMPARE(calls, 2);
+    QCOMPARE(session.recordCount(), uint64_t(2));
+    QVERIFY(!session.traceEnabled());
+    QVERIFY(!QFile::exists(tracePath(prefix)));
+    QCOMPARE(QDir(directory.path()).entryList(
+                 QStringList{QStringLiteral(".*.tmp.*")},
+                 QDir::Files | QDir::Hidden),
+             QStringList());
 }
 
 QTEST_APPLESS_MAIN(PacketStreamDispatchTest)

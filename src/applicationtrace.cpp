@@ -3,9 +3,14 @@
 #include "rustsession.h"
 
 #include <QByteArray>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
 
+#include <cerrno>
+#include <cstring>
 #include <stdexcept>
+#include <unistd.h>
 #include <utility>
 
 namespace seq::shadow {
@@ -83,9 +88,12 @@ void ApplicationTraceWriter::openPart()
     if (m_file) return;
     m_openPart = m_nextPart++;
     const QString path = currentPath();
-    m_file = std::make_unique<QSaveFile>(path);
-    m_file->setDirectWriteFallback(false);
-    if (!m_file->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    const QFileInfo target(path);
+    const QString temporaryTemplate = target.dir().filePath(
+        QStringLiteral(".%1.tmp.XXXXXX").arg(target.fileName()));
+    m_file = std::make_unique<QTemporaryFile>(temporaryTemplate);
+    m_file->setAutoRemove(true);
+    if (!m_file->open()) {
         const QString error = m_file->errorString();
         m_file.reset();
         m_openPart = 0;
@@ -148,13 +156,29 @@ void ApplicationTraceWriter::finalize()
     const QString path = currentPath();
     try {
         write(QByteArray("\n  ]\n}\n"));
-        if (!m_file->commit()) {
+        if (!m_file->flush()) {
             const QString error = m_file->errorString();
-            m_file.reset();
-            m_openPart = 0;
             throw std::runtime_error(
-                QStringLiteral("could not commit application trace %1: %2")
+                QStringLiteral("could not flush application trace %1: %2")
                     .arg(path, error).toStdString());
+        }
+        if (::fsync(m_file->handle()) != 0) {
+            const int error = errno;
+            throw std::runtime_error(
+                QStringLiteral("could not sync application trace %1: %2")
+                    .arg(path, QString::fromLocal8Bit(std::strerror(error)))
+                    .toStdString());
+        }
+        const QByteArray temporaryName = QFile::encodeName(m_file->fileName());
+        const QByteArray finalName = QFile::encodeName(path);
+        if (::link(temporaryName.constData(), finalName.constData()) != 0) {
+            const int error = errno;
+            const QString detail = error == EEXIST
+                ? QStringLiteral("destination already exists")
+                : QString::fromLocal8Bit(std::strerror(error));
+            throw std::runtime_error(
+                QStringLiteral("could not publish application trace %1: %2")
+                    .arg(path, detail).toStdString());
         }
     } catch (...) {
         m_file.reset();

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <exception>
 #include <functional>
 #include <optional>
 #include <string>
@@ -480,8 +481,7 @@ public:
     bool traceEnabled() const { return bool(m_traceWriter); }
     const ApplicationTraceWriter* traceWriter() const
     { return m_traceWriter.get(); }
-    void finalizeTrace()
-    { if (m_traceWriter) m_traceWriter->finalize(); }
+    void finalizeTrace();
 
     const Record& decode(Stream stream, uint16_t opcode, Direction direction,
                          const uint8_t* payload, size_t payloadSize,
@@ -597,6 +597,8 @@ private:
     std::optional<CombatComparison> m_lastCombatComparison;
     std::optional<CommunicationComparison> m_lastCommunicationComparison;
     std::unique_ptr<ApplicationTraceWriter> m_traceWriter;
+
+    void disableTrace(const std::exception& error);
 };
 
 } // namespace seq::shadow

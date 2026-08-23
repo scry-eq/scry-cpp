@@ -13,9 +13,11 @@ compiled backend and the embedded registry's semantic catalog hash. A session
 starts a new part after a semantic session reset or zone transition. Replay
 end, eviction, and normal shutdown finalize the current part.
 
-Files remain temporary until `QSaveFile::commit` atomically renames a complete
-strict version 1 JSON document into place. A write or commit failure stops a
-trace-enabled daemon instead of continuing with a partial corpus.
+Files remain in same-directory temporary files until the daemon atomically
+links a complete strict version 1 JSON document into its final name. The link
+fails instead of replacing an existing trace. A write, timestamp, sync, or
+publication failure removes that session's temporary file and disables only
+that trace writer. The daemon logs the reason and keeps decoding packets.
 
 These files are capture-derived and set `synthetic` to `false`. Payloads can
 contain character names, chat, guild data, and other private text. Keep them

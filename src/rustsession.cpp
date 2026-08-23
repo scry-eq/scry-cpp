@@ -1,4 +1,5 @@
 #include "rustsession.h"
+#include "diagnosticmessages.h"
 #include "protoencoder.h"
 
 #include <algorithm>
@@ -2045,9 +2046,14 @@ const Record& Session::decode(Stream stream, uint16_t opcode,
                               Direction direction, const uint8_t* payload,
                               size_t payloadSize, int64_t timestamp)
 {
-    if (m_traceWriter)
-        m_traceWriter->push(stream, opcode, direction, payload, payloadSize,
-                            timestamp);
+    if (m_traceWriter) {
+        try {
+            m_traceWriter->push(stream, opcode, direction, payload,
+                                payloadSize, timestamp);
+        } catch (const std::exception& error) {
+            disableTrace(error);
+        }
+    }
     auto raw = m_session->decode(toRust(stream), opcode, toRust(direction),
                                  ::rust::Slice<const uint8_t>(payload, payloadSize),
                                  timestamp);
@@ -2061,8 +2067,8 @@ const Record& Session::decode(Stream stream, uint16_t opcode,
                    std::holds_alternative<ZoneTransition>(event);
         });
     const Record& appended = append(std::move(record));
-    if (lifecycleBoundary && m_traceWriter)
-        m_traceWriter->finalize();
+    if (lifecycleBoundary)
+        finalizeTrace();
     return appended;
 }
 
@@ -2072,9 +2078,24 @@ const Record& Session::flush(FlushReason reason)
     record.flushReason = reason;
     record.batch = translate(m_session->flush(toRust(reason)));
     const Record& appended = append(std::move(record));
-    if (m_traceWriter)
-        m_traceWriter->finalize();
+    finalizeTrace();
     return appended;
+}
+
+void Session::finalizeTrace()
+{
+    if (!m_traceWriter) return;
+    try {
+        m_traceWriter->finalize();
+    } catch (const std::exception& error) {
+        disableTrace(error);
+    }
+}
+
+void Session::disableTrace(const std::exception& error)
+{
+    seqWarn("Application packet trace disabled: %s", error.what());
+    m_traceWriter.reset();
 }
 
 const Record& Session::append(Record record)

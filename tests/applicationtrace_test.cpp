@@ -89,6 +89,9 @@ class ApplicationTraceTest : public QObject
 private slots:
     void writesStrictSyntheticTraceAtomically();
     void rotatesPartsAndRejectsDecreasingTimestamps();
+    void refusesToReplaceExistingTrace();
+    void racingWritersPublishOnlyOneTrace();
+    void sessionContinuesAfterPublicationCollision();
     void rustCliChecksSessionTrace();
 };
 
@@ -161,6 +164,99 @@ void ApplicationTraceTest::rotatesPartsAndRejectsDecreasingTimestamps()
     QVERIFY(QFile::exists(tracePath(prefix, 2)));
     QCOMPARE(writer.packetCount(), uint64_t(2));
     QCOMPARE(writer.finalizedPartCount(), uint32_t(2));
+}
+
+void ApplicationTraceTest::refusesToReplaceExistingTrace()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString prefix = directory.filePath(QStringLiteral("collision"));
+    const QString path = tracePath(prefix);
+    QFile existing(path);
+    QVERIFY(existing.open(QIODevice::WriteOnly));
+    QCOMPARE(existing.write("keep-me"), qint64(7));
+    existing.close();
+
+    seq::shadow::ProtocolRegistry registry;
+    seq::shadow::ApplicationTraceWriter writer(
+        prefix, backendName(),
+        QString::fromStdString(registry.contentHash(backend())), true);
+    writer.push(seq::shadow::Stream::World, 1,
+                seq::shadow::Direction::ServerToClient, nullptr, 0, 1);
+    QVERIFY_EXCEPTION_THROWN(writer.finalize(), std::runtime_error);
+
+    QVERIFY(existing.open(QIODevice::ReadOnly));
+    QCOMPARE(existing.readAll(), QByteArray("keep-me"));
+    QCOMPARE(QDir(directory.path()).entryList(
+                 QStringList{QStringLiteral(".*.tmp.*")},
+                 QDir::Files | QDir::Hidden),
+             QStringList());
+}
+
+void ApplicationTraceTest::racingWritersPublishOnlyOneTrace()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString prefix = directory.filePath(QStringLiteral("race"));
+    seq::shadow::ProtocolRegistry registry;
+    const QString hash =
+        QString::fromStdString(registry.contentHash(backend()));
+    seq::shadow::ApplicationTraceWriter first(
+        prefix, backendName(), hash, true);
+    seq::shadow::ApplicationTraceWriter second(
+        prefix, backendName(), hash, true);
+    const uint8_t firstPayload[]{0x11};
+    const uint8_t secondPayload[]{0x22};
+
+    first.push(seq::shadow::Stream::World, 1,
+               seq::shadow::Direction::ServerToClient,
+               firstPayload, sizeof(firstPayload), 1);
+    second.push(seq::shadow::Stream::World, 2,
+                seq::shadow::Direction::ServerToClient,
+                secondPayload, sizeof(secondPayload), 2);
+    first.finalize();
+    QVERIFY_EXCEPTION_THROWN(second.finalize(), std::runtime_error);
+
+    const QJsonArray packets =
+        readObject(tracePath(prefix)).value(QStringLiteral("packets")).toArray();
+    QCOMPARE(packets.size(), 1);
+    QCOMPARE(packets.first().toObject().value(
+                 QStringLiteral("payload")).toString(),
+             QStringLiteral("11"));
+    QCOMPARE(QDir(directory.path()).entryList(
+                 QStringList{QStringLiteral(".*.tmp.*")},
+                 QDir::Files | QDir::Hidden),
+             QStringList());
+}
+
+void ApplicationTraceTest::sessionContinuesAfterPublicationCollision()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString prefix = directory.filePath(QStringLiteral("session-clash"));
+    QFile existing(tracePath(prefix));
+    QVERIFY(existing.open(QIODevice::WriteOnly));
+    QCOMPARE(existing.write("existing"), qint64(8));
+    existing.close();
+
+    seq::shadow::ProtocolRegistry registry;
+    seq::shadow::Session session(registry, backend());
+    session.setTraceWriter(std::make_unique<seq::shadow::ApplicationTraceWriter>(
+        prefix, backendName(),
+        QString::fromStdString(registry.contentHash(backend())), true));
+    session.decode(seq::shadow::Stream::Zone, 65535,
+                   seq::shadow::Direction::ServerToClient,
+                   nullptr, 0, 1);
+    session.flush(seq::shadow::FlushReason::Shutdown);
+
+    QCOMPARE(session.recordCount(), uint64_t(2));
+    QVERIFY(!session.traceEnabled());
+    QVERIFY(existing.open(QIODevice::ReadOnly));
+    QCOMPARE(existing.readAll(), QByteArray("existing"));
+    QCOMPARE(QDir(directory.path()).entryList(
+                 QStringList{QStringLiteral(".*.tmp.*")},
+                 QDir::Files | QDir::Hidden),
+             QStringList());
 }
 
 void ApplicationTraceTest::rustCliChecksSessionTrace()
