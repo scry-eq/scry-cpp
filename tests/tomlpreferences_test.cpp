@@ -34,6 +34,7 @@ private slots:
   void uint64MaskSurvivesRoundTrip();
   void saveThenReloadKeepsUserValues();
   void defaultsAreNeverWritten();
+  void shippedDefaultsOmitRetiredLoggers();
   void migratesLegacyXmlOnce();
   void malformedTomlKeepsCallerDefaults();
 
@@ -216,6 +217,17 @@ void TomlPreferencesTest::defaultsAreNeverWritten()
   QFile f(def);
   QVERIFY(f.open(QIODevice::ReadOnly));
   QCOMPARE(f.readAll(), before); // the shipped defaults file is read-only
+}
+
+void TomlPreferencesTest::shippedDefaultsOmitRetiredLoggers()
+{
+  QTemporaryDir dir;
+  TomlPreferences p(QStringLiteral(SEQ_SOURCE_DIR_PATH "/conf/seqdef.toml"),
+                    dir.filePath("user.toml"));
+
+  QVERIFY(!p.isSection("PacketLogging"));
+  QVERIFY(!p.isPreference("SpawnLogEnabled", "Misc"));
+  QVERIFY(!p.isPreference("SpawnLogFilename", "Misc"));
 }
 
 void TomlPreferencesTest::migratesLegacyXmlOnce()

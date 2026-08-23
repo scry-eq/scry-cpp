@@ -171,19 +171,16 @@ set_target_properties(seq-proto PROPERTIES AUTOMOC OFF AUTORCC OFF AUTOUIC OFF)
 # Sources extracted from showeq/src (authoritative list derived from
 # showeq/src/Makefile.am's showeq_SOURCES, minus all QWidget-bound files).
 set(SEQ_DAEMON_EXTRACTED_SOURCES
-  src/bazaarlog.cpp
   src/category.cpp
   src/datalocationmgr.cpp
   src/datetimemgr.cpp
   src/diagnosticmessages.cpp
   src/eqstr.cpp
   src/filter.cpp
-  src/filteredspawnlog.cpp
   src/filtermgr.cpp
   src/group.cpp
   src/guild.cpp
   src/guildshell.cpp
-  src/logger.cpp
   src/mapcore.cpp
   src/message.cpp
   src/messagefilter.cpp
@@ -196,11 +193,9 @@ set(SEQ_DAEMON_EXTRACTED_SOURCES
   src/packetformat.cpp
   src/packetfragment.cpp
   src/packetinfo.cpp
-  src/packetlog.cpp
   src/packetstream.cpp
   src/player.cpp
   src/spawn.cpp
-  src/spawnlog.cpp
   src/spawnmonitor.cpp
   src/spawnshell.cpp
   src/spells.cpp
