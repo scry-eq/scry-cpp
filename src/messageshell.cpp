@@ -34,7 +34,6 @@
 #include "packetcommon.h"
 #include "filtermgr.h"
 #include "util.h"
-#include "netstream.h"
 
 #include <QDateTime>
 #include <QRegularExpression>
@@ -701,81 +700,6 @@ void MessageShell::inspectData(const uint8_t* data)
 
   emit inspectReceived(inspt);
 }
-
-void MessageShell::zoneEntryClient(const ClientZoneEntryStruct* zsentry)
-{
-  m_messages->addMessage(MT_Zone, "EntryCode: Client");
-}
-
-void MessageShell::zoneChanged(const zoneChangeStruct* zoneChange, size_t, uint8_t dir)
-{
-  QString tempStr;
-
-  if (dir == DIR_Client)
-  {
-    tempStr = "ChangeCode: Client, Zone: ";
-    tempStr += m_zoneMgr->zoneNameFromID(zoneChange->zoneId);
-  }
-  else
-  {
-    tempStr = "ChangeCode: Server, Zone:";
-    tempStr += m_zoneMgr->zoneNameFromID(zoneChange->zoneId);
-  }
-  
-  m_messages->addMessage(MT_Zone, tempStr);
-}
-
-void MessageShell::zoneNew(const uint8_t* data, size_t len, uint8_t dir)
-{
-  NetStream netStream(data, len);
-  QString newZoneShortName = netStream.readText ();
-  QString newZoneLongName = netStream.readText ();
-  QString tempStr;
-  tempStr = "NewCode: Zone: ";
-  tempStr += newZoneShortName + " (" + newZoneLongName + ")";
-  m_messages->addMessage(MT_Zone, tempStr);
-}
-
-void MessageShell::zoneBegin(const QString& shortZoneName)
-{
-  QString tempStr;
-  tempStr = QString("Zoning, Please Wait...\t(Zone: '")
-    + shortZoneName + "')";
-  m_messages->addMessage(MT_Zone, tempStr);
-}
-
-void MessageShell::zoneEnd(const QString& shortZoneName,
-			   const QString& longZoneName)
-{
-  QString tempStr;
-  tempStr = QString("Entered: ShortName = '") + shortZoneName +
-                    "' LongName = " + longZoneName;
-
-  m_messages->addMessage(MT_Zone, tempStr);
-
-  // Stamp the zone on rows from here on, and flush any narration still waiting
-  // for its confirmation so it keeps the zone it was looted in.
-  if (!m_lootMutationGuard || m_lootMutationGuard())
-    recordLoot(m_lootTracker->set_zone(shortZoneName.toStdString()));
-
-  // TODO(chat-synthesis): modern EQ renders "You have entered <zone>."
-  // client-side rather than sending it as chat, so the web chat panel never
-  // sees it. archive/test-client (commit b403896) synthesized it here via
-  //   emit chatMessage(MT_System, QString(), QString(),
-  //                    "You have entered " + longZoneName + ".", ...);
-  // This is wire-safe (zoneEnd already carries decoded names on Live), but it
-  // changes Live chat output + all zone-in replay goldens, so it's left opt-in
-  // pending a decision to enable it.
-}
-
-void MessageShell::zoneChanged(const QString& shortZoneName)
-{
-  QString tempStr;
-  tempStr = QString("Zoning, Please Wait...\t(Zone: '")
-    + shortZoneName + "')";
-  m_messages->addMessage(MT_Zone, tempStr);
-}
-
 
 void MessageShell::syncDateTime(const QDateTime& dt)
 {

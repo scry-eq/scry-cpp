@@ -50,11 +50,9 @@ class SpawnShell;
 class Item;
 class Player;
 
-struct ClientZoneEntryStruct;
 struct ServerZoneEntryStruct;
 struct charProfileStruct;
 struct inspectDataStruct;
-struct zoneChangeStruct;
 
 //----------------------------------------------------------------------
 // MessageShell
@@ -99,13 +97,6 @@ class MessageShell : public QObject
    void ucsChatMessage(const uint8_t* data, size_t len, uint8_t dir,
                        uint32_t clientAddr);
    void inspectData(const uint8_t* inspt);
-
-   void zoneEntryClient(const ClientZoneEntryStruct* zsentry);
-   void zoneNew(const uint8_t* zoneNew, size_t, uint8_t);
-   void zoneChanged(const zoneChangeStruct*, size_t, uint8_t);
-   void zoneBegin(const QString& shortZoneName);
-   void zoneEnd(const QString& shortZoneName, const QString& longZoneName);
-   void zoneChanged(const QString& shortZoneName);
 
    void handleSpell(const uint8_t* mem, size_t, uint8_t);
    void beginCast(const uint8_t* bcast);
