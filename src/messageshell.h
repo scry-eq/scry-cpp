@@ -84,13 +84,6 @@ class MessageShell : public QObject
                        uint32_t clientAddr);
    void inspectData(const uint8_t* inspt);
 
-   void groupUpdate(const uint8_t* gmem, size_t, uint8_t);
-   void groupInvite(const uint8_t* gmem, size_t, uint8_t);
-   void groupDecline(const uint8_t* gmem);
-   void groupFollow(const uint8_t* gmem);
-   void groupDisband(const uint8_t* gmem);
-   void groupLeaderChange(const uint8_t* gmem);
-
    void syncDateTime(const QDateTime&);
 
    void player(const charProfileStruct* player);
