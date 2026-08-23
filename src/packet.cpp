@@ -476,7 +476,6 @@ EQPacket::EQPacket(const QString& opcodesToml,
               m_ip.toLatin1().data(),
               m_realtime, IP_ADDRESS_TYPE );
     }
-    emit filterChanged();
   }
   else if (m_playbackPackets == PLAYBACK_FORMAT_TCPDUMP)
   {
@@ -2133,7 +2132,6 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
     m_ip = packet.getIPv4DestA();
     m_client_addr = packet.getIPv4DestN();
     m_detectingClient = false;
-    emit clientChanged(m_client_addr);
     seqInfo("Client Detected: %s", m_ip.toLatin1().data());
   }
   else if (m_detectingClient && dstIsWorld)
@@ -2141,7 +2139,6 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
     m_ip = packet.getIPv4SourceA();
     m_client_addr = packet.getIPv4SourceN();
     m_detectingClient = false;
-    emit clientChanged(m_client_addr);
     seqInfo("Client Detected: %s", m_ip.toLatin1().data());
   }
 
@@ -2528,7 +2525,6 @@ void EQPacket::closeStream(uint32_t sessionId, EQStreamID streamId)
   {
     m_packetCapture->setFilter(m_device.toLatin1().data(), m_ip.toLatin1().data(),
             m_realtime, IP_ADDRESS_TYPE, 0, 0);
-    emit filterChanged();
   }
 
   // Pass the close onto the streams
@@ -2552,7 +2548,6 @@ void EQPacket::unlatchClientPort()
 {
     m_clientPort = 0;
     m_serverPort = 0;
-    emit clientPortLatched(m_clientPort);
 }
 
 
@@ -2578,7 +2573,6 @@ void EQPacket::lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_
               m_realtime,
               MAC_ADDRESS_TYPE, 0,
               m_clientPort);
-      emit filterChanged();
     }
     else
     {
@@ -2587,7 +2581,6 @@ void EQPacket::lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_
               m_realtime,
               IP_ADDRESS_TYPE, 0,
               m_clientPort);
-      emit filterChanged();
     }
   }
 
@@ -2603,7 +2596,6 @@ void EQPacket::lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_
       inet_ntoa(ia), m_clientPort, m_serverPort);
   }
 
-  emit clientPortLatched(m_clientPort);
 }
 
 void EQPacket::dispatchSessionKey(uint32_t sessionId, EQStreamID streamid,
@@ -2646,7 +2638,6 @@ void EQPacket::monitorIPClient(const QString& ip)
 
   validateIP();
 
-  emit clientChanged(m_client_addr);
 
   resetEQPacket();
 
@@ -2657,7 +2648,6 @@ void EQPacket::monitorIPClient(const QString& ip)
             m_ip.toLatin1().data(),
             m_realtime,
             IP_ADDRESS_TYPE, 0, 0);
-    emit filterChanged();
   }
 }
 
@@ -2670,7 +2660,6 @@ void EQPacket::monitorNextClient()
   struct in_addr  ia;
   inet_aton (m_ip.toLatin1().data(), &ia);
   m_client_addr = ia.s_addr;
-  emit clientChanged(m_client_addr);
 
   resetEQPacket();
 
@@ -2681,7 +2670,6 @@ void EQPacket::monitorNextClient()
     m_packetCapture->setFilter(m_device.toLatin1().data(), NULL,
             m_realtime,
             DEFAULT_ADDRESS_TYPE, 0, 0);
-    emit filterChanged();
   }
 }
 
@@ -2724,7 +2712,6 @@ void EQPacket::monitorDevice(const QString& dev)
             m_realtime, IP_ADDRESS_TYPE );
   }
 
-  emit filterChanged();
 }
 
 ///////////////////////////////////////////

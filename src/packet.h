@@ -237,11 +237,6 @@ class EQPacket : public QObject
    // instead of hanging in the event loop after EOF.
    void playbackFinished();
 
-   void clientChanged(in_addr_t);
-   void clientPortLatched(in_port_t);
-   void serverPortLatched(in_port_t);
-   void toggle_session_tracking(bool);
-   void filterChanged(void);
    // new logging
    void newPacket(const EQUDPIPPacketFormat& packet);
    void rawWorldPacket(const uint8_t* data, size_t len, uint8_t dir, 
