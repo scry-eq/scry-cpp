@@ -158,20 +158,12 @@ class EQPacketStream : public QObject
   // this signals stream closure
   void closing(uint32_t sessionId, EQStreamID streamId);
 
-  // this signals a change in the session tracking state
-  void sessionTrackingChanged(uint8_t);
   void lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_t clientAddr);
 
   // Signal a new session key being received
   void sessionKey(uint32_t sessionId, EQStreamID streadid, uint32_t sessionKey);
 		    
-  // used for net_stats display
-  void cacheSize(int, int);
-  void seqReceive(int, int);
-  void seqExpect(int, int);
   void numPacket(int, int);
-  void resetPacket(int, int);
-  void maxLength(int, int);
 
  protected:
   void resetCache();

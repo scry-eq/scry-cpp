@@ -2048,29 +2048,12 @@ void EQPacket::connectStream(EQPacketStream* stream)
     }
   }
 
-  // Debugging
-  connect(stream,
-      SIGNAL(cacheSize(int, int)),
-      this,
-      SIGNAL(cacheSize(int, int)));
-  connect(stream,
-      SIGNAL(seqReceive(int, int)),
-      this,
-      SIGNAL(seqReceive(int, int)));
-  connect(stream,
-      SIGNAL(seqExpect(int, int)),
-      this,
-      SIGNAL(seqExpect(int, int)));
   connect(stream,
       SIGNAL(numPacket(int, int)),
       this,
       SIGNAL(numPacket(int, int)));
 
   // Session handling
-  connect(stream,
-      SIGNAL(sessionTrackingChanged(uint8_t)),
-      this,
-      SIGNAL(sessionTrackingChanged(uint8_t)));
   connect(stream,
       SIGNAL(lockOnClient(in_port_t, in_port_t, in_addr_t)),
       this,
@@ -2083,10 +2066,6 @@ void EQPacket::connectStream(EQPacketStream* stream)
       SIGNAL(sessionKey(uint32_t, EQStreamID, uint32_t)),
       this,
       SLOT(dispatchSessionKey(uint32_t, EQStreamID, uint32_t)));
-  connect(stream,
-      SIGNAL(maxLength(int, int)),
-      this,
-      SIGNAL(maxLength(int, int)));
 }
 
 ////////////////////////////////////////////////////
@@ -2882,7 +2861,6 @@ void EQPacket::session_tracking(bool enable)
   m_world2ClientStream->setSessionTracking(m_session_tracking);
   m_client2ZoneStream->setSessionTracking(m_session_tracking);
   m_zone2ClientStream->setSessionTracking(m_session_tracking);
-  emit sessionTrackingChanged(m_session_tracking);
 
 }
 

@@ -243,18 +243,12 @@ class EQPacket : public QObject
    // instead of hanging in the event loop after EOF.
    void playbackFinished();
 
-   // used for net_stats display
-   void cacheSize(int, int);
-   void seqReceive(int, int);
-   void seqExpect(int, int);
    void numPacket(int, int);
-   void maxLength(int, int);
    void resetPacket(int, int);
    void playbackSpeedChanged(int);
    void clientChanged(in_addr_t);
    void clientPortLatched(in_port_t);
    void serverPortLatched(in_port_t);
-   void sessionTrackingChanged(uint8_t);
    void toggle_session_tracking(bool);
    void filterChanged(void);
    void stsMessage(const QString &, int = 0);
