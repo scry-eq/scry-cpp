@@ -25,7 +25,6 @@ class EQPacket;
 class EQPacketStream;
 class EQStr;
 class DbStrings;
-class SpellMessages;
 class CategoryMgr;
 class CombatRouter;
 class FileSink;
@@ -300,7 +299,6 @@ private:
     Spells*                         m_spells        = nullptr;
     EQStr*                          m_eqStrings     = nullptr;
     DbStrings*                      m_dbStrings     = nullptr;
-    SpellMessages*                  m_spellMessages = nullptr;
     ZoneMgr*                        m_zoneMgr       = nullptr;
     GuildMgr*                       m_guildMgr      = nullptr;
     Player*                         m_player        = nullptr;

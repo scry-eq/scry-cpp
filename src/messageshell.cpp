@@ -28,7 +28,6 @@
 #include "messages.h"
 #include "everquest.h"
 #include "spells.h"
-#include "spellmessages.h"
 #include "dbstrings.h"
 #include "zonemgr.h"
 #include "spawnshell.h"
@@ -84,15 +83,14 @@ QString qString(const ::rust::String& value)
 //----------------------------------------------------------------------
 // MessageShell
 MessageShell::MessageShell(Messages* messages, EQStr* eqStrings,
-			   Spells* spells, SpellMessages* spellMessages,
-			   DbStrings* dbStrings, ZoneMgr* zoneMgr,
+			   Spells* spells, DbStrings* dbStrings,
+			   ZoneMgr* zoneMgr,
 			   SpawnShell* spawnShell, Player* player,
                            QObject* parent, const char* name)
   : QObject(parent),
     m_messages(messages),
     m_eqStrings(eqStrings),
     m_spells(spells),
-    m_spellMessages(spellMessages),
     m_dbStrings(dbStrings),
     m_zoneMgr(zoneMgr),
     m_spawnShell(spawnShell),

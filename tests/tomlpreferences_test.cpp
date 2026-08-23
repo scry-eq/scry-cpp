@@ -35,6 +35,7 @@ private slots:
   void saveThenReloadKeepsUserValues();
   void defaultsAreNeverWritten();
   void shippedDefaultsOmitRetiredLoggers();
+  void shippedDefaultsOmitDeadSpellMessages();
   void migratesLegacyXmlOnce();
   void malformedTomlKeepsCallerDefaults();
 
@@ -228,6 +229,15 @@ void TomlPreferencesTest::shippedDefaultsOmitRetiredLoggers()
   QVERIFY(!p.isSection("PacketLogging"));
   QVERIFY(!p.isPreference("SpawnLogEnabled", "Misc"));
   QVERIFY(!p.isPreference("SpawnLogFilename", "Misc"));
+}
+
+void TomlPreferencesTest::shippedDefaultsOmitDeadSpellMessages()
+{
+  QTemporaryDir dir;
+  TomlPreferences p(QStringLiteral(SEQ_SOURCE_DIR_PATH "/conf/seqdef.toml"),
+                    dir.filePath("user.toml"));
+
+  QVERIFY(!p.isPreference("ShowSpellMessages", "Misc"));
 }
 
 void TomlPreferencesTest::migratesLegacyXmlOnce()
