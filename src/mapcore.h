@@ -546,13 +546,10 @@ class MapData
   MapData();
   ~MapData();
 
-  // map loading/clearing/saving
+  // map loading/clearing
   void clear();
   void loadMap(const QString& fileName, bool import = false);
   void loadSOEMap(const QString& fileName, bool import = false);
-  void saveMap(const QString& fileName, const uint8_t layerNum) const;
-  void saveSOEMap(const QString& fileName, const uint8_t layerNum) const;
-  void createNewLayer();
 
   // accessors
   const QString& zoneShortName() const { return m_zoneShortName; }
