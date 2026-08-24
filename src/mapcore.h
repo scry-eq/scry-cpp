@@ -87,7 +87,6 @@ class MapCommon
   QString colorName() const;
 
   void setName(const QString& name) { m_name = name; }
-  void setColor(const QString& color) { m_color = SeqColor(color); }
   void setOrigColor(const SeqColor& color) { m_origColor = color; }
 
 
@@ -122,8 +121,6 @@ class MapLineL : public MapCommon, public QVector<QPoint>
   bool heightSet() const { return m_heightSet; }
   const QRect& boundingRect() const { return m_bounds; }
 
-  void setZPos(uint16_t z)
-    {  m_z = z; m_heightSet = true; }
   void calcBounds();
 
  private:
@@ -230,24 +227,17 @@ class MapData
   void loadSOEMap(const QString& fileName, bool import = false);
 
   // accessors
-  const QString& zoneShortName() const { return m_zoneShortName; }
-  const QString& zoneLongName() const { return m_zoneLongName; }
   const QRect& boundingRect() const { return m_boundingRect; }
   const QSize& size() const { return m_size; }
-  uint8_t zoneZEM() const { return m_zoneZEM; }
   int16_t minX() const { return m_minX; }
   int16_t minY() const { return m_minY; }
   int16_t maxX() const { return m_maxX; }
   int16_t maxY() const { return m_maxY; }
   MapLayer* mapLayer(uint8_t layerNum);
   uint8_t numLayers() const { return m_mapLayers.count(); }
-  QList<MapAggro*>& aggros() { return m_aggros; }
-  bool isAggro(const QString& name, uint16_t* range) const;
   uint16_t heightHintAbove() const { return m_heightHintAbove; }
   uint16_t heightHintBelow() const { return m_heightHintBelow; }
 
-  // make sure map is big enough, returns true if size modified
-  bool checkPos(int16_t x, int16_t y);
   void quickCheckPos(int16_t x, int16_t y);
   void updateBounds();
 
@@ -266,43 +256,6 @@ class MapData
   uint16_t m_heightHintAbove;
   uint16_t m_heightHintBelow;
 };
-
-inline
-bool MapData::checkPos(int16_t x, int16_t y)
-{
-  bool flag = false;
-
-#if defined(MAP_DEBUG)
-  printf("in x: %i, in y: %i, max(%i,%i) Min(%i,%i)\n", x, y, m_maxX, m_maxY, m_minX, m_minY);
-#endif /* MAP_DEBUG */
-
-  if (x > m_maxX)
-  {
-    m_maxX = x;
-    flag = true;
-  }
-  if (y > m_maxY)
-  {
-    m_maxY = y;
-    flag = true;
-  }
-  if (x < m_minX)
-  {
-    m_minX = x;
-    flag = true;
-  }
-  if (y < m_minY)
-  {
-    m_minY = y;
-    flag = true;
-  }
-
-  // update the boundary information if bounds changed
-  if (flag)
-    updateBounds();
-
-  return flag;
-}
 
 inline
 void MapData::quickCheckPos(int16_t x, int16_t y)
@@ -326,24 +279,6 @@ void MapData::updateBounds()
   m_boundingRect =  QRect(QPoint(m_minX, m_minY), QPoint(m_maxX, m_maxY));
   m_size.setWidth(m_boundingRect.width());
   m_size.setHeight(m_boundingRect.height());
-}
-
-//----------------------------------------------------------------------
-// assorted utility functions
-inline bool inRect(const QRect& rect, 
-		   const int16_t& x, 
-		   const int16_t& y)
-{
-  return ((rect.left() <= x) && (rect.right() >= x) &&
-	  (rect.top() <= y) && (rect.bottom() >= y));
-}
-
-inline bool inRoom(const int16_t& headRoom, 
-		   const int16_t& floorRoom, 
-		   const int16_t& z)
-{
-  return ((z <= headRoom) &&
-	  (z >= floorRoom));
 }
 
 inline unsigned short getMapConvertColorIndex(const unsigned short r, const unsigned short g,
