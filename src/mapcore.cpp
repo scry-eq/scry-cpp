@@ -974,23 +974,3 @@ void MapData::loadSOEMap(const QString& fileName, bool import)
 
   seqInfo("Loaded SOE map: '%s'", fileName.toLatin1().data());
 }
-
-bool MapData::isAggro(const QString& name, uint16_t* range) const
-{
-  MapAggro* aggro;
-  QList<MapAggro*>::const_iterator ait = m_aggros.begin();
-  for (; ait != m_aggros.end() && *ait != NULL; ++ait)
-  {
-    aggro = *ait;
-    // does the name match this aggro?
-    if (name.indexOf(aggro->name(), 0, Qt::CaseInsensitive) != -1)
-    {
-      if (range != NULL)
-          *range = aggro->range();
-
-      return true;
-    }
-  }
-
-  return false;
-}
