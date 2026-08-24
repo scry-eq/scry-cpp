@@ -576,23 +576,6 @@ class MapData
   void quickCheckPos(int16_t x, int16_t y);
   void updateBounds();
 
-  // map editing
-  void addLocation(const QString& name, const QString& color, const QPoint& point);
-  void setLocationName(const QString& name);
-  void setLocationColor(const QString& color);
-  void startLine(const QString& name, const QString& color, const MapPoint& point);
-  void addLinePoint(const MapPoint& point);
-  void delLinePoint(void);
-  void setLineName(const QString& name);
-  void setLineColor(const QString& color);
-  void setZoneLongName(const QString& name) { m_zoneShortName = name; }
-  void setZoneShortName(const QString& name) { m_zoneLongName = name; }
-  void setZoneZEM(uint8_t zem) { m_zoneZEM = zem; }
-  void scaleDownZ(int16_t factor);
-  void scaleUpZ(int16_t factor);
-  void setEditLayer(uint8_t layerNum) { m_editLayer = layerNum; }
-  uint8_t editLayer() const { return m_editLayer; }
-
  private:
   int16_t m_minX;
   int16_t m_minY;
@@ -603,11 +586,8 @@ class MapData
   QString m_zoneLongName;
   QString m_zoneShortName;
   QVector<MapLayer*> m_mapLayers;
-  MapLineM* m_editLineM;
-  MapLocation* m_editLocation;
   QList<MapAggro*> m_aggros;
   uint8_t m_zoneZEM;
-  uint8_t m_editLayer;
   uint16_t m_heightHintAbove;
   uint16_t m_heightHintBelow;
 };
