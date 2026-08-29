@@ -147,7 +147,7 @@ uint16_t deleteSpawnOpcode()
 #elif defined(SEQ_TARGET_TEST)
     return 0xa183;
 #elif defined(SEQ_TARGET_EQL)
-    return 0x7ba3;
+    return 0x1833;
 #endif
 }
 
@@ -169,7 +169,7 @@ uint16_t actionOpcode()
 #elif defined(SEQ_TARGET_TEST)
     return 0x8ac8;
 #elif defined(SEQ_TARGET_EQL)
-    return 0x5c0d;
+    return 0x70a1;
 #endif
 }
 
