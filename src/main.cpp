@@ -161,10 +161,11 @@ int main(int argc, char** argv)
         "daemon exits at EOF — the regression-harness golden workflow.",
         "file");
     QCommandLineOption applicationTraceOpt(QStringList{"record-app-traces"},
-        "Write strict v1 application-packet traces under DIR, one opaque "
-        "file sequence per logical Rust session. Output is capture-derived, "
-        "may contain names or chat, and must be scrubbed before committing.",
-        "dir");
+        "Write strict v1 application-packet traces under DIR (user-chosen; "
+        "~/.scry/<target>/traces is conventional), one opaque file sequence "
+        "per logical Rust session, capped at 512 MiB per session. Output is "
+        "capture-derived, may contain names or chat, and must be scrubbed "
+        "before committing.", "dir");
     QCommandLineOption opcodeStatsOpt(QStringList{"opcode-stats"},
         "Patch-day diagnostic: tally every decoded opcode (known + "
         "unknown) and write a sorted report with payload-size matches "

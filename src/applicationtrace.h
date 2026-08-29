@@ -32,6 +32,8 @@ public:
     void finalize();
 
     bool hasOpenPart() const { return bool(m_file); }
+    bool capped() const { return m_capped; }
+    static constexpr uint64_t kByteCap = 512ull << 20;
     uint64_t packetCount() const { return m_packetCount; }
     uint32_t finalizedPartCount() const { return m_finalizedPartCount; }
     QString currentPath() const;
@@ -48,6 +50,8 @@ private:
     uint32_t m_openPart = 0;
     uint32_t m_finalizedPartCount = 0;
     uint64_t m_packetCount = 0;
+    uint64_t m_bytesWritten = 0;
+    bool m_capped = false;
     uint64_t m_partPacketCount = 0;
     std::optional<int64_t> m_lastTimestamp;
     std::unique_ptr<QTemporaryFile> m_file;

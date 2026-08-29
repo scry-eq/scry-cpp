@@ -1,5 +1,6 @@
 #include "applicationtrace.h"
 
+#include "diagnosticmessages.h"
 #include "rustsession.h"
 
 #include <QByteArray>
@@ -120,6 +121,7 @@ void ApplicationTraceWriter::write(const QByteArray& bytes)
             QStringLiteral("could not write application trace: %1")
                 .arg(error).toStdString());
     }
+    m_bytesWritten += uint64_t(bytes.size());
 }
 
 void ApplicationTraceWriter::push(
@@ -128,6 +130,16 @@ void ApplicationTraceWriter::push(
 {
     if (payloadSize && !payload)
         throw std::invalid_argument("application trace payload is null");
+    if (m_capped) return;
+    if (m_bytesWritten >= kByteCap) {
+        // A trace is a diagnostic; cap it before it fills the disk.
+        m_capped = true;
+        finalize();
+        seqWarn("Application trace %s reached %llu MiB; recording stopped",
+                qUtf8Printable(m_outputPrefix),
+                (unsigned long long)(kByteCap >> 20));
+        return;
+    }
     if (m_lastTimestamp && timestamp < *m_lastTimestamp)
         throw std::invalid_argument(
             "application trace timestamps must not decrease");

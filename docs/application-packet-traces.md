@@ -1,7 +1,8 @@
 # Recording application-packet traces
 
 `scryd --record-app-traces DIR` records the ordered input to each logical Rust
-`Session`. The packet hook runs after SOE reassembly and before decoded-packet
+`Session`. DIR is user-chosen (`~/.scry/<target>/traces` is conventional) and
+each session stops recording, with one warning, after 512 MiB. The packet hook runs after SOE reassembly and before decoded-packet
 observers, muted-box gating, and legacy handlers. Unmapped, malformed, and
 muted packets therefore appear once in the same order seen by
 `Session::decode`.
