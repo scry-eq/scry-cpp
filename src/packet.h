@@ -402,7 +402,7 @@ class EQPacket : public QObject
    std::optional<PendingCommunicationComparison> m_pendingCommunication;
    struct PendingRustLootApplication {
        const Box* box = nullptr;
-       const seq::shadow::Batch* batch = nullptr;
+       seq::shadow::Batch batch;
    };
    std::optional<PendingRustLootApplication> m_pendingRustLoot;
    seq::shadow::Session* m_currentLifecycleSession = nullptr;
@@ -430,7 +430,9 @@ class EQPacket : public QObject
    CommunicationProjectionProvider m_communicationProjectionProvider;
    LifecycleProjectionEnricher m_lifecycleProjectionEnricher;
    LifecycleGlobalOwnershipPredicate m_lifecycleGlobalOwnershipPredicate;
-   bool m_lifecycleFatal = false;
+   void disableRustSession(Box* box, EQPacketFlowKey flowKey,
+                           const char* why, const char* detail);
+   void resetCurrentShadowPacket();
 
    // Stage 1 of multibox-sessions: observe every world-port-talking
    // client_ip on the wire. Read-only sibling of the legacy

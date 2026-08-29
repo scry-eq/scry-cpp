@@ -400,24 +400,7 @@ EQPacket::EQPacket(const QString& opcodesToml,
                                        box.zone_c2s, box.zone_s2c})
           installShadowHook(stream);
       } catch (const std::exception& error) {
-        if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust ||
-            m_entitySelector == seq::shadow::EntitySelector::Rust ||
-            m_playerSelector == seq::shadow::PlayerSelector::Rust ||
-            m_progressionSelector == seq::shadow::ProgressionSelector::Rust ||
-            m_lootSelector == seq::shadow::LootSelector::Rust ||
-            m_combatSelector == seq::shadow::CombatSelector::Rust ||
-            m_communicationSelector ==
-                seq::shadow::CommunicationSelector::Rust ||
-            !m_applicationTracePrefix.isEmpty()) {
-          m_lifecycleFatal = true;
-          qCritical("Rust-owned lifecycle session creation failed for box %s: %s",
-                    qUtf8Printable(box.box_id), error.what());
-          QCoreApplication::exit(EXIT_FAILURE);
-          return;
-        }
-        m_shadowDisabled.insert(&box);
-        seqWarn("Rust shadow session creation failed for box %s: %s",
-                qUtf8Printable(box.box_id), error.what());
+        disableRustSession(&box, {}, "session creation failed", error.what());
       }
     }
 
@@ -874,15 +857,8 @@ seq::shadow::Session* EQPacket::provisionalShadowSession(
         m_provisionalShadowSessions.emplace(flowKey, std::move(provisional));
     return inserted ? it->second.session.get() : nullptr;
   } catch (const std::exception& error) {
-    if (rustOwnsAnyFamily() ||
-        !m_applicationTracePrefix.isEmpty()) {
-      m_lifecycleFatal = true;
-      qCritical("Provisional Rust session creation failed: %s",
-                error.what());
-      QCoreApplication::exit(EXIT_FAILURE);
-      return nullptr;
-    }
-    seqWarn("Provisional Rust shadow session creation failed: %s", error.what());
+    disableRustSession(nullptr, flowKey, "session creation failed",
+                       error.what());
     return nullptr;
   }
 }
@@ -948,13 +924,7 @@ void EQPacket::finalizeProvisionalFlow(
     }
     writeProvisionalTrace(flow);
   } catch (const std::exception& error) {
-    if (rustOwnsAnyFamily() || !m_applicationTracePrefix.isEmpty()) {
-      m_lifecycleFatal = true;
-      qCritical("Provisional Rust flow finalization failed: %s", error.what());
-      QCoreApplication::exit(EXIT_FAILURE);
-    } else {
-      seqWarn("Provisional Rust shadow finalization failed: %s", error.what());
-    }
+    seqWarn("Provisional Rust flow finalization failed: %s", error.what());
   }
   if (preview != m_provisionalShadowSessions.end())
     m_provisionalShadowSessions.erase(preview);
@@ -973,20 +943,18 @@ bool EQPacket::replayProvisionalFlow(
     seq::shadow::ProvisionalPacketFlow flow)
 {
   if (!flow.complete) {
-    if (rustOwnsAnyFamily() || !m_applicationTracePrefix.isEmpty()) {
-      m_lifecycleFatal = true;
-      qCritical("Cannot adopt incomplete provisional Rust flow");
-      QCoreApplication::exit(EXIT_FAILURE);
-      return false;
-    }
-    seqWarn("Discarding incomplete provisional Rust shadow flow");
+    if (rustOwnsAnyFamily() || !m_applicationTracePrefix.isEmpty())
+      disableRustSession(box, flowKey, "incomplete pre-attribution history",
+                         "an owned session cannot replay a suffix");
+    else
+      seqWarn("Discarding incomplete provisional Rust shadow flow");
     return true;
   }
 
   auto attributed = m_shadowSessions.find(box);
   if (attributed == m_shadowSessions.end() ||
       m_shadowDisabled.count(box) != 0)
-    return !m_lifecycleFatal;
+    return true;
 
   if (!flow.packets.empty()) attributed->second->finalizeTrace();
   std::optional<int64_t> replayTimestamp;
@@ -1013,18 +981,58 @@ bool EQPacket::replayProvisionalFlow(
   }
   seqInfo("Rust session replayed %zu pre-attribution packets for box %s",
           flow.packets.size(), qUtf8Printable(box->box_id));
-  return !m_lifecycleFatal;
+  return true;
 }
 
 bool EQPacket::bindShadowFlow(EQPacketFlowKey flowKey, Box* box)
 {
   if (!m_shadowRegistry) return true;
-  if (!flowKey.isValid() || !box) return !m_lifecycleFatal;
+  if (!flowKey.isValid() || !box) return true;
   m_flowOwners[flowKey] = box;
+  bool provisionalDisabled = false;
+  if (auto it = m_provisionalShadowSessions.find(flowKey);
+      it != m_provisionalShadowSessions.end()) {
+    provisionalDisabled = it->second.disabled;
+    m_provisionalShadowSessions.erase(it);
+  }
+  if (provisionalDisabled) {
+    disableRustSession(box, {}, "pre-attribution fallback",
+                       "its flow already fell back to legacy decoding");
+    return true;
+  }
   auto flow = m_provisionalPackets.take(flowKey);
-  if (!flow) return !m_lifecycleFatal;
-  m_provisionalShadowSessions.erase(flowKey);
+  if (!flow) return true;
   return replayProvisionalFlow(flowKey, box, std::move(*flow));
+}
+
+// Rust never takes the daemon down: the box (or unattributed flow) falls
+// back to legacy decoding for the rest of the session.
+void EQPacket::disableRustSession(Box* box, EQPacketFlowKey flowKey,
+                                  const char* why, const char* detail)
+{
+  if (box) {
+    m_shadowDisabled.insert(box);
+    seqWarn("Rust session disabled for box %s after %s: %s; legacy decoding "
+            "owns the rest of this session",
+            qUtf8Printable(box->box_id), why, detail);
+    return;
+  }
+  m_provisionalShadowSessions[flowKey].disabled = true;
+  seqWarn("Provisional Rust session disabled after %s: %s; legacy decoding "
+          "owns this flow", why, detail);
+}
+
+void EQPacket::resetCurrentShadowPacket()
+{
+  m_currentLifecycleSession = nullptr;
+  m_currentRustLifecycleKinds.clear();
+  m_currentRustEntityKinds.clear();
+  m_currentRustPlayerKinds.clear();
+  m_currentRustProgressionKinds.clear();
+  m_currentRustLootKinds.clear();
+  m_currentRustCombatKinds.clear();
+  m_currentRustCommunicationKinds.clear();
+  m_currentRustPacketDecoded = false;
 }
 
 bool EQPacket::decodeShadowApplication(
@@ -1047,7 +1055,7 @@ bool EQPacket::decodeShadowApplication(
     auto attributed = m_shadowSessions.find(box);
     if (attributed == m_shadowSessions.end() ||
         m_shadowDisabled.count(box) != 0)
-      return !m_lifecycleFatal;
+      return true;
 
     session = attributed->second.get();
   } else {
@@ -1064,24 +1072,17 @@ bool EQPacket::decodeShadowApplication(
     for (auto& evicted : appended.evicted) {
       finalizeProvisionalFlow(evicted.key, std::move(evicted.flow),
                               seq::shadow::FlushReason::Shutdown);
-      if (m_lifecycleFatal) return false;
     }
     if (appended.flowInvalidated) {
-      m_provisionalShadowSessions.erase(flowKey);
-      if (rustOwnsAnyFamily() || !m_applicationTracePrefix.isEmpty()) {
-        m_lifecycleFatal = true;
-        qCritical("Provisional Rust flow exceeded bounded replay history");
-        QCoreApplication::exit(EXIT_FAILURE);
-        return false;
-      }
-      seqWarn("Provisional Rust shadow disabled after replay history overflow");
+      disableRustSession(nullptr, flowKey, "replay history overflow",
+                         "the bounded pre-attribution history is full");
       return true;
     }
-    if (!appended.stored) return !m_lifecycleFatal;
+    if (!appended.stored) return true;
     session = provisionalShadowSession(flowKey);
   }
 
-  if (!session) return !m_lifecycleFatal;
+  if (!session) return true;
   m_currentLifecycleSession = session;
   m_currentRustLifecycleKinds.clear();
   m_currentRustEntityKinds.clear();
@@ -1094,7 +1095,7 @@ bool EQPacket::decodeShadowApplication(
   m_currentRustPacketDecoded = false;
   m_currentShadowOpcode = opcode;
   try {
-    const seq::shadow::Record& record = session->decode(
+    const seq::shadow::Record record = session->decode(
         world ? seq::shadow::Stream::World : seq::shadow::Stream::Zone,
         opcode,
         direction == DIR_Server
@@ -1286,7 +1287,7 @@ bool EQPacket::decodeShadowApplication(
           throw std::runtime_error("Rust loot event has no host applier");
         // Defer past the legacy money handler so seq.v1 stays
         // PlayerStats-then-transaction.
-        m_pendingRustLoot = PendingRustLootApplication{box, &record.batch};
+        m_pendingRustLoot = PendingRustLootApplication{box, record.batch};
       }
     }
     if (session->comparesCombat()) {
@@ -1336,35 +1337,9 @@ bool EQPacket::decodeShadowApplication(
     m_pendingCombat.reset();
     m_pendingCommunication.reset();
     m_pendingRustLoot.reset();
-    if (rustOwnsAnyFamily() || session->traceEnabled() ||
-        !m_applicationTracePrefix.isEmpty()) {
-      m_lifecycleFatal = true;
-      qCritical("Rust lifecycle decode/apply failed for box %s: %s; "
-                "the immutable Rust-owned session cannot fall back in place",
-                box ? qUtf8Printable(box->box_id) : "<unattributed>",
-                error.what());
-      QCoreApplication::exit(EXIT_FAILURE);
-      m_currentLifecycleSession = nullptr;
-      m_currentRustEntityKinds.clear();
-      m_currentRustPlayerKinds.clear();
-      m_currentRustProgressionKinds.clear();
-      m_currentRustLootKinds.clear();
-      m_currentRustCombatKinds.clear();
-      m_currentRustCommunicationKinds.clear();
-      m_currentRustPacketDecoded = false;
-      return false;
-    }
-    if (box) {
-      m_shadowDisabled.insert(box);
-      seqWarn("Rust shadow disabled for box %s after decode error: %s",
-              qUtf8Printable(box->box_id), error.what());
-    } else {
-      auto provisional = m_provisionalShadowSessions.find(flowKey);
-      if (provisional != m_provisionalShadowSessions.end())
-        provisional->second.disabled = true;
-      seqWarn("Provisional Rust shadow disabled after decode error: %s",
-              error.what());
-    }
+    disableRustSession(box, flowKey, "decode error", error.what());
+    resetCurrentShadowPacket();
+    return true;
   }
   if (!box) {
     // The raw history can safely rebuild correlation after attribution, but
@@ -1386,10 +1361,10 @@ bool EQPacket::decodeShadowApplication(
         (session->appliesRustCommunication() &&
          !m_currentRustCommunicationKinds.empty());
     if (delayedOwnedOutput) {
-      m_lifecycleFatal = true;
-      qCritical("Rust-owned event requires flow attribution before host apply");
-      QCoreApplication::exit(EXIT_FAILURE);
-      return false;
+      disableRustSession(nullptr, flowKey, "unattributed owned event",
+                         "flow attribution is required before host apply");
+      resetCurrentShadowPacket();
+      return true;
     }
   }
   return true;
@@ -1397,8 +1372,7 @@ bool EQPacket::decodeShadowApplication(
 
 bool EQPacket::legacyLifecycleEnabledForCurrentPacket() const
 {
-  return !m_lifecycleFatal &&
-         (!m_currentLifecycleSession ||
+  return (!m_currentLifecycleSession ||
           m_currentLifecycleSession->runsLegacyLifecycle());
 }
 
@@ -1412,8 +1386,7 @@ bool EQPacket::rustLifecycleAcceptedForCurrentPacket(
 
 bool EQPacket::legacyEntitiesEnabledForCurrentPacket() const
 {
-  return !m_lifecycleFatal &&
-         (!m_currentLifecycleSession ||
+  return (!m_currentLifecycleSession ||
           m_currentLifecycleSession->runsLegacyEntities());
 }
 
@@ -1427,8 +1400,7 @@ bool EQPacket::rustEntityAcceptedForCurrentPacket(
 
 bool EQPacket::legacyPlayersEnabledForCurrentPacket() const
 {
-  return !m_lifecycleFatal &&
-         (!m_currentLifecycleSession ||
+  return (!m_currentLifecycleSession ||
           m_currentLifecycleSession->runsLegacyPlayers());
 }
 
@@ -1452,8 +1424,7 @@ bool EQPacket::rustPlayerAcceptedForCurrentPacket(
 
 bool EQPacket::legacyProgressionEnabledForCurrentPacket() const
 {
-  return !m_lifecycleFatal &&
-         (!m_currentLifecycleSession ||
+  return (!m_currentLifecycleSession ||
           m_currentLifecycleSession->runsLegacyProgression());
 }
 
@@ -1467,8 +1438,7 @@ bool EQPacket::rustProgressionAcceptedForCurrentPacket(
 
 bool EQPacket::legacyLootEnabledForCurrentPacket() const
 {
-  return !m_lifecycleFatal &&
-         (!m_currentLifecycleSession ||
+  return (!m_currentLifecycleSession ||
           m_currentLifecycleSession->runsLegacyLoot());
 }
 
@@ -1482,8 +1452,7 @@ bool EQPacket::rustLootAcceptedForCurrentPacket(
 
 bool EQPacket::legacyCombatEnabledForCurrentPacket() const
 {
-  return !m_lifecycleFatal &&
-         (!m_currentLifecycleSession ||
+  return (!m_currentLifecycleSession ||
           m_currentLifecycleSession->runsLegacyCombat());
 }
 
@@ -1497,8 +1466,7 @@ bool EQPacket::rustCombatAcceptedForCurrentPacket(
 
 bool EQPacket::legacyCommunicationEnabledForCurrentPacket() const
 {
-  return !m_lifecycleFatal &&
-         (!m_currentLifecycleSession ||
+  return (!m_currentLifecycleSession ||
           m_currentLifecycleSession->runsLegacyCommunication());
 }
 
@@ -1887,15 +1855,12 @@ void EQPacket::completeShadowApplication(bool legacyDispatched)
       }
     }
   }
-  if (rustLoot && rustLoot->box && rustLoot->batch && m_lootBatchHandler) {
+  if (rustLoot && rustLoot->box && m_lootBatchHandler) {
     try {
-      m_lootBatchHandler(rustLoot->box, *rustLoot->batch);
+      m_lootBatchHandler(rustLoot->box, rustLoot->batch);
     } catch (const std::exception& error) {
-      m_lifecycleFatal = true;
-      qCritical("Rust loot apply failed for box %s: %s; the immutable "
-                "Rust-owned session cannot fall back in place",
-                qUtf8Printable(rustLoot->box->box_id), error.what());
-      QCoreApplication::exit(EXIT_FAILURE);
+      disableRustSession(const_cast<Box*>(rustLoot->box), {},
+                         "loot apply error", error.what());
     }
   }
 }
@@ -1932,24 +1897,7 @@ void EQPacket::flushShadowSession(const Box* box,
           m_communicationEventHandler(box, event);
     }
   } catch (const std::exception& error) {
-    if (it->second->appliesRustLifecycle() ||
-        it->second->appliesRustEntities() ||
-        it->second->appliesRustPlayers() ||
-        it->second->appliesRustProgression() ||
-        it->second->appliesRustLoot() ||
-        it->second->appliesRustCombat() ||
-        it->second->appliesRustCommunication() ||
-        it->second->traceEnabled()) {
-      m_lifecycleFatal = true;
-      qCritical("Rust lifecycle flush failed for box %s: %s; the immutable "
-                "Rust-owned session cannot fall back in place",
-                qUtf8Printable(box->box_id), error.what());
-      QCoreApplication::exit(EXIT_FAILURE);
-      return;
-    }
-    m_shadowDisabled.insert(box);
-    seqWarn("Rust shadow disabled for box %s after flush error: %s",
-            qUtf8Printable(box->box_id), error.what());
+    disableRustSession(const_cast<Box*>(box), {}, "flush error", error.what());
   }
 }
 
@@ -2096,7 +2044,6 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
     if (auto prior = m_provisionalPackets.take(flowKey))
       finalizeProvisionalFlow(flowKey, std::move(*prior),
                               seq::shadow::FlushReason::Reset);
-    if (m_lifecycleFatal) return;
     m_flowOwners.erase(flowKey);
   }
 
@@ -2465,16 +2412,7 @@ void EQPacket::decodeUcsShadow(Box* box, const uint8_t* payload,
     m_pendingCommunication.reset();
     m_currentLifecycleSession = nullptr;
     m_currentRustCommunicationKinds.clear();
-    if (session->appliesRustCommunication()) {
-      m_lifecycleFatal = true;
-      qCritical("Rust UCS decode/apply failed for box %s: %s",
-                qUtf8Printable(box->box_id), error.what());
-      QCoreApplication::exit(EXIT_FAILURE);
-      return;
-    }
-    m_shadowDisabled.insert(box);
-    seqWarn("Rust UCS shadow disabled for box %s after decode error: %s",
-            qUtf8Printable(box->box_id), error.what());
+    disableRustSession(box, {}, "UCS decode error", error.what());
     emit ucsChatData(payload, payloadSize, direction, box->client_ip);
   }
 }
