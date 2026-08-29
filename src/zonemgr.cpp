@@ -481,9 +481,8 @@ void ZoneMgr::zonePlayer(const uint8_t* data, size_t len)
 
   if (m_rustLifecycleProbe && m_rustLifecycleProbe()) {
     if (!m_rustProfileAcceptedProbe || m_rustProfileAcceptedProbe()) {
-      // The shared Phase-4 profile event intentionally omits Live's zone id.
-      // Once Rust has accepted the profile, retain this host-only projection
-      // input so map/filter/public zone behavior is not lost in Rust mode.
+      // The profile event omits Live's zone id; keep this host-only input
+      // so map/filter/zone behavior survives Rust mode.
       m_shortZoneName = zoneNameFromID(player->zoneId);
       m_longZoneName = zoneLongNameFromID(player->zoneId);
       m_zone_exp_multiplier = defaultZoneExperienceMultiplier;
@@ -560,9 +559,8 @@ void ZoneMgr::applyLifecycleTransition(const QString&, bool hasZoneId,
 void ZoneMgr::applyLifecycleZone(const QString& shortName,
                                  const QString& longName)
 {
-  // NewZone arrives as ZoneChanged + ZoneEnvironmentChanged in one Rust
-  // batch. Stage the names here; the environment event publishes the visible
-  // signal only after safe point/zone-file/experience state is installed.
+  // Stage names; the environment event in the same batch publishes once
+  // safe point/zone-file/experience state is in.
 #if defined(SEQ_TARGET_EQL)
   m_shortZoneName = shortName;
   m_longZoneName = longName;
@@ -575,9 +573,8 @@ void ZoneMgr::applyLifecycleZone(const QString& shortName,
 void ZoneMgr::adoptLiveZoneNames(const QString& shortName,
                                  const QString& longName)
 {
-  // Prefer the canonical zone-id name already learned from Profile/ZoneChange.
-  // Wire NewZone text can be localized and may carry instance/progression
-  // suffixes that have no map package.
+  // Prefer the zone-id name: NewZone text may be localized or carry
+  // instance suffixes with no map package.
   if (m_shortZoneName.isEmpty() || m_shortZoneName.startsWith("unk")) {
     m_shortZoneName = shortName;
     m_shortZoneName.remove(QRegularExpression("_\\d+$"));

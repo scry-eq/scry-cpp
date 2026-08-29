@@ -292,9 +292,7 @@ EQPacket::EQPacket(const QString& opcodesToml,
   m_streams[client2zone] = m_client2ZoneStream;
   m_streams[zone2client] = m_zone2ClientStream;
 
-  // A capture can begin mid-zone, before world traffic creates a Box. Hooks
-  // use the normalized UDP flow carried by each protocol packet so unrelated
-  // unattributed sessions never share Rust correlation state.
+  // Keyed by UDP flow: a mid-zone capture has packets before any Box exists.
   if (m_shadowRegistry) {
     for (EQPacketStream* stream : {m_client2WorldStream, m_world2ClientStream,
                                    m_client2ZoneStream, m_zone2ClientStream})
@@ -1110,9 +1108,7 @@ bool EQPacket::decodeShadowApplication(
         !box || !m_lifecycleGlobalOwnershipPredicate ||
         m_lifecycleGlobalOwnershipPredicate(box);
     if (!ownsGlobalLifecycle) {
-      // Time is daemon-global and the legacy handler is wired only for the
-      // active box. ZoneServerInfo still owns per-box routing, but its public
-      // ZoneServer envelope is likewise active-box-only.
+      // Time is daemon-global; only the active box's legacy handler sees it.
       rustEvents.erase(
           std::remove_if(rustEvents.begin(), rustEvents.end(), [](const auto& e) {
             return e.kind == seq::shadow::LifecycleKind::TimeOfDay;
@@ -1120,10 +1116,8 @@ bool EQPacket::decodeShadowApplication(
           rustEvents.end());
     }
 #if defined(SEQ_TARGET_EQL)
-    // EQL's public host reducer has no standalone environment action: NewZone
-    // resolves names and publishes one ZoneChanged envelope. Keep applying the
-    // decoded environment state in Rust mode, but compare the ordered actions
-    // that the production EQL reducer actually exposes.
+    // EQL's reducer folds NewZone environment into one ZoneChanged action;
+    // compare only what it actually exposes.
     rustEvents.erase(
         std::remove_if(rustEvents.begin(), rustEvents.end(), [](const auto& e) {
           return e.kind ==
@@ -1136,10 +1130,8 @@ bool EQPacket::decodeShadowApplication(
     auto rustEntityEvents = seq::shadow::entityObservations(record.batch);
     for (const auto& observation : rustEntityEvents)
       m_currentRustEntityKinds.push_back(observation.kind);
-    // Runtime shadow comparison gets field equality from the exact seq.v1
-    // envelopes below. Keep this vector as the independently observed legacy
-    // action order, because legacy manager signals cannot recover every
-    // optional input field after mutation.
+    // Field equality comes from the seq.v1 envelopes; this vector only
+    // carries action order (legacy signals can't recover optional inputs).
     for (auto& observation : rustEntityEvents)
       observation.payload.clear();
     auto rustPlayerEvents = seq::shadow::playerObservations(record.batch);
@@ -1178,9 +1170,8 @@ bool EQPacket::decodeShadowApplication(
         if (!m_lifecycleEventHandler || !m_communicationEventHandler)
           throw std::runtime_error(
               "Rust lifecycle/communication event has no host applier");
-        // Reset batches deliberately put communication clears before the
-        // lifecycle transition. Dispatch the two owned families in their shared
-        // event order so group/guild projections cannot trail ZoneChanged.
+        // Dispatch both families in batch order so group/guild clears
+        // never trail ZoneChanged.
         for (const seq::shadow::Event& event : record.batch.events) {
           if (seq::shadow::isCommunicationEvent(event))
             m_communicationEventHandler(box, event);
@@ -1292,9 +1283,8 @@ bool EQPacket::decodeShadowApplication(
       if (box) {
         if (!m_lootBatchHandler)
           throw std::runtime_error("Rust loot event has no host applier");
-        // Legacy loot confirmations adjust the Player money total even when
-        // Rust owns correlation. Publish the semantic loot event after that
-        // handler runs so seq.v1 ordering stays PlayerStats then transaction.
+        // Defer past the legacy money handler so seq.v1 stays
+        // PlayerStats-then-transaction.
         m_pendingRustLoot = PendingRustLootApplication{box, &record.batch};
       }
     }
@@ -1444,9 +1434,8 @@ bool EQPacket::legacyPlayersEnabledForCurrentPacket() const
 bool EQPacket::legacyPlayerAppearanceEnabledForCurrentPacket() const
 {
   if (legacyPlayersEnabledForCurrentPacket()) return true;
-  // These opcodes also target non-player spawns. A decoded non-player event
-  // stays outside player decoding and keeps its legacy owner; malformed or unhandled
-  // Rust-owned packets remain fail-closed.
+  // These opcodes also target non-player spawns, which keep their legacy
+  // owner; undecoded Rust-owned packets stay fail-closed.
   return m_currentRustPacketDecoded &&
          !rustPlayerAcceptedForCurrentPacket(
              seq::shadow::PlayerKind::PlayerAppearanceUpdated);

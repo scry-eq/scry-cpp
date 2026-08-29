@@ -242,9 +242,7 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
             !m_rustLifecycleAccepted(
                 seq::shadow::LifecycleKind::PlayerProfile))
             return;
-        // Correlation and stance/invocation are outside the shared Phase-4
-        // Profile state. Rust already applied reset + represented profile
-        // fields before this compatibility tail runs.
+        // Compatibility tail: Rust already applied reset + profile fields.
         m_selfTracker->reset();
         if (QString sn = stanceName(out.stance); !sn.isEmpty())
             m_player->setStance(sn);
@@ -264,9 +262,7 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
     const bool rustProgression =
         m_rustProgressionOwned && m_rustProgressionOwned();
     m_spawnShell->clear();
-    // Rust player events are applied before the compatibility tail. Do not
-    // erase the freshly-applied player id while preserving the legacy
-    // lifecycle reset and later-family profile seeding below.
+    // Rust player events already set the id; don't erase it here.
     if (!rustPlayer)
         m_player->setID(0);
     m_selfTracker->reset();

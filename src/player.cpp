@@ -418,13 +418,8 @@ void Player::applyProfileSupplement(const charProfileStruct* player)
 {
   if (!player) return;
 
-  // These fields are not represented by the Phase-4 Profile event. Keep them
-  // available to later legacy families while Rust exclusively owns the reset,
-  // identity, stats, skills, AA and money fields represented by that event.
+  // Fields the Profile event doesn't carry stay host-applied.
   setGender(player->profile.gender);
-  // Live's shared profile event does not yet carry skills, AA-unspent, or the
-  // derived maximum mana. Preserve those accepted host-only values until their
-  // later families migrate.
   const bool applyProgression =
       !m_progressionMutationGuard || m_progressionMutationGuard();
   if (applyProgression) {

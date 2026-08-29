@@ -160,10 +160,8 @@ DaemonApp::DaemonApp(Config cfg, QObject* parent)
 
 DaemonApp::~DaemonApp()
 {
-    // Rust loot flushes may emit a final incomplete acquisition and write it
-    // through MessageShell. Destroy the packet owner while both the manager
-    // tree and LootStore still exist. QObject's later child cleanup would run
-    // after C++ members such as m_lootStore have already been destroyed.
+    // The final Rust loot flush writes through MessageShell/LootStore, so
+    // the packet owner must go before QObject child cleanup reaches them.
     if (m_packet) {
         delete m_packet;
         m_packet = nullptr;
@@ -456,10 +454,6 @@ bool DaemonApp::start()
     // clear spawns like zoneBegin/zoneChanged. Never emitted on live/test.
     connect(m_zoneMgr, SIGNAL(zoneResolved(const QString&)),
             this,      SLOT(loadZoneMap(const QString&)));
-
-    // The stateful Rust decoder recognizes and resets lifecycle boundaries
-    // from the packet that caused them. Host-side ZoneMgr signals must not
-    // flush it again after the packet has already been decoded.
 
     // Same dual-signal wiring for the per-zone filter overlay. Without
     // this, FilterMgr::loadZone only fires once at startup and the
@@ -810,9 +804,7 @@ void DaemonApp::applyRustLifecycle(const Box* box,
         using T = std::decay_t<decltype(value)>;
         const auto& payload = value.payload;
         if constexpr (std::is_same_v<T, seq::shadow::SessionReset>) {
-            // The following semantic event owns the visible transition. A
-            // profile reset must happen first so the profile repopulates an
-            // empty session, matching the legacy clear -> profile order.
+            // Clear before the profile event repopulates (legacy order).
             if (payload.reason == seq::rust::EventSessionResetReason::PlayerProfile ||
                 payload.reason == seq::rust::EventSessionResetReason::EnterWorld) {
                 if (managers->spawnShell) managers->spawnShell->clear();
@@ -935,9 +927,7 @@ void DaemonApp::applyRustProgression(const Box* box,
             } else if constexpr (
                 std::is_same_v<T, seq::shadow::EquipmentSlotUpdated>) {
                 if (!ownsItemCache || !m_itemCache) return;
-                // The semantic stream emits an old-slot removal before a set
-                // on moves. Apply that order literally. A replacement also
-                // vacates its destination before the new item becomes visible.
+                // Vacate before set, literally as the stream orders it.
                 m_itemCache->clearEquipmentSlot(int(p.slot));
                 if (p.has_item)
                     m_itemCache->setEquipmentSlot(int(p.slot), p.item.item_id);

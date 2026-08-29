@@ -222,9 +222,8 @@ using Event = std::variant<
 static_assert(std::variant_size_v<Event> == 98,
               "the C++ shadow event model must cover every Rust event kind");
 
-// A copyable, deterministic representation used by shadow comparison. The
-// payload is a length-prefixed binary encoding of every field in the selected
-// lifecycle event. It avoids retaining references into the bounded journal.
+// Copyable comparison form: a length-prefixed encoding of every field, so
+// nothing references the bounded journal.
 struct LifecycleObservation {
     LifecycleKind kind = LifecycleKind::SessionReset;
     std::vector<uint8_t> payload;
@@ -371,9 +370,7 @@ struct Record {
     bool detailsOmitted = false;
 };
 
-// Convert one cxx-compatible tagged batch into the public C++ variant. This
-// function only checks the tag and payload index. It does not look up opcodes,
-// select a backend, correlate packets, or change daemon state.
+// Tag + payload-index translation only; no opcode lookup or state change.
 Batch translate(rust::SessionDecodeBatch batch);
 std::vector<LifecycleObservation> lifecycleObservations(const Batch& batch);
 std::vector<seq::v1::Envelope> projectLifecycle(const Batch& batch);

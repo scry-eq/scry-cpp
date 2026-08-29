@@ -1537,9 +1537,7 @@ std::vector<seq::v1::Envelope> projectLoot(const Batch& batch)
                 }
                 out.push_back(std::move(envelope));
             } else if constexpr (std::is_same_v<T, LootAcquired>) {
-                // The legacy public event represented a server confirmation.
-                // A narration abandoned at a boundary belongs in history but
-                // must not manufacture a live LootTransaction.
+                // An unconfirmed narration is history, not a LootTransaction.
                 if (!p.complete && !p.has_sequence) return;
                 seq::v1::Envelope envelope;
                 auto* loot = envelope.mutable_loot_transaction();
@@ -2102,10 +2100,8 @@ const Record& Session::append(Record record)
 {
     record.sequence = ++m_recordCount;
 
-    // Charge retained diagnostics by their source packet bytes plus fixed
-    // record storage. Decoded fields are derived from that source and may use
-    // more container overhead, so large single records become summaries before
-    // they can dominate a per-Box journal.
+    // Charge source bytes + fixed storage; oversized records become
+    // summaries so one can't dominate the journal.
     const size_t payloadBytes = record.packet
         ? record.packet->payloadSize : record.ucsPayloadSize.value_or(0);
     record.retainedBytes = sizeof(Record) + payloadBytes;
