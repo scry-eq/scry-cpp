@@ -1,3 +1,6 @@
 [submodule "proto"]
 	path = proto
 	url = https://github.com/scry-eq/scry-proto.git
+[submodule "scry-decoder-rs"]
+	path = scry-decoder-rs
+	url = https://github.com/scry-eq/scry-decoder-rs.git

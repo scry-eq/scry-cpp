@@ -445,9 +445,9 @@ The position channel rotated id (0x7171→0x5188) **and** wire size in both dire
   timestamps monotonic, samples trace a smooth walk (XY step ≤0.7); all 3 /loc points match
   exactly. **Xerxes maps this as `OP_SelfPosEQL=0x4fb6`** — correct id, but his
   `playerSelfState` gates on `len==38` so it never parses the 17B-record form; his self-pos
-  (like ours) rides 0x5188. **Decoder kept, feature dropped:** a Rust decoder exists
-  (`parse_self_pos_breadcrumb` + the `decode_self_pos_breadcrumb` FFI) and the id is mapped
-  as `OP_SelfPos` in the eql toml, but it is NOT wired to a handler — a movement-trail
+  (like ours) rides 0x5188. **Decoder kept, feature dropped:** the Rust parser
+  (`parse_self_pos_breadcrumb`) remains available to the ordered backend and the id is mapped
+  as `OP_SelfPos` in the eql toml, but the backend intentionally ignores it — a movement-trail
   overlay was built end-to-end (proto SelfPath + daemon emit + web polyline) then removed as
   laggy / low-value (redundant with 0x5188 for position). Recon: `--dump-payload 0x4fb6:PATH`
   → one .bin/fire → float-scan the 18B ones, then the 17-byte stride reveals the record array.

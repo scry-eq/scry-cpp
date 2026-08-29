@@ -31,18 +31,22 @@ constexpr uint16_t kCursorSlot    = 0x23;
 QJsonObject toJson(const ItemTemplate& t)
 {
     QJsonObject o;
+    if (!t.serial.isEmpty()) o.insert(QStringLiteral("serial"), t.serial);
     o.insert(QStringLiteral("id"),       qint64(t.itemId));
     o.insert(QStringLiteral("name"),     t.itemName);
     if (t.loreName != t.itemName) {
         o.insert(QStringLiteral("lore"), t.loreName);
     }
     o.insert(QStringLiteral("slotMask"), qint64(t.slotBitmask));
-    if (t.flags) {
-        o.insert(QStringLiteral("flags"), qint64(t.flags));
-    }
-    if (t.weight != 0.0f) {
+    if (t.icon) o.insert(QStringLiteral("icon"), qint64(*t.icon));
+    if (t.wireStackCount)
+        o.insert(QStringLiteral("stackCount"), qint64(*t.wireStackCount));
+    if (t.wireFlags) o.insert(QStringLiteral("flags"), qint64(*t.wireFlags));
+    else if (t.flags) o.insert(QStringLiteral("flags"), qint64(t.flags));
+    if (t.weightTenths)
+        o.insert(QStringLiteral("weightTenths"), qint64(*t.weightTenths));
+    else if (t.weight != 0.0f)
         o.insert(QStringLiteral("weight"), double(t.weight));
-    }
     if (t.hp)        o.insert(QStringLiteral("hp"),        t.hp);
     if (t.mana)      o.insert(QStringLiteral("mana"),      t.mana);
     if (t.endurance) o.insert(QStringLiteral("endurance"), t.endurance);
@@ -68,22 +72,41 @@ QJsonObject toJson(const ItemTemplate& t)
         o.insert(QStringLiteral("resists"), resists);
     }
 
-    if (t.corruption) {
+    if (t.wireCorruption)
+        o.insert(QStringLiteral("corruption"), *t.wireCorruption);
+    else if (t.corruption)
         o.insert(QStringLiteral("corruption"), t.corruption);
-    }
+    o.insert(QStringLiteral("containerId"), qint64(t.containerId));
+    o.insert(QStringLiteral("containerSlot"), int(t.containerSlot));
+    o.insert(QStringLiteral("parentSlot"), int(t.parentSlot));
     return o;
 }
 
 ItemTemplate fromJson(const QJsonObject& o)
 {
     ItemTemplate t;
+    t.serial      = o.value(QStringLiteral("serial")).toString();
     t.itemId      = uint32_t(o.value(QStringLiteral("id")).toVariant().toULongLong());
     t.itemName    = o.value(QStringLiteral("name")).toString();
     t.loreName    = o.value(QStringLiteral("lore")).toString();
     if (t.loreName.isEmpty()) t.loreName = t.itemName;
     t.slotBitmask = uint32_t(o.value(QStringLiteral("slotMask")).toVariant().toULongLong());
-    t.flags       = uint32_t(o.value(QStringLiteral("flags")).toVariant().toULongLong());
-    t.weight      = float(o.value(QStringLiteral("weight")).toDouble());
+    if (o.contains(QStringLiteral("icon")))
+        t.icon = uint32_t(o.value(QStringLiteral("icon")).toVariant().toULongLong());
+    if (o.contains(QStringLiteral("stackCount"))) {
+        t.wireStackCount = uint32_t(o.value(QStringLiteral("stackCount")).toVariant().toULongLong());
+        t.stackCount = *t.wireStackCount;
+    }
+    if (o.contains(QStringLiteral("flags"))) {
+        t.wireFlags = uint32_t(o.value(QStringLiteral("flags")).toVariant().toULongLong());
+        t.flags = *t.wireFlags;
+    }
+    if (o.contains(QStringLiteral("weightTenths"))) {
+        t.weightTenths = uint32_t(o.value(QStringLiteral("weightTenths")).toVariant().toULongLong());
+        t.weight = float(*t.weightTenths) / 10.0f;
+    } else {
+        t.weight = float(o.value(QStringLiteral("weight")).toDouble());
+    }
     t.hp          = o.value(QStringLiteral("hp")).toInt();
     t.mana        = o.value(QStringLiteral("mana")).toInt();
     t.endurance   = o.value(QStringLiteral("endurance")).toInt();
@@ -97,7 +120,13 @@ ItemTemplate fromJson(const QJsonObject& o)
     for (int i = 0; i < ITEM_RES_COUNT && i < resists.size(); i++) {
         t.resists[i] = int8_t(resists.at(i).toInt());
     }
-    t.corruption = int8_t(o.value(QStringLiteral("corruption")).toInt());
+    if (o.contains(QStringLiteral("corruption"))) {
+        t.wireCorruption = o.value(QStringLiteral("corruption")).toInt();
+        t.corruption = int8_t(*t.wireCorruption);
+    }
+    t.containerId = uint32_t(o.value(QStringLiteral("containerId")).toVariant().toULongLong());
+    t.containerSlot = uint16_t(o.value(QStringLiteral("containerSlot")).toInt());
+    t.parentSlot = uint16_t(o.value(QStringLiteral("parentSlot")).toInt());
     return t;
 }
 
@@ -159,6 +188,72 @@ void ItemCache::insert(const ItemTemplate& tpl)
     emit itemLearned(tpl.itemId);
 }
 
+void ItemCache::replaceInventory(const QList<ItemTemplate>& items)
+{
+    m_inventory.clear();
+    m_cache.clear();
+    for (const ItemTemplate& item : items) {
+        const QString key = item.serial.isEmpty()
+            ? QStringLiteral("%1:%2:%3:%4")
+                  .arg(item.itemId).arg(item.containerId)
+                  .arg(item.containerSlot).arg(item.parentSlot)
+            : item.serial;
+        m_inventory.insert(key, item);
+        if (item.itemId != 0) m_cache.insert(item.itemId, item);
+    }
+    m_dirty = true;
+    for (const ItemTemplate& item : items) {
+        if (item.itemId != 0) emit itemLearned(item.itemId);
+    }
+}
+
+void ItemCache::applyInventoryItem(
+    const ItemTemplate& item,
+    std::optional<uint32_t> previousContainerId,
+    std::optional<uint16_t> previousContainerSlot,
+    std::optional<uint16_t> previousParentSlot)
+{
+    const QString key = item.serial.isEmpty()
+        ? QStringLiteral("%1:%2:%3:%4")
+              .arg(item.itemId).arg(item.containerId)
+              .arg(item.containerSlot).arg(item.parentSlot)
+        : item.serial;
+    if (item.serial.isEmpty() && previousContainerId &&
+        previousContainerSlot && previousParentSlot) {
+        const QString previousKey = QStringLiteral("%1:%2:%3:%4")
+            .arg(item.itemId).arg(*previousContainerId)
+            .arg(*previousContainerSlot).arg(*previousParentSlot);
+        if (previousKey != key) m_inventory.remove(previousKey);
+    }
+    m_inventory.insert(key, item);
+    insert(item);
+}
+
+void ItemCache::replaceEquipment(const QHash<int, uint32_t>& equipment)
+{
+    // Clear first. Consumers must never observe a snapshot with stale slots
+    // from the previous authoritative inventory.
+    m_wornSlots.clear();
+    for (auto it = equipment.cbegin(); it != equipment.cend(); ++it) {
+        if (it.key() >= 0 && it.key() <= kMaxWornSlot && it.value() != 0)
+            m_wornSlots.insert(it.key(), it.value());
+    }
+    emit wornSlotsChanged();
+}
+
+void ItemCache::clearEquipmentSlot(int slot)
+{
+    if (m_wornSlots.remove(slot) > 0) emit wornSlotsChanged();
+}
+
+void ItemCache::setEquipmentSlot(int slot, uint32_t itemId)
+{
+    if (slot < 0 || slot > kMaxWornSlot || itemId == 0) return;
+    if (m_wornSlots.value(slot) == itemId && m_wornSlots.contains(slot)) return;
+    m_wornSlots.insert(slot, itemId);
+    emit wornSlotsChanged();
+}
+
 ItemCache::Totals ItemCache::totals() const
 {
     Totals t;
@@ -190,7 +285,7 @@ void ItemCache::onItemPacket(const uint8_t* data, size_t len,
 {
     ItemTemplate t;
     if (!parseItemPacket(data, len, &t)) return;
-    insert(t);
+    applyInventoryItem(t);
 
     // Track worn-slot membership from the wrapper. Top-level items
     // (mainSlot==0) carry the worn/inv/cursor slot directly in subSlot.
@@ -254,6 +349,11 @@ bool ItemCache::load()
         auto t = fromJson(v.toObject());
         if (t.itemId == 0) continue;
         m_cache.insert(t.itemId, t);
+        if (!t.serial.isEmpty()) {
+            m_inventory.insert(t.serial, t);
+            if (t.parentSlot == 0xFFFF && t.containerSlot <= kMaxWornSlot)
+                m_wornSlots.insert(int(t.containerSlot), t.itemId);
+        }
     }
     qInfo("ItemCache: loaded %d items from %s",
           int(m_cache.size()), qUtf8Printable(m_storePath));
@@ -265,12 +365,17 @@ bool ItemCache::save()
 {
     if (m_storePath.isEmpty()) return false;
 
-    auto ids = m_cache.keys();
-    std::sort(ids.begin(), ids.end());
-
     QJsonArray arr;
-    for (uint32_t id : ids) {
-        arr.append(toJson(m_cache.value(id)));
+    if (!m_inventory.isEmpty()) {
+        auto serials = m_inventory.keys();
+        std::sort(serials.begin(), serials.end());
+        for (const QString& serial : serials)
+            arr.append(toJson(m_inventory.value(serial)));
+    } else {
+        auto ids = m_cache.keys();
+        std::sort(ids.begin(), ids.end());
+        for (uint32_t id : ids)
+            arr.append(toJson(m_cache.value(id)));
     }
     QJsonDocument doc(arr);
 

@@ -13,11 +13,6 @@ cd "${REPO}"
 # Capture stdin before it is consumed so we can inspect the push range.
 PUSH_INFO="$(cat)"
 
-if [[ ! -d build ]]; then
-    echo "pre-push: no build/ in $(pwd) — skipping replay check (run cmake -B build first)" >&2
-    exit 0
-fi
-
 # Static opcode-binding check first: it needs no build, runs in a second, and
 # catches wiring/table drift on ALL THREE targets — including the two this
 # checkout isn't currently built for. A mismatch here means the daemon silently
@@ -25,11 +20,15 @@ fi
 echo "pre-push: checking opcode bindings (all targets)..."
 python3 tools/bindcheck.py
 
-echo "pre-push: rebuilding daemon (incremental)..."
-cmake --build build --target scryd -j >/dev/null
+if [[ -d build ]]; then
+    echo "pre-push: rebuilding daemon (incremental)..."
+    cmake --build build --target scryd -j >/dev/null
 
-echo "pre-push: running tier-2 replay check..."
-echo "${PUSH_INFO}" | tests/replay/check.sh
+    echo "pre-push: running tier-2 replay check..."
+    echo "${PUSH_INFO}" | tests/replay/check.sh
+else
+    echo "pre-push: no build/ in $(pwd) — replay check skipped (run cmake -B build first)" >&2
+fi
 
 # ── Proto submodule sync check ───────────────────────────────────────────────
 # The proto/ submodule must match canonical scry-proto. A pointer AHEAD of
@@ -62,10 +61,41 @@ if [[ -d proto ]]; then
     fi
 fi
 
-# ── Rust bindings freshness check ────────────────────────────────────────────
-DECODER_RS="${REPO}/../scry-decoder-rs"
+# ── Decoder pin + protocol mirror checks ──────────────────────────────────────
+DECODER_RS="${SEQ_DECODER_RS_DIR:-${REPO}/scry-decoder-rs}"
 if [[ ! -d "${DECODER_RS}" ]]; then
-    exit 0
+    echo "ERROR: scry-decoder-rs submodule is not initialized at ${DECODER_RS}." >&2
+    exit 1
+fi
+
+# A local gitlink can point at an unpushed decoder commit and still build from
+# the developer's populated submodule. Prove the recorded commit is reachable
+# from canonical origin/main before allowing the host commit to leave.
+if ! git -C "${DECODER_RS}" fetch -q origin 2>/dev/null; then
+    echo "ERROR: could not fetch decoder origin; refusing to skip gitlink reachability." >&2
+    exit 1
+fi
+DECODER_SUB="$(git rev-parse HEAD:scry-decoder-rs)"
+if ! git -C "${DECODER_RS}" merge-base --is-ancestor \
+        "${DECODER_SUB}" origin/main 2>/dev/null; then
+    echo "ERROR: decoder gitlink ${DECODER_SUB:0:12} is not reachable from origin/main." >&2
+    echo "       Push scry-decoder-rs first, then retry the scry-cpp push." >&2
+    exit 1
+fi
+echo "pre-push: decoder pin reachable (${DECODER_SUB:0:12})"
+
+CATALOG_CHECK="${DECODER_RS}/seq-protocol-data/tools/import_host_catalogs.py"
+if [[ ! -f "${CATALOG_CHECK}" ]]; then
+    echo "ERROR: decoder catalog checker is missing at ${CATALOG_CHECK}." >&2
+    exit 1
+fi
+echo "pre-push: checking Rust/C++ opcode catalog parity..."
+python3 "${CATALOG_CHECK}" --check "${REPO}/conf"
+
+# ── Rust bindings freshness check ────────────────────────────────────────────
+if [[ ! -f "${DECODER_RS}/Cargo.toml" ]]; then
+    echo "ERROR: decoder checkout at ${DECODER_RS} has no Cargo.toml." >&2
+    exit 1
 fi
 
 # Check if any commit being pushed touched a backend's everquest.h. live and
@@ -110,21 +140,31 @@ done
 cp "${BINDINGS_LIVE}" "${SAVED_LIVE}"
 cp "${BINDINGS_TEST}" "${SAVED_TEST}"
 
-# Regenerate BOTH targets into the sibling repo; compare; always restore.
-(cd "${DECODER_RS}" && python3 tools/gen_eqstructs.py all >/dev/null 2>&1)
+restore_bindings() {
+    cp "${SAVED_LIVE}" "${BINDINGS_LIVE}"
+    cp "${SAVED_TEST}" "${BINDINGS_TEST}"
+    rm -f "${SAVED_LIVE}" "${SAVED_TEST}"
+}
+trap restore_bindings EXIT
+
+# Regenerate BOTH targets into the decoder checkout; compare; always restore.
+# The generator's default sibling layout does not apply when decoder-rs is a
+# submodule, so pass both headers explicitly.
+(cd "${DECODER_RS}" && \
+    python3 tools/gen_eqstructs.py live "${REPO}/src/backend/live/everquest.h" >/dev/null 2>&1 && \
+    python3 tools/gen_eqstructs.py test "${REPO}/src/backend/test/everquest.h" >/dev/null 2>&1)
 
 diff -q "${SAVED_LIVE}" "${BINDINGS_LIVE}" >/dev/null 2>&1 || STALE=1
 diff -q "${SAVED_TEST}" "${BINDINGS_TEST}" >/dev/null 2>&1 || STALE=1
 
-cp "${SAVED_LIVE}" "${BINDINGS_LIVE}"
-cp "${SAVED_TEST}" "${BINDINGS_TEST}"
-rm -f "${SAVED_LIVE}" "${SAVED_TEST}"
+restore_bindings
+trap - EXIT
 
 if [[ "${STALE}" -eq 1 ]]; then
     echo ""
     echo "ERROR: scry-decoder-rs bindings are stale." >&2
     echo "       everquest.h changed but bindings.rs was not regenerated." >&2
-    echo "       Run: (cd ../scry-decoder-rs && python3 tools/gen_eqstructs.py all)" >&2
+    echo "       Run the generator for the Live and Test headers, then update the decoder pin." >&2
     echo "       Then commit and push scry-decoder-rs before retrying." >&2
     exit 1
 fi

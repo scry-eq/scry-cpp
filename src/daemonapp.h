@@ -13,6 +13,7 @@
 
 #include "managerset.h"
 #include "mappackagehost.h"
+#include "rustsession.h"
 
 // Forward declarations of the extracted showeq types. We keep them out of
 // this header to minimize the include footprint for files that only need the
@@ -24,7 +25,6 @@ class EQPacket;
 class EQPacketStream;
 class EQStr;
 class DbStrings;
-class SpellMessages;
 class CategoryMgr;
 class CombatRouter;
 class FileSink;
@@ -102,6 +102,9 @@ public:
         // delimited seq.v1.Envelope protobuf. With --replay set, the
         // daemon exits at EOF (golden generation workflow).
         QString      recordGolden;
+        // Strict v1 application-packet traces. The daemon writes one opaque
+        // file sequence per logical Rust Session under this directory.
+        QString      applicationTraceDir;
         // If set, OpcodeStatsLogger taps EQPacket's decoded-packet
         // signals and writes a per-opcode tally to this file at
         // shutdown — patch-day diagnostic for finding ffff opcodes.
@@ -134,6 +137,18 @@ public:
         // order, or "first" (= index 1). Overrides --dump-all-sessions.
         // Recon-only: does not affect proto output or goldens.
         QString      onlySession;
+        // Immutable per-session family owner: legacy | shadow | rust.
+        QString      lifecycleDecoder = QStringLiteral("legacy");
+        // Immutable entity-family owner. Legacy remains the default until
+        // capture-derived entity soak fixtures are available for both hosts.
+        QString      entityDecoder = QStringLiteral("legacy");
+        QString      playerDecoder = QStringLiteral("legacy");
+        QString      progressionDecoder = QStringLiteral("legacy");
+        // Loot correlation remains rollback-first until Live/Test capture
+        // proof exists. EQL is the only backend with known wire coverage.
+        QString      lootDecoder = QStringLiteral("legacy");
+        QString      combatDecoder = QStringLiteral("legacy");
+        QString      communicationDecoder = QStringLiteral("legacy");
         // --replay --wait-for-client: pause the .vpk playback until
         // the first WebSocket client attaches a SessionAdapter (so
         // early envelopes aren't dropped), and don't quit at EOF so
@@ -245,6 +260,21 @@ private:
     // ManagerSet record and deleteLater's its per-box manager root (the
     // reverse of onBoxCreated). No-op for the primary box.
     void onBoxAboutToBeRemoved(Box* box);
+    void applyRustLifecycle(const Box* box, const seq::shadow::Event& event);
+    void applyRustEntity(const Box* box, const seq::shadow::Event& event);
+    void applyRustPlayer(const Box* box, const seq::shadow::Event& event);
+    void applyRustProgression(const Box* box,
+                              const seq::shadow::Batch& batch);
+    void applyRustLoot(const Box* box, const seq::shadow::Batch& batch);
+    void applyRustCombat(const Box* box, const seq::shadow::Batch& batch);
+    void applyRustCommunication(const Box* box,
+                                const seq::shadow::Event& event);
+    void connectLifecycleObservers();
+    void connectEntityObservers();
+    void connectPlayerObservers();
+    void connectProgressionObservers();
+    void connectCombatObservers();
+    void connectCommunicationObservers();
 
     // --only-session helpers -------------------------------------------------
     // Parsed index form of Config::onlySession: N for "N"/"first"(=1),
@@ -267,7 +297,6 @@ private:
     Spells*                         m_spells        = nullptr;
     EQStr*                          m_eqStrings     = nullptr;
     DbStrings*                      m_dbStrings     = nullptr;
-    SpellMessages*                  m_spellMessages = nullptr;
     ZoneMgr*                        m_zoneMgr       = nullptr;
     GuildMgr*                       m_guildMgr      = nullptr;
     Player*                         m_player        = nullptr;

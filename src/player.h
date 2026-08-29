@@ -30,6 +30,9 @@
 #include <QVector>
 
 #include <vector>
+#include <optional>
+#include <utility>
+#include <functional>
 
 #include "everquest.h"
 #include "spawn.h"
@@ -140,6 +143,8 @@ public:
    void savePlayerState(void);
    void restorePlayerState(void);
    void setUseDefaults(bool bdefaults) { m_useDefaults = bdefaults; }
+   void setProgressionMutationGuard(std::function<bool()> guard)
+   { m_progressionMutationGuard = std::move(guard); }
 
  public:
    virtual QString name() const;
@@ -218,6 +223,27 @@ public:
    // live/test). setIdentity applies a decoded race/class/level; applySelfPos
    // applies a decoded position+heading. See src/backend/eql/eqldispatch.cpp.
    void setIdentity(uint16_t race, uint8_t classVal, uint8_t level);
+   void applyLifecycleIdentity(const QString& name, const QString& lastName,
+                               uint16_t race, uint8_t classVal, uint8_t level,
+                               uint16_t deity, uint32_t classMask);
+   void applyPlayerIdentity(std::optional<uint32_t> spawnId,
+                            const QString& name, const QString& lastName,
+                            uint16_t race, uint8_t classVal, uint16_t deity,
+                            uint8_t level, uint32_t classMask);
+   void applyPlayerMovement(std::optional<uint32_t> spawnId,
+                            int32_t x, int32_t y, int32_t z,
+                            uint16_t headingDegrees);
+   void applyPlayerVitals(bool hasHealth, int32_t healthCurrent,
+                          std::optional<int32_t> healthMaximum,
+                          bool hasMana, int32_t manaCurrent,
+                          std::optional<int32_t> manaMaximum,
+                          bool hasEndurance, int32_t enduranceCurrent,
+                          std::optional<int32_t> enduranceMaximum);
+   void applyPlayerAppearance(std::optional<uint32_t> race,
+                              std::optional<uint8_t> gender,
+                              std::optional<uint32_t> animation);
+   void applyPlayerDeath();
+   void applyProfileSupplement(const charProfileStruct* player);
    // heading is eql's 13-bit facing (0..8191, 8192 per circle); valid on every
    // packet, turning included. See seq-backend-eql/src/player_self_pos.rs.
    void applySelfPosition(int16_t x, int16_t y, int16_t z,
@@ -238,10 +264,21 @@ public:
    // OP_PlayerProfile) + spent points, so the AA window populates at zone-in.
    void seedPurchasedAA(const std::vector<uint32_t>& ids,
                         const std::vector<uint32_t>& values, uint32_t spent);
+   void replaceSkills(const std::vector<std::pair<uint32_t, uint32_t>>& skills);
+   void applySkillValue(uint32_t skillId, uint32_t value);
+   void applyExperienceProgress(uint32_t experience,
+                                std::optional<uint32_t> level,
+                                std::optional<uint32_t> previousLevel);
+   void replaceAlternateAdvancement(
+       const std::vector<std::pair<uint32_t, uint32_t>>& purchased,
+       std::optional<uint32_t> spent, uint32_t unspent,
+       uint32_t experience);
+   void applyAlternateAdvancement(uint32_t experience, uint32_t unspent);
    // eql: seed BASE stats from OP_PlayerProfile (fixed offset). The loadout
    // roll (race + primary + additional classes), not gear-inclusive totals.
    void seedBaseStats(uint16_t str, uint16_t sta, uint16_t cha, uint16_t dex,
-                      uint16_t intel, uint16_t agi, uint16_t wis);
+                      uint16_t intel, uint16_t agi, uint16_t wis,
+                      bool persist = true);
 
  signals:
    void newPlayer(void);
@@ -354,6 +391,7 @@ public:
   // the wide form carries 64-bit values and setMana takes uint32.
   uint32_t m_wireMaxMana = 0;
   uint32_t m_money = 0;   // carried coin as total copper (eql OP_PlayerProfile)
+  std::function<bool()> m_progressionMutationGuard;
   uint16_t m_fatigue;
   uint32_t m_enduranceCur;
   uint32_t m_enduranceMax;

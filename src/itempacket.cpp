@@ -81,10 +81,17 @@ bool parseItemPacket(const uint8_t* data, size_t len, ItemTemplate* out)
     // marker isn't where we expect, since downstream offsets won't be
     // trustworthy either.
     if (data[20] != 0) return false;
+    out->serial = QString::fromLatin1(
+        reinterpret_cast<const char*>(data + 4), 16);
     out->packetType = readU32LE(data + 0);
     out->stackCount = readU32LE(data + 21);
+    out->wireStackCount = out->stackCount;
     out->mainSlot   = readU32LE(data + 25);
     out->subSlot    = uint16_t(data[29]) | (uint16_t(data[30]) << 8);
+    out->containerId = 0;
+    out->containerSlot = out->subSlot;
+    out->parentSlot = out->mainSlot == 0 ? uint16_t(0xFFFF)
+                                         : uint16_t(out->mainSlot);
 
     size_t nameStart = findNameStart(data, len, kHeaderProbeStart);
     if (nameStart == SIZE_MAX) return false;
@@ -113,13 +120,16 @@ bool parseItemPacket(const uint8_t* data, size_t len, ItemTemplate* out)
 
     out->itemId      = readU32LE(p + 8);
     out->weight      = readU32LE(p + 12) / 10.0f;
+    out->weightTenths = readU32LE(p + 12);
     out->flags       = readU32LE(p + 16);
+    out->wireFlags   = out->flags;
     out->slotBitmask = readU32LE(p + 20);
 
     for (int i = 0; i < ITEM_RES_COUNT; i++) {
         out->resists[i] = int8_t(p[34 + i]);
     }
     out->corruption = int8_t(p[39]);
+    out->wireCorruption = out->corruption;
     for (int i = 0; i < ITEM_STAT_COUNT; i++) {
         out->stats[i] = int8_t(p[40 + i]);
     }

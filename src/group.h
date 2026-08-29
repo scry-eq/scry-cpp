@@ -24,6 +24,8 @@
 #define _GROUP_H_
 
 #include <cstdint>
+#include <optional>
+#include <vector>
 
 #include <QObject>
 #include <QString>
@@ -39,6 +41,13 @@ class SpawnShell;
 class Item;
 class Spawn;
 
+struct GroupRosterEntry
+{
+  uint8_t slot = 0;
+  QString name;
+  std::optional<uint32_t> level;
+};
+
 class GroupMgr: public QObject
 {
   Q_OBJECT
@@ -52,6 +61,10 @@ class GroupMgr: public QObject
   const Spawn* memberByName( const QString& name );
   const Spawn* memberBySlot( uint16_t slot );
   QString memberNameBySlot( uint16_t slot ) const;
+  uint32_t memberLevelBySlot(uint16_t slot) const;
+  void applyRoster(const std::vector<GroupRosterEntry>& members,
+                   bool complete);
+  bool rosterComplete() const { return m_rosterComplete; }
 
   size_t groupSize() { return m_memberCount; }
   size_t groupMemberCount() { return m_memberCount; }
@@ -88,6 +101,7 @@ class GroupMgr: public QObject
   void added(const QString& name, const Spawn* mem);
   void removed(const QString& name, const Spawn* mem);
   void cleared();
+  void rosterUpdated();
   
  protected:
   SpawnShell* m_spawnShell;
@@ -96,9 +110,11 @@ class GroupMgr: public QObject
   {
     QString m_name;
     const Spawn* m_spawn;
+    std::optional<uint32_t> m_level;
   }* m_members[MAX_GROUP_PEERS];
   size_t m_memberCount;
   size_t m_membersInZoneCount;
+  bool m_rosterComplete = false;
 };
 
 #endif // _GROUP_H_

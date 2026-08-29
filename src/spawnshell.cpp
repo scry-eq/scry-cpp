@@ -44,7 +44,6 @@
 
 #include <QFile>
 #include <QDataStream>
-#include <QTextStream>
 
 #ifdef __FreeBSD__
 #include <sys/types.h>
@@ -224,44 +223,6 @@ const Item* SpawnShell::findID(spawnItemType type, int id)
   return item;
 }
 
-const Item* SpawnShell::findClosestItem(spawnItemType type, 
-					int16_t x, int16_t y,
-					double& minDistance)
-{
-   ItemMap& theMap = getMap(type);
-   ItemIterator it(theMap);
-   double distance;
-   Item* item;
-   Item* closest = NULL;
-
-   // find closest spawn
-
-   // iterate over all the items in the map
-   while (it.hasNext())
-   {
-     it.next();
-
-     // get the item
-     item = it.value();
-     if (!item)
-         break;
-
-     // calculate the distance from the specified point
-     distance = item->calcDist(x, y);
-
-     // is this distance closer?
-     if (distance < minDistance)
-     {
-       // yes, note it
-       minDistance = distance;
-       closest = item;
-     }
-   }
-
-   // return the closest item.
-   return closest;
-}
-
 void SpawnShell::updateGuildTag(uint32_t guildId)
 {
     ItemIterator it(m_spawns);
@@ -420,20 +381,6 @@ bool SpawnShell::updateRuntimeFilterFlags(Item* item)
   return false;
 }
 
-void SpawnShell::dumpSpawns(spawnItemType type, QTextStream& out)
-{
-   ItemIterator it(getMap(type));
-
-   while (it.hasNext())
-   {
-       it.next();
-       if (!it.value())
-           break;
-
-       out << it.value()->dumpString() << Qt::endl;
-   }
-}
-
 // same-name slots, connecting to Packet signals
 // this packet is variable in length.  everything is dwords except the "idFile" field
 // which can be variable
@@ -555,70 +502,6 @@ void SpawnShell::newDoorSpawn(const doorStruct& d, size_t len, uint8_t dir)
      m_doors.insert(d.doorId, item);
      emit addItem(item);
    }
-}
-
-void SpawnShell::zoneSpawns(const uint8_t* data, size_t len)
-{
-  int spawndatasize = len / sizeof(spawnStruct);
-
-  const spawnStruct* zspawns = (const spawnStruct*)data;
-
-  for (int i = 0; i < spawndatasize; i++)
-  {
-#if 0
-  // Dump position updates for debugging spawn struct position changes
-  for (int j=54; j<70; i++)
-  {
-      printf("%.2x", zspawns[i][j]);
-
-      if ((j+1) % 8 == 0)
-      {
-          printf("    ");
-      }
-      else
-      {
-          printf(" ");
-      }
-  }
-  printf("\n");
-#endif
-
-#if 0
-    // Debug positioning without having to recompile everything...
-#pragma pack(1)
-struct pos
-{
-/*0004*/ unsigned pitch:12;
-	 signed   animation:10;                    // velocity 
-	 signed   deltaHeading:10;                 // change in heading 
-/*0008*/ signed   z:19;                            // z coord (3rd loc value)
-	 signed   deltaZ:13;                       // change in z
-/*0012*/ signed   deltaY:13;                       // change in y
-	 unsigned heading:12;                      // heading 
-         unsigned padding01:7;
-/*0016*/ signed   y:19;                            // y coord (2nd loc value)
-	 signed   deltaX:13;                       // change in x
-/*0020*/ signed   x:19;                            // x coord (1st loc value)
-	 unsigned padding02:13;
-/*0024*/ signed   unknown0001;                     // ***Placeholder
-/*0028*/	         
-};
-#endif
-
-#if 0
-#pragma pack(0)
-    struct pos *p = (struct pos *)(data + i*sizeof(spawnStruct) + 151);
-    printf("[%.2x](%f, %f, %f), dx %f dy %f dz %f head %f dhead %f anim %d (%x, %x, %x, %x)\n",
-            zspawns[i].spawnId, 
-            float(p->x)/8.0, float(p->y/8.0), float(p->z)/8.0, 
-            float(p->deltaX)/4.0, float(p->deltaY)/4.0, 
-            float(p->deltaZ)/4.0, 
-            float(p->heading), float(p->deltaHeading),
-            p->animation, p->padding0000, 
-            p->padding0005, p->padding0006, p->padding0014);
-#endif
-    newSpawn(zspawns[i]);
-  }
 }
 
 static void applySpawn(spawnStruct* spawn,
@@ -874,6 +757,207 @@ void SpawnShell::moveSpawn(uint16_t id, int16_t x, int16_t y, int16_t z)
   emit changeItem(item, tSpawnChangedPosition);
 }
 
+namespace {
+int8_t entityHeading(uint16_t degrees)
+{
+  const uint32_t normalized = degrees % 360;
+  return int8_t(((360 - normalized) % 360) * 256 / 360);
+}
+}
+
+void SpawnShell::applyEntitySpawn(
+    uint32_t id, const QString& name, const QString& lastName, uint32_t race,
+    uint32_t classVal, uint32_t deity, uint8_t level, uint8_t npc,
+    uint32_t curHp, std::optional<uint32_t> maxHp, uint32_t guildID,
+    uint32_t guildServerID, uint32_t classMask, std::optional<int32_t> x,
+    std::optional<int32_t> y, std::optional<int32_t> z,
+    std::optional<uint16_t> headingDegrees,
+    std::optional<int32_t> velocityX,
+    std::optional<int32_t> velocityY,
+    std::optional<int32_t> velocityZ,
+    std::optional<int16_t> deltaHeading,
+    std::optional<int16_t> animation,
+    const std::optional<std::vector<uint32_t>>& equipmentModels)
+{
+  if (id > UINT16_MAX) return;
+  const int16_t px = int16_t(std::clamp(x.value_or(0),
+                                        int32_t(INT16_MIN), int32_t(INT16_MAX)));
+  const int16_t py = int16_t(std::clamp(y.value_or(0),
+                                        int32_t(INT16_MIN), int32_t(INT16_MAX)));
+  const int16_t pz = int16_t(std::clamp(z.value_or(0),
+                                        int32_t(INT16_MIN), int32_t(INT16_MAX)));
+  if (m_player && id == m_player->id()) return;
+  Item* item = m_spawns.value(int(id), nullptr);
+  auto* spawn = item ? static_cast<Spawn*>(item)
+                     : new Spawn(uint16_t(id), px, py, pz, 0, 0, 0, 0, 0, 0);
+  spawn->setName(name.toLatin1().constData());
+  spawn->setLastName(lastName.toLatin1().constData());
+  spawn->setRace(uint16_t(race));
+  spawn->setClassVal(uint8_t(classVal));
+  spawn->setDeity(uint16_t(deity));
+  spawn->setLevel(level);
+  spawn->setNPC(npc);
+  spawn->setHP(int32_t(curHp));
+  if (maxHp) spawn->setMaxHP(int32_t(*maxHp));
+  spawn->setGuildID(uint16_t(guildID));
+  spawn->setGuildServerID(uint16_t(guildServerID));
+  spawn->setClassMask(classMask);
+  spawn->setGuildTag(
+      m_guildMgr->guildIdToName(uint16_t(guildID), uint16_t(guildServerID)));
+  if (x && y && z) spawn->setPos(px, py, pz);
+  if (headingDegrees)
+    spawn->setHeading(entityHeading(*headingDegrees),
+                      int8_t(deltaHeading.value_or(0)));
+  if (velocityX || velocityY || velocityZ)
+    spawn->setDeltas(
+        int16_t(std::clamp(velocityX.value_or(0), int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))),
+        int16_t(std::clamp(velocityY.value_or(0), int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))),
+        int16_t(std::clamp(velocityZ.value_or(0), int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))));
+  if (animation) spawn->setAnimation(uint8_t(*animation));
+  if (equipmentModels) {
+    const size_t count = std::min<size_t>(equipmentModels->size(),
+                                          tLastCoreWearSlot + 1);
+    for (size_t i = 0; i < count; ++i) {
+      EquipStruct equipment = spawn->equipment(uint8_t(i));
+      equipment.itemId = (*equipmentModels)[i];
+      spawn->setEquipment(uint8_t(i), equipment);
+    }
+  }
+  updateFilterFlags(spawn);
+  updateRuntimeFilterFlags(spawn);
+  spawn->updateLastChanged();
+  if (item) {
+    emit changeItem(spawn, tSpawnChangedALL);
+  } else {
+    m_spawns.insert(int(id), spawn);
+    emit addItem(spawn);
+    emit numSpawns(m_spawns.count());
+  }
+}
+
+void SpawnShell::applyEntityMove(uint32_t id, int32_t x, int32_t y,
+                                 int32_t z, uint16_t headingDegrees,
+                                 std::optional<int32_t> velocityX,
+                                 std::optional<int32_t> velocityY,
+                                 std::optional<int32_t> velocityZ,
+                                 std::optional<int16_t> deltaHeading,
+                                 std::optional<int16_t> animation)
+{
+  if (id > UINT16_MAX) return;
+  Item* item = id == m_player->id()
+      ? static_cast<Item*>(m_player)
+      : m_spawns.value(int(id), nullptr);
+  if (!item) return;
+  auto* spawn = static_cast<Spawn*>(item);
+  spawn->setPos(int16_t(std::clamp(x, int32_t(INT16_MIN), int32_t(INT16_MAX))),
+                int16_t(std::clamp(y, int32_t(INT16_MIN), int32_t(INT16_MAX))),
+                int16_t(std::clamp(z, int32_t(INT16_MIN), int32_t(INT16_MAX))));
+  spawn->setHeading(entityHeading(headingDegrees),
+                    int8_t(deltaHeading.value_or(spawn->deltaHeading())));
+  if (velocityX || velocityY || velocityZ)
+    spawn->setDeltas(
+        int16_t(std::clamp(velocityX.value_or(spawn->deltaX()),
+                           int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))),
+        int16_t(std::clamp(velocityY.value_or(spawn->deltaY()),
+                           int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))),
+        int16_t(std::clamp(velocityZ.value_or(spawn->deltaZ()),
+                           int32_t(INT16_MIN),
+                           int32_t(INT16_MAX))));
+  if (animation) spawn->setAnimation(uint8_t(*animation));
+  spawn->updateLast();
+  item->updateLastChanged();
+  emit changeItem(item, tSpawnChangedPosition);
+}
+
+void SpawnShell::applyEntityRemove(uint32_t id)
+{
+  if (id <= UINT16_MAX) deleteItem(tSpawn, int(id));
+}
+
+void SpawnShell::applyEntityRename(std::optional<uint32_t> id,
+                                   const QString& oldName,
+                                   const QString& newName)
+{
+  Spawn* spawn = nullptr;
+  if (id && *id <= UINT16_MAX)
+    spawn = spawnType(m_spawns.value(int(*id), nullptr));
+  if (!spawn)
+    spawn = findSpawnByName(oldName.toLatin1().constData());
+  if (!spawn) return;
+  spawn->setName(newName.toLatin1().constData());
+  uint32_t change = tSpawnChangedName;
+  if (updateFilterFlags(spawn)) change |= tSpawnChangedFilter;
+  if (updateRuntimeFilterFlags(spawn))
+    change |= tSpawnChangedRuntimeFilter;
+  spawn->updateLastChanged();
+  emit changeItem(spawn, change);
+}
+
+void SpawnShell::applyEntityDoors(const std::vector<EntityDoorState>& doors)
+{
+  QSet<int> retained;
+  for (const auto& value : doors) {
+    if (value.id > UINT16_MAX) continue;
+    retained.insert(int(value.id));
+    if (Item* old = m_doors.value(int(value.id), nullptr)) {
+      m_doors.remove(int(value.id));
+      delete old;
+    }
+    auto* door = new Door(value.id, value.name, value.x, value.y, value.z,
+                          value.heading, value.incline, value.size,
+                          value.openType, value.state, value.invertState,
+                          value.zonePointId);
+    updateFilterFlags(door);
+    m_doors.insert(int(value.id), door);
+    emit addItem(door);
+  }
+  const QList<int> existing = m_doors.keys();
+  for (int id : existing) {
+    if (!retained.contains(id)) deleteItem(tDoors, id);
+  }
+}
+
+void SpawnShell::applyEntityGroundItem(
+    uint32_t id, const QString& actorDefinition, float x, float y, float z,
+    std::optional<float> heading)
+{
+  if (id > UINT16_MAX) return;
+  if (Item* old = m_drops.value(int(id), nullptr)) {
+    m_drops.remove(int(id));
+    delete old;
+  }
+  auto* drop = new Drop(id, actorDefinition, x, y, z, heading);
+  updateFilterFlags(drop);
+  m_drops.insert(int(id), drop);
+  emit addItem(drop);
+}
+
+void SpawnShell::applyEntityGroundItemRemoved(uint32_t id)
+{
+  if (id <= UINT16_MAX) deleteItem(tDrop, int(id));
+}
+
+void SpawnShell::applyEntityCorpseLocation(uint32_t id, float x, float y,
+                                           float z)
+{
+  if (id > UINT16_MAX) return;
+  Item* item = m_spawns.value(int(id), nullptr);
+  if (!item) return;
+  auto* spawn = static_cast<Spawn*>(item);
+  spawn->setPos(int16_t(std::lrint(x)), int16_t(std::lrint(y)),
+                int16_t(std::lrint(z)));
+  spawn->setDeltas(0, 0, 0);
+  spawn->killSpawn();
+  spawn->updateLast();
+  item->updateLastChanged();
+  emit killSpawn(item, nullptr, 0);
+}
+
 // Neutral HP-apply primitive (eql OP_HPUpdate). Only touches spawns already
 // known (created via upsertSpawn) — the player's own spawn is not tracked here.
 void SpawnShell::updateSpawnHP(uint16_t id, int32_t curHp, int32_t maxHp)
@@ -896,7 +980,9 @@ void SpawnShell::updateSpawnHP(uint16_t id, int32_t curHp, int32_t maxHp)
 // fields a loadout swap changes on an already-known spawn (level + class);
 // position/HP are left to their own streams. The player's own spawn is not
 // tracked in m_spawns — the caller refreshes it via Player::setIdentity.
-void SpawnShell::updateSpawnIdentity(uint16_t id, uint8_t level, uint8_t classVal)
+void SpawnShell::updateSpawnIdentity(uint16_t id, uint8_t level,
+                                     uint8_t classVal,
+                                     std::optional<uint16_t> race)
 {
   Item* item = m_spawns.value(id, nullptr);
   if (item == NULL)
@@ -904,8 +990,43 @@ void SpawnShell::updateSpawnIdentity(uint16_t id, uint8_t level, uint8_t classVa
   Spawn* spawn = (Spawn*)item;
   spawn->setLevel(level);
   spawn->setClassVal(classVal);
+  if (race) spawn->setRace(*race);
   item->updateLastChanged();
   emit changeItem(item, tSpawnChangedALL);
+}
+
+void SpawnShell::applySpawnDeath(uint32_t id,
+                                 std::optional<uint32_t> killerId)
+{
+  if (id > UINT16_MAX) return;
+  Item* deceased = m_spawns.value(int(id), nullptr);
+  if (!deceased) return;
+  Item* killer = nullptr;
+  if (killerId && *killerId <= UINT16_MAX) {
+    if (m_player && *killerId == m_player->id())
+      killer = m_player;
+    else
+      killer = m_spawns.value(int(*killerId), nullptr);
+  }
+  auto* spawn = static_cast<Spawn*>(deceased);
+  spawn->killSpawn();
+  spawn->updateLast();
+  deceased->updateLastChanged();
+  emit killSpawn(deceased, killer,
+                 killer ? 0 : uint16_t(killerId.value_or(0)));
+}
+
+void SpawnShell::applyPlayerDeath(std::optional<uint32_t> killerId)
+{
+  if (!m_player || m_player->id() == 0) return;
+  Item* killer = nullptr;
+  if (killerId && *killerId <= UINT16_MAX)
+    killer = m_spawns.value(int(*killerId), nullptr);
+  m_player->killSpawn();
+  m_player->updateLast();
+  m_player->updateLastChanged();
+  emit killSpawn(m_player, killer,
+                 killer ? 0 : uint16_t(killerId.value_or(0)));
 }
 
 void SpawnShell::updateSpawnAnimation(uint16_t id, uint8_t animation)
@@ -1418,25 +1539,6 @@ void SpawnShell::updateMobHealth(const uint8_t* data)
   emit changeItem(item, tSpawnChangedHP);
 }
 
-void SpawnShell::spawnWearingUpdate(const uint8_t* data)
-{
-  const wearChangeStruct *wearing = (const wearChangeStruct *)data;
-  Item* item = m_spawns.value(wearing->spawnId, nullptr);
-  if (item != NULL)
-  {
-    // ZBTEMP: Find newItemID
-    //Spawn* spawn = (Spawn*)item;
-    //    spawn->setEquipment(wearing->wearSlotId, wearing->newItemId);
-    uint32_t changeType = tSpawnChangedWearing;
-    if (updateFilterFlags(item))
-      changeType |= tSpawnChangedFilter;
-    if (updateRuntimeFilterFlags(item))
-      changeType |= tSpawnChangedRuntimeFilter;
-    item->updateLastChanged();
-    emit changeItem(item, changeType);
-  }
-}
-
 void SpawnShell::consMessage(const uint8_t* data, size_t len, uint8_t dir)
 {
   // Pass the ACTUAL payload length, not sizeof(considerStruct): the EQL
@@ -1603,38 +1705,6 @@ void SpawnShell::killSpawn(const uint8_t* data)
      killer = m_spawns.value(out.killer_id, nullptr);
      emit killSpawn(item, killer, out.killer_id);
    }
-}
-
-void SpawnShell::respawnFromHover(const uint8_t* data, size_t len, uint8_t dir)
-{
-   if(dir != DIR_Client)
-      return;
-#ifdef SPAWNSHELL_DIAG
-   seqDebug("SpawnShell::respawnFromHover()");
-#endif
-
-    // Our old player is a corpse, but we're rising from the dead. So
-    // we need to pop a corpse to represent our deadselves, invalidate
-    // the player, and then let the OP_ZoneEntry that is coming for the repop
-    // fix the player.
-    uint16_t corpseId = m_player->id();
-
-    // invalidate the player by severing it from its Id.
-    m_player->setID(0);
-
-    // Pop a corpse
-    Spawn* corpse = new Spawn((Spawn*) m_player, corpseId);
-
-    updateFilterFlags(corpse);
-    updateRuntimeFilterFlags(corpse);
-    m_spawns.insert(corpse->id(), corpse);
-
-    corpse->setGuildTag(m_guildMgr->guildIdToName(corpse->guildID(), corpse->guildServerID()));
-
-    emit addItem(corpse);
-
-    // send notification of new spawn count
-    emit numSpawns(m_spawns.count());
 }
 
 void SpawnShell::corpseLoc(const uint8_t* data)

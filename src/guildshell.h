@@ -62,6 +62,7 @@ struct GuildRosterEntry
   uint32_t fullMember = 0;
   QString  publicNote;
   uint16_t zoneId = 0;      // 0 = offline
+  uint16_t zoneInstance = 0;
 };
 
 class GuildMember
@@ -141,14 +142,18 @@ class GuildShell : public QObject
   // rows. Used by backends whose wire diverges from the stock struct the
   // guildMemberList() slot below walks (eql). Emits the same cleared/added/loaded
   // signals, so downstream sees no difference. Unused on live/test.
-  void setRoster(uint32_t guildId, const QVector<GuildRosterEntry>& rows);
+  void setRoster(uint32_t guildId, const QVector<GuildRosterEntry>& rows,
+                 bool complete = true);
   uint32_t guildId() const { return m_guildId; }
+  bool rosterComplete() const { return m_rosterComplete; }
 
   // Neutral MOTD-apply primitive: the message + who set it, already decoded off
   // the wire (the packet carries no guild id — it's the player's own guild). The
   // guild id is taken from the roster this shell already tracks. Emits
   // motdChanged(). Unused on live/test.
   void setMotd(const QString& message, const QString& sender);
+  void setMotd(uint32_t guildId, const QString& message,
+               const QString& sender);
   const QString& motd() const { return m_motd; }
   const QString& motdSender() const { return m_motdSender; }
   bool hasMotd() const { return m_motdSet; }
@@ -157,6 +162,8 @@ class GuildShell : public QObject
   // OP_ExpandedGuildInfo. A QMap so keys iterate sorted -> deterministic proto.
   // Ranks are 1-based and sparse; a roster member's numeric rank indexes this.
   const QMap<uint32_t, QString>& rankNames() const { return m_rankNames; }
+  void setRankNames(uint32_t guildId,
+                    const QMap<uint32_t, QString>& ranks);
 
  public slots:
   void guildMemberList(const uint8_t* data, size_t len);
@@ -202,6 +209,7 @@ class GuildShell : public QObject
   bool m_motdSet = false;
   // rank ordinal (1-based) -> label; see rankNames().
   QMap<uint32_t, QString> m_rankNames;
+  bool m_rosterComplete = false;
 };
 
 #endif // _GUILDSHELL_H_

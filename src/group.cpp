@@ -30,6 +30,7 @@
 #include "netstream.h"
 
 #include <cstring>
+#include <array>
 
 #include <QSet>
 #include <QTextStream>
@@ -101,12 +102,52 @@ void GroupMgr::player(const charProfileStruct* player)
 
 void GroupMgr::groupUpdate(const uint8_t* /*data*/, size_t /*size*/)
 {
-  // OP_GroupUpdate on this wire is a fixed-168B per-recipient status push
-  // (name@64, no member roster — count field is 0), NOT the variable full
-  // roster the legends groupRosterEQL format carries. Member identity rides
-  // OP_GroupFollow (addGroupMember) and departures OP_GroupDisband/2
-  // (removeGroupMember), so this noops. (decode_group_roster stays available
-  // for a server that does send the variable roster on this id.)
+  // Fixed-168B status push with no roster (count is 0); membership rides
+  // OP_GroupFollow/OP_GroupDisband, so both hosts ignore this form.
+}
+
+void GroupMgr::applyRoster(const std::vector<GroupRosterEntry>& members,
+                           bool complete)
+{
+  std::array<std::optional<GroupRosterEntry>, MAX_GROUP_PEERS> incoming;
+  for (const auto& member : members) {
+    if (member.slot >= MAX_GROUP_PEERS || member.name.isEmpty()) continue;
+    incoming[member.slot] = member;
+  }
+
+  for (int slot = 0; slot < MAX_GROUP_PEERS; ++slot) {
+    GroupMember* current = m_members[slot];
+    const auto& next = incoming[size_t(slot)];
+    if (!next) {
+      if (!current->m_name.isEmpty()) {
+        emit removed(current->m_name, current->m_spawn);
+        if (current->m_spawn) --m_membersInZoneCount;
+        --m_memberCount;
+      }
+      current->m_name.clear();
+      current->m_spawn = nullptr;
+      current->m_level.reset();
+      continue;
+    }
+
+    if (current->m_name != next->name) {
+      if (!current->m_name.isEmpty()) {
+        emit removed(current->m_name, current->m_spawn);
+        if (current->m_spawn) --m_membersInZoneCount;
+        --m_memberCount;
+      }
+      current->m_name = next->name;
+      current->m_spawn = m_spawnShell->findPlayerByDisplayName(next->name);
+      current->m_level = next->level;
+      ++m_memberCount;
+      if (current->m_spawn) ++m_membersInZoneCount;
+      emit added(current->m_name, current->m_spawn);
+    } else {
+      current->m_level = next->level;
+    }
+  }
+  m_rosterComplete = complete;
+  emit rosterUpdated();
 }
 
 void GroupMgr::addGroupMember(const uint8_t* data, size_t size)
@@ -123,16 +164,20 @@ void GroupMgr::addGroupMember(const uint8_t* data, size_t size)
   for (int i = 0; i < MAX_GROUP_PEERS; i++)
     if (m_members[i]->m_name == name) return;  // already tracked
 
+  bool addedMember = false;
   for (int i = 0; i < MAX_GROUP_PEERS; i++) {
     if (m_members[i]->m_name.isEmpty()) {
       m_members[i]->m_name = name;
       m_members[i]->m_spawn = m_spawnShell->findPlayerByDisplayName(name);
+      m_members[i]->m_level.reset();
       m_memberCount++;
       if (m_members[i]->m_spawn) m_membersInZoneCount++;
       emit added(name, m_members[i]->m_spawn);
+      addedMember = true;
       break;
     }
   }
+  if (addedMember) emit rosterUpdated();
 }
 
 void GroupMgr::groupMemberList(const uint8_t* data, size_t size)
@@ -193,6 +238,8 @@ void GroupMgr::groupMemberList(const uint8_t* data, size_t size)
          }
       }
    }
+   m_rosterComplete = true;
+   emit rosterUpdated();
 }
 
 void GroupMgr::removeGroupMember(const uint8_t* data)
@@ -213,6 +260,7 @@ void GroupMgr::removeGroupMember(const uint8_t* data)
       {
          m_members[i]->m_name = "";
          m_members[i]->m_spawn = 0;
+         m_members[i]->m_level.reset();
       }
 
       emit cleared();
@@ -238,10 +286,12 @@ void GroupMgr::removeGroupMember(const uint8_t* data)
             // clear it
             m_members[i]->m_name = "";
             m_members[i]->m_spawn = 0;
+            m_members[i]->m_level.reset();
             break;
          }
       }
    }
+   emit rosterUpdated();
 }
 
 void GroupMgr::addItem(const Item* item)
@@ -452,4 +502,10 @@ QString GroupMgr::memberNameBySlot(uint16_t slot) const
   if (slot >= MAX_GROUP_PEERS) return QString();
   if (!m_members[slot]) return QString();
   return m_members[slot]->m_name;
+}
+
+uint32_t GroupMgr::memberLevelBySlot(uint16_t slot) const
+{
+  if (slot >= MAX_GROUP_PEERS || !m_members[slot]) return 0;
+  return m_members[slot]->m_level.value_or(0);
 }

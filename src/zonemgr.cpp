@@ -284,9 +284,8 @@ int32_t ZoneMgr::fillProfileStruct(charProfileStruct *player, const uint8_t *dat
                 out.spell_slot_refresh.data(), n * sizeof(uint32_t));
   }
 
-  // Buffs — only spellid + duration are consumed (Player::loadProfile,
-  // MessageShell::player, SpellShell::buffLoad). Rest of the spellBuff
-  // slot stays zeroed.
+  // Buffs — only spellid + duration are consumed (Player::loadProfile and
+  // SpellShell::buffLoad). Rest of the spellBuff slot stays zeroed.
   {
     const std::size_t n = std::min<std::size_t>(out.buff_spell_ids.size(),
         sizeof(player->profile.buffs) / sizeof(spellBuff));
@@ -480,6 +479,20 @@ void ZoneMgr::zonePlayer(const uint8_t* data, size_t len)
     }
   }
 
+  if (m_rustLifecycleProbe && m_rustLifecycleProbe()) {
+    if (!m_rustProfileAcceptedProbe || m_rustProfileAcceptedProbe()) {
+      // The profile event omits Live's zone id; keep this host-only input
+      // so map/filter/zone behavior survives Rust mode.
+      m_shortZoneName = zoneNameFromID(player->zoneId);
+      m_longZoneName = zoneLongNameFromID(player->zoneId);
+      m_zone_exp_multiplier = defaultZoneExperienceMultiplier;
+      m_zoning = false;
+      emit zoneBegin(m_shortZoneName);
+      emit playerProfileSupplement(player);
+    }
+    return;
+  }
+
   m_shortZoneName = zoneNameFromID(player->zoneId);
   m_longZoneName = zoneLongNameFromID(player->zoneId);
   m_zone_exp_multiplier = defaultZoneExperienceMultiplier;
@@ -521,8 +534,80 @@ void ZoneMgr::beginZoning()
 {
   m_zone_exp_multiplier = defaultZoneExperienceMultiplier;
   m_zoning = true;
+  emit zoneTransitionStarted();
   if (showeq_params->saveZoneState)
     saveZoneState();
+}
+
+void ZoneMgr::applyLifecycleTransition(const QString&, bool hasZoneId,
+                                       uint32_t zoneId, bool,
+                                       uint32_t, bool confirmed)
+{
+  if (!confirmed || !hasZoneId) {
+    beginZoning();
+    return;
+  }
+  m_shortZoneName = zoneNameFromID(uint16_t(zoneId));
+  m_longZoneName = zoneLongNameFromID(uint16_t(zoneId));
+  m_zone_exp_multiplier = defaultZoneExperienceMultiplier;
+  m_zoning = true;
+  emit zoneChanged(m_shortZoneName);
+  if (showeq_params->saveZoneState)
+    saveZoneState();
+}
+
+void ZoneMgr::applyLifecycleZone(const QString& shortName,
+                                 const QString& longName)
+{
+  // Stage names; the environment event in the same batch publishes once
+  // safe point/zone-file/experience state is in.
+#if defined(SEQ_TARGET_EQL)
+  m_shortZoneName = shortName;
+  m_longZoneName = longName;
+#else
+  adoptLiveZoneNames(shortName, longName);
+#endif
+  m_zoning = false;
+}
+
+void ZoneMgr::adoptLiveZoneNames(const QString& shortName,
+                                 const QString& longName)
+{
+  // Prefer the zone-id name: NewZone text may be localized or carry
+  // instance suffixes with no map package.
+  if (m_shortZoneName.isEmpty() || m_shortZoneName.startsWith("unk")) {
+    m_shortZoneName = shortName;
+    m_shortZoneName.remove(QRegularExpression("_\\d+$"));
+    m_shortZoneName.remove(QRegularExpression("_progress$"));
+    m_shortZoneName.remove(QRegularExpression("_int$"));
+    m_shortZoneName.remove(QRegularExpression("_errand$"));
+  }
+  m_longZoneName = longName;
+}
+
+void ZoneMgr::applyLifecycleEnvironment(const QString& zoneFile,
+                                        float experienceMultiplier,
+                                        float safeXValue, float safeYValue,
+                                        float safeZValue)
+{
+  m_zoneFile = zoneFile;
+  m_zone_exp_multiplier = experienceMultiplier;
+  m_safeX = safeXValue;
+  m_safeY = safeYValue;
+  m_safeZ = safeZValue;
+  m_safePoint.setPoint(lrintf(safeXValue), lrintf(safeYValue),
+                       lrintf(safeZValue));
+#if defined(SEQ_TARGET_EQL)
+  // EQL resolves NewZone after its spawn bulk, so preserve that bulk and use
+  // the non-clearing map/filter/web path.
+  setZoneByName(m_shortZoneName, m_longZoneName);
+#else
+  // Live/Test historically publish zoneEnd only, after all environment state
+  // is installed. SessionAdapter/map consumers depend on this ordering.
+  emit zoneEnd(m_shortZoneName, m_longZoneName);
+  if (showeq_params->saveZoneState)
+    saveZoneState();
+#endif
 }
 
 void ZoneMgr::zoneNew(const uint8_t* data, size_t len, uint8_t dir)
@@ -533,6 +618,10 @@ void ZoneMgr::zoneNew(const uint8_t* data, size_t len, uint8_t dir)
 
   m_safePoint.setPoint(lrintf(out.safe_x), lrintf(out.safe_y),
                        lrintf(out.safe_z));
+  m_safeX = out.safe_x;
+  m_safeY = out.safe_y;
+  m_safeZ = out.safe_z;
+  m_zoneFile = QString::fromLatin1(out.zonefile.data(), out.zonefile.size());
   m_zone_exp_multiplier = out.zone_exp_multiplier;
 
   // ZBNOTE: Apparently these come in with the localized names, which means we
@@ -541,33 +630,9 @@ void ZoneMgr::zoneNew(const uint8_t* data, size_t len, uint8_t dir)
   //         in as 'OGemeinl'.  OK, now that we have figured out the zone id
   //         issue, we'll only use this short zone name if there isn't one or
   //         it is an unknown zone.
-  if (m_shortZoneName.isEmpty() || m_shortZoneName.startsWith("unk"))
-  {
-    m_shortZoneName =
-        QString::fromLatin1(out.short_name.data(), out.short_name.size());
-
-    // LDoN likes to append a _262 to the zonename. Get rid of it.
-    QRegularExpression rx("_\\d+$");
-    m_shortZoneName.replace( rx, "");
-
-    // 2020-01-20 patch seems to have added _progress suffix to certain
-    // zone names, presumably for the progression servers. This happens in
-    // ToV DZs for sure, but there may be others.
-    QRegularExpression rz("_progress$");
-    m_shortZoneName.replace(rz, "");
-
-    // some zones are getting a suffix of _int (particularly guild halls)
-    // which causes failure to load maps.
-    QRegularExpression ry("_int$");
-    m_shortZoneName.replace(ry, "");
-
-    //anniversary missions
-    QRegularExpression rw("_errand$");
-    m_shortZoneName.replace(rw, "");
-  }
-
-  m_longZoneName =
-      QString::fromLatin1(out.long_name.data(), out.long_name.size());
+  adoptLiveZoneNames(
+      QString::fromLatin1(out.short_name.data(), out.short_name.size()),
+      QString::fromLatin1(out.long_name.data(), out.long_name.size()));
   m_zoning = false;
 
 #if 1 // ZBTEMP
@@ -633,6 +698,7 @@ void ZoneMgr::zonePoints(const uint8_t* data, size_t len, uint8_t)
     m_zonePoints[i].zoneId       = out.zone_id;
     m_zonePoints[i].zoneInstance = out.zone_instance;
   }
+  emit entityZonePointsChanged();
 }
 
 void ZoneMgr::dynamicZonePoints(const uint8_t *data, size_t len, uint8_t)
@@ -649,6 +715,7 @@ void ZoneMgr::dynamicZonePoints(const uint8_t *data, size_t len, uint8_t)
          m_dzType = 0; // green
       else
          m_dzType = 1; // pink
+      emit dynamicZoneChanged();
    }
    else if(len == 8)
    {
@@ -656,6 +723,7 @@ void ZoneMgr::dynamicZonePoints(const uint8_t *data, size_t len, uint8_t)
       m_dzPoint.setPoint(0, 0, 0);
       m_dzID = 0;
       m_dzLongName = "";
+      emit dynamicZoneChanged();
    }
 }
 
@@ -671,5 +739,37 @@ void ZoneMgr::dynamicZoneInfo(const uint8_t* data, size_t len, uint8_t)
       m_dzPoint.setPoint(0, 0, 0);
       m_dzID = 0;
       m_dzLongName = "";
+      emit dynamicZoneChanged();
    }
+}
+
+void ZoneMgr::applyDynamicZoneState(
+    bool active, std::optional<uint16_t> zoneId,
+    std::optional<uint16_t> instanceId, std::optional<uint32_t> kind,
+    std::optional<float> x, std::optional<float> y, std::optional<float> z,
+    std::optional<uint32_t> maxPlayers, const QString& expeditionName,
+    const QString& leaderName, bool complete)
+{
+   m_dzActive = active;
+   m_dzInstanceId = instanceId;
+   m_dzKind = kind;
+   m_dzMaxPlayers = maxPlayers;
+   m_dzExpeditionName = expeditionName;
+   m_dzLeaderName = leaderName;
+   m_dzComplete = complete;
+   if (!active) {
+      m_dzPoint.setPoint(0, 0, 0);
+      m_dzID = 0;
+      m_dzLongName.clear();
+      m_dzType = 0;
+   } else {
+      m_dzID = zoneId.value_or(0);
+      m_dzLongName = zoneId ? zoneLongNameFromID(*zoneId) : QString();
+      if (x && y && z)
+         m_dzPoint.setPoint(lrintf(*x), lrintf(*y), lrintf(*z));
+      else
+         m_dzPoint.setPoint(0, 0, 0);
+      m_dzType = kind && *kind != 1 && *kind > 2 && *kind <= 5 ? 0 : 1;
+   }
+   emit dynamicZoneChanged();
 }

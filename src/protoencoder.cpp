@@ -1,6 +1,7 @@
 #include "protoencoder.h"
 
 #include <QPoint>
+#include <QRegularExpression>
 
 #include "category.h"
 #include "everquest.h"
@@ -16,7 +17,81 @@
 #include "spawnmonitor.h"
 #include "spellshell.h"
 
+QString print_item(uint16_t item);
+
 namespace seq::encode {
+
+QString compatibilityDoorName(const QString& semanticName, uint32_t id)
+{
+    return QStringLiteral("Door: %1 (%2) ").arg(semanticName).arg(id);
+}
+
+QString compatibilityGroundItemName(const QString& actorDefinition)
+{
+    QString itemCode = actorDefinition;
+    if (itemCode.startsWith(QStringLiteral("IT")))
+        itemCode = itemCode.mid(2).section(
+            '_', 0, 0, QString::SectionCaseInsensitiveSeps);
+    const int itemId = itemCode.toInt();
+    return QStringLiteral("Drop: ") +
+        (itemId > 0 ? print_item(uint16_t(itemId)) : actorDefinition);
+}
+
+QString compatibilitySpawnName(const QString& semanticName)
+{
+    QString value = semanticName;
+    value.remove(QRegularExpression(QStringLiteral("[0-9]")));
+    value.replace('_', ' ');
+    QString article;
+    if (value.startsWith(QStringLiteral("a "))) {
+        value = value.mid(2);
+        article = QStringLiteral("a");
+    } else if (value.startsWith(QStringLiteral("an "))) {
+        value = value.mid(3);
+        article = QStringLiteral("an");
+    } else if (value.startsWith(QStringLiteral("the "))) {
+        value = value.mid(4);
+        article = QStringLiteral("the");
+    }
+    if (!article.isEmpty())
+        value += QStringLiteral(", ") + article;
+    return value;
+}
+
+seq::v1::Envelope zoneChanged(const QString& shortName,
+                              const QString& longName,
+                              const MapData* map)
+{
+    seq::v1::Envelope envelope;
+    auto* zone = envelope.mutable_zone_changed();
+    zone->set_zone_short(shortName.toStdString());
+    zone->set_zone_long(longName.toStdString());
+    if (map && map->numLayers() > 0)
+        fillMapGeometry(zone->mutable_geometry(), *map);
+    return envelope;
+}
+
+seq::v1::Envelope eqTimeSync(const QDateTime& dateTime)
+{
+    seq::v1::Envelope envelope;
+    if (!dateTime.isValid()) return envelope;
+    auto* time = envelope.mutable_eq_time_sync();
+    time->set_year(dateTime.date().year());
+    time->set_month(dateTime.date().month());
+    time->set_day(dateTime.date().day());
+    time->set_hour(dateTime.time().hour());
+    time->set_minute(dateTime.time().minute());
+    return envelope;
+}
+
+seq::v1::Envelope zoneServer(const QString& host, quint16 port)
+{
+    seq::v1::Envelope envelope;
+    auto* server = envelope.mutable_zone_server();
+    server->set_host(host.toStdString());
+    server->set_port(port);
+    return envelope;
+}
 
 static seq::v1::SpawnType typeFromItem(const Item& it)
 {
@@ -123,11 +198,22 @@ void fillSpawn(seq::v1::Spawn* out, const Item& it,
         // convention so the raw Item::name is fine to send.
         // X/Y negation per the screen-convention contract documented in
         // fillPos above.
-        out->set_name(it.name().toStdString());
+        if (const auto* door = dynamic_cast<const Door*>(&it))
+            out->set_name(door->compatibilityName().toStdString());
+        else if (const auto* drop = dynamic_cast<const Drop*>(&it))
+            out->set_name(drop->compatibilityName().toStdString());
+        else
+            out->set_name(it.name().toStdString());
         auto* pos = out->mutable_pos();
-        pos->set_x(-it.x());
-        pos->set_y(-it.y());
-        pos->set_z(it.z());
+        if (const auto* door = dynamic_cast<const Door*>(&it)) {
+            pos->set_x(-int32_t(door->semanticX()));
+            pos->set_y(-int32_t(door->semanticY()));
+            pos->set_z(int32_t(door->semanticZ() * 10.0f));
+        } else {
+            pos->set_x(-it.x());
+            pos->set_y(-it.y());
+            pos->set_z(it.z());
+        }
     }
 
     if (categories) {
@@ -410,6 +496,7 @@ void fillGroupUpdate(seq::v1::GroupUpdate* out, GroupMgr& g)
             m->set_class_(sp->classVal());
         } else {
             m->set_in_zone(false);
+            m->set_level(g.memberLevelBySlot(slot));
         }
     }
 }

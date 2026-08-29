@@ -35,6 +35,8 @@ private slots:
     void fillSpawn_otherPlayer();
     void fillSpawn_drop();
     void fillSpawn_door();
+    void fillSpawn_semanticDoorProjectsLegacyCompatibility();
+    void fillSpawn_semanticGroundItemProjectsLegacyCompatibility();
     void fillPos_heading_data();
     void fillPos_heading();
     void transformedName_articleMove();
@@ -180,6 +182,40 @@ void ProtoEncoderTest::fillSpawn_door()
     QCOMPARE(out.type(), seq::v1::DOOR);
     // X negated: input -100 → wire 100.
     QCOMPARE(out.pos().x(), 100);
+}
+
+void ProtoEncoderTest::fillSpawn_semanticDoorProjectsLegacyCompatibility()
+{
+    Door door(7, QStringLiteral("POKTELE500"), 10.75f, -20.25f, 3.5f,
+              91.25f, 1, 100, 2, 3, 4, std::nullopt);
+    QCOMPARE(door.name(), QStringLiteral("POKTELE500"));
+    QVERIFY(!door.semanticZonePoint());
+
+    seq::v1::Spawn out;
+    seq::encode::fillSpawn(&out, door);
+    QCOMPARE(QString::fromStdString(out.name()),
+             QStringLiteral("Door: POKTELE500 (7) "));
+    QCOMPARE(out.type(), seq::v1::DOOR);
+    QCOMPARE(out.pos().x(), -10);
+    QCOMPARE(out.pos().y(), 20);
+    QCOMPARE(out.pos().z(), 35);
+}
+
+void ProtoEncoderTest::fillSpawn_semanticGroundItemProjectsLegacyCompatibility()
+{
+    Drop drop(8, QStringLiteral("IT63_ACTORDEF"), 1.75f, -2.75f, 3.75f,
+              std::nullopt);
+    QCOMPARE(drop.name(), QStringLiteral("IT63_ACTORDEF"));
+
+    seq::v1::Spawn out;
+    seq::encode::fillSpawn(&out, drop);
+    QCOMPARE(out.type(), seq::v1::DROP);
+    QCOMPARE(QString::fromStdString(out.name()),
+             seq::encode::compatibilityGroundItemName(
+                 QStringLiteral("IT63_ACTORDEF")));
+    QCOMPARE(out.pos().x(), -1);
+    QCOMPARE(out.pos().y(), 2);
+    QCOMPARE(out.pos().z(), 3);
 }
 
 // Verifies the 8-bit heading → degrees formula in fillPos for non-Player

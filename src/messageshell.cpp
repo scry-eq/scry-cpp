@@ -26,17 +26,10 @@
 #include "lootstore.h"
 #include "eqstr.h"
 #include "messages.h"
-#include "everquest.h"
-#include "spells.h"
-#include "spellmessages.h"
-#include "dbstrings.h"
-#include "zonemgr.h"
 #include "spawnshell.h"
 #include "player.h"
 #include "packetcommon.h"
-#include "filtermgr.h"
 #include "util.h"
-#include "netstream.h"
 
 #include <QDateTime>
 #include <QRegularExpression>
@@ -74,22 +67,22 @@ int64_t nowMs()
     return QDateTime::currentMSecsSinceEpoch();
 }
 
+QString qString(const ::rust::String& value)
+{
+    return QString::fromUtf8(value.data(), int(value.size()));
+}
+
 } // namespace
 
 //----------------------------------------------------------------------
 // MessageShell
 MessageShell::MessageShell(Messages* messages, EQStr* eqStrings,
-			   Spells* spells, SpellMessages* spellMessages,
-			   DbStrings* dbStrings, ZoneMgr* zoneMgr,
-			   SpawnShell* spawnShell, Player* player,
+			   SpawnShell* spawnShell,
+			   Player* player,
                            QObject* parent, const char* name)
   : QObject(parent),
     m_messages(messages),
     m_eqStrings(eqStrings),
-    m_spells(spells),
-    m_spellMessages(spellMessages),
-    m_dbStrings(dbStrings),
-    m_zoneMgr(zoneMgr),
     m_spawnShell(spawnShell),
     m_player(player),
     m_lootTracker(seq::rust::eql_loot_tracker_new())
@@ -101,7 +94,10 @@ MessageShell::MessageShell(Messages* messages, EQStr* eqStrings,
 // rows are dropped, which is the point: a regression run must not write.
 void MessageShell::recordLoot(const rust::Vec<seq::rust::LootRow>& rows)
 {
-    if (!m_lootStore || rows.empty())
+    // This is the compatibility writer. Rust-owned sessions persist only
+    // through applyLootAcquired/applyCorpseLootSnapshot below.
+    if ((m_lootMutationGuard && !m_lootMutationGuard()) ||
+        !m_lootStore || rows.empty())
         return;
     QVector<LootRowRec> out;
     out.reserve(static_cast<int>(rows.size()));
@@ -130,11 +126,81 @@ void MessageShell::recordLoot(const rust::Vec<seq::rust::LootRow>& rows)
     m_lootStore->record(out);
 }
 
+void MessageShell::applyLootAcquired(
+    const seq::rust::EventLootAcquisition& p)
+{
+    if (p.complete || p.has_sequence) {
+        emit lootTransactionReceived(
+            p.has_corpse_id ? p.corpse_id : 0,
+            p.has_item_id ? p.item_id : 0,
+            p.quantity, p.coin_copper, p.from_corpse);
+    }
+    if (!m_lootStore) return;
+    LootRowRec row;
+    row.ts = p.timestamp;
+    row.source = p.from_corpse && !p.has_item_id
+        ? QStringLiteral("coin") : QStringLiteral("message");
+    row.itemName = qString(p.item_name);
+    if (row.itemName.isEmpty() && row.source == QLatin1String("coin"))
+        row.itemName = QStringLiteral("Coin");
+    row.itemId = p.has_item_id ? p.item_id : 0;
+    row.qty = p.quantity;
+    row.mobName = qString(p.corpse_name);
+    row.mobNorm = qString(p.corpse_name_normalized);
+    row.corpseId = p.has_corpse_id ? p.corpse_id : 0;
+    row.zoneShort = qString(p.zone_short);
+    row.zoneBase = qString(p.zone_base);
+    row.instance = qString(p.instance);
+    row.sold = p.sold;
+    row.moneyCopper = p.coin_copper;
+    row.disposition = qString(p.disposition);
+    row.looter = qString(p.looter);
+    row.sequence = p.has_sequence ? p.sequence : 0;
+    m_lootStore->record({row});
+}
+
+void MessageShell::applyCorpseLootSnapshot(
+    const seq::rust::EventCorpseLootSnapshot& p)
+{
+    QStringList names;
+    QVector<uint32_t> icons;
+    QVector<uint32_t> itemIds;
+    QVector<LootRowRec> rows;
+    names.reserve(int(p.items.size()));
+    icons.reserve(int(p.items.size()));
+    itemIds.reserve(int(p.items.size()));
+    rows.reserve(int(p.items.size()));
+    for (const auto& item : p.items) {
+        const QString name = qString(item.name);
+        names.push_back(name);
+        icons.push_back(item.icon);
+        itemIds.push_back(item.item_id);
+        LootRowRec row;
+        row.ts = p.timestamp;
+        row.source = QStringLiteral("window");
+        row.itemName = name;
+        row.itemId = item.item_id;
+        row.icon = item.icon;
+        row.mobName = qString(p.corpse_name);
+        row.mobNorm = qString(p.corpse_name_normalized);
+        row.corpseId = p.corpse_id;
+        row.zoneShort = qString(p.zone_short);
+        row.zoneBase = qString(p.zone_base);
+        row.instance = qString(p.instance);
+        row.looter = qString(p.looter);
+        rows.push_back(std::move(row));
+    }
+    emit lootDropsReceived(p.corpse_id, qString(p.corpse_name),
+                           names, icons, itemIds);
+    if (m_lootStore) m_lootStore->record(rows);
+}
+
 void MessageShell::channelMessage(const uint8_t* data, size_t len, uint8_t dir)
 {
   auto out = seq::rust::decode_channel_message(
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok) return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   const uint32_t chanNum = out.chan_num;
 
@@ -261,6 +327,47 @@ static MessageType chatColor2MessageType(ChatColor chatColor)
   return messageType;
 }
 
+QString MessageShell::resolveChatText(
+    uint32_t formatId, const std::vector<std::string>& rawArgs) const
+{
+  if (!m_eqStrings) return QString();
+  if (rawArgs.empty())
+    return stripEqItemLinks(m_eqStrings->message(formatId));
+  QStringList args;
+  args.reserve(int(rawArgs.size()));
+  for (const auto& arg : rawArgs)
+    args.push_back(QString::fromUtf8(arg.data(), int(arg.size())));
+  return stripEqItemLinks(m_eqStrings->formatMessage(formatId, args));
+}
+
+void MessageShell::applyChatMessage(const seq::rust::EventChatMessage& p)
+{
+  std::vector<std::string> args;
+  args.reserve(p.args.size());
+  for (const auto& arg : p.args) args.emplace_back(arg);
+  const QString text = p.has_format_id
+      ? resolveChatText(p.format_id, args) : qString(p.text);
+  if (text.isEmpty()) return;
+
+  const QString sender = qString(p.from);
+  const QString target = qString(p.target);
+  const QString channelName = qString(p.channel_name);
+  const MessageType mt = static_cast<MessageType>(p.channel);
+  QString display = text;
+  if (p.kind == seq::rust::EventChatMessageKind::Common) {
+    display = target.isEmpty()
+        ? QString("'%1' - %2").arg(sender, text)
+        : QString("'%1' -> '%2' - %3").arg(sender, target, text);
+  } else if (p.kind == seq::rust::EventChatMessageKind::Special) {
+    display = target.isEmpty()
+        ? QString("Special: '%1' - %2").arg(sender, text)
+        : QString("Special: '%1' -> '%2' - %3").arg(sender, target, text);
+  }
+  if (p.kind != seq::rust::EventChatMessageKind::Ucs)
+    m_messages->addMessage(mt, display);
+  emit chatMessage(p.channel, sender, target, text, p.chat_color, channelName);
+}
+
 void MessageShell::formattedMessage(const uint8_t* data, size_t len, uint8_t dir)
 {
   // avoid client chatter and do nothing if not viewing channel messages
@@ -270,6 +377,7 @@ void MessageShell::formattedMessage(const uint8_t* data, size_t len, uint8_t dir
   auto out = seq::rust::decode_formatted_message(
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok) return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   // Variable-length text follows the 13-byte header; pass through to
   // EQStr::formatMessage which walks the {u32 len, bytes} subseq array.
@@ -299,6 +407,7 @@ void MessageShell::formattedMessageEQL(const uint8_t* data, size_t len, uint8_t 
   auto out = seq::rust::decode_formatted_message(
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok) return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   // EQL 0x15d0 (07/14): stock length-prefixed FormattedMessage — format_id@5,
   // msg_color@9 (message type / chat colour), positional args (the parser has
@@ -333,9 +442,12 @@ void MessageShell::lootMessage(const uint8_t* data, size_t len, uint8_t dir)
   if (!out.ok || out.text.empty())
     return;
   const QString text = QString::fromUtf8(out.text.data(), out.text.size());
-  m_messages->addMessage(MT_General, text);
-  emit chatMessage(static_cast<uint32_t>(MT_General), QString(), QString(),
-                   text, out.color);
+  if (!m_communicationMutationGuard || m_communicationMutationGuard()) {
+    m_messages->addMessage(MT_General, text);
+    emit chatMessage(static_cast<uint32_t>(MT_General), QString(), QString(),
+                     text, out.color);
+  }
+  if (m_lootMutationGuard && !m_lootMutationGuard()) return;
   recordLoot(m_lootTracker->on_loot_message(out.color, out.text, out.item_id,
                                             out.item_name, nowMs()));
 }
@@ -353,6 +465,7 @@ void MessageShell::lootTransaction(const uint8_t* data, size_t len, uint8_t dir)
     return;
   if (out.coin_copper > 0)
     m_player->adjustMoney((int64_t)out.coin_copper);
+  if (m_lootMutationGuard && !m_lootMutationGuard()) return;
   emit lootTransactionReceived(out.corpse_id, out.item_id, out.quantity,
                                out.coin_copper, out.from_corpse);
   recordLoot(m_lootTracker->on_loot_transaction(out, nowMs()));
@@ -367,6 +480,7 @@ void MessageShell::lootDrops(const uint8_t* data, size_t len, uint8_t dir)
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok)
     return;
+  if (m_lootMutationGuard && !m_lootMutationGuard()) return;
   QStringList names;
   QVector<uint32_t> icons;
   QVector<uint32_t> itemIds;
@@ -397,6 +511,7 @@ void MessageShell::simpleMessage(const uint8_t* data, size_t len, uint8_t dir)
   auto out = seq::rust::decode_simple_message(
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok) return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   const MessageType mt = chatColor2MessageType(
       static_cast<ChatColor>(out.message_color));
@@ -415,6 +530,7 @@ void MessageShell::specialMessage(const uint8_t* data, size_t len, uint8_t dir)
   auto out = seq::rust::decode_special_message(
       rust::Slice<const uint8_t>{data, len});
   if (!out.ok) return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   const Item* target = NULL;
   if (out.target)
@@ -513,6 +629,7 @@ void MessageShell::ucsChatMessage(const uint8_t* data, size_t len, uint8_t dir,
   // zone/world server. Rust does the keyless XOR + SPAM-anchored record parse.
   if (dir != DIR_Server || data == NULL || len < 12)
     return;
+  if (m_communicationMutationGuard && !m_communicationMutationGuard()) return;
 
   auto recs = seq::rust::decode_ucs_chat(rust::Slice<const uint8_t>{data, len});
 
@@ -555,117 +672,6 @@ void MessageShell::ucsChatMessage(const uint8_t* data, size_t len, uint8_t dir,
   }
 }
 
-void MessageShell::guildMOTD(const uint8_t* data, size_t, uint8_t dir)
-{
-  // avoid client chatter and do nothing if not viewing channel messages
-  if (dir == DIR_Client)
-    return;
-
-  const guildMOTDStruct* gmotd = (const guildMOTDStruct*)data;
-
-  m_messages->addMessage(MT_Guild, 
-			 QString("MOTD: %1 - %2")
-			 .arg(QString::fromUtf8(gmotd->sender))
-			 .arg(QString::fromUtf8(gmotd->message)));
-}
-
-
-void MessageShell::moneyOnCorpse(const uint8_t* data)
-{
-  const moneyOnCorpseStruct* money = (const moneyOnCorpseStruct*)data;
-
-  QString tempStr;
-
-  if( money->platinum || money->gold || money->silver || money->copper )
-  {
-    bool bneedComma = false;
-    
-    tempStr = "You receive ";
-    
-    if(money->platinum)
-    {
-      tempStr += QString::number(money->platinum) + " platinum";
-      bneedComma = true;
-    }
-    
-    if(money->gold)
-    {
-      if(bneedComma)
-	tempStr += ", ";
-      
-      tempStr += QString::number(money->gold) + " gold";
-      bneedComma = true;
-    }
-    
-    if(money->silver)
-    {
-      if(bneedComma)
-	tempStr += ", ";
-      
-      tempStr += QString::number(money->silver) + " silver";
-      bneedComma = true;
-    }
-    
-    if(money->copper)
-      {
-	if(bneedComma)
-	  tempStr += ", ";
-	
-	tempStr += QString::number(money->copper) + " copper";
-      }
-    
-    tempStr += " from the corpse";
-    
-    m_messages->addMessage(MT_Money, tempStr);
-  }
-}
-
-void MessageShell::moneyUpdate(const uint8_t* data)
-{
-  //  const moneyUpdateStruct* money = (const moneyUpdateStruct*)data;
-  m_messages->addMessage(MT_Money, "Update");
-}
-
-void MessageShell::moneyThing(const uint8_t* data)
-{
-  //  const moneyUpdateStruct* money = (const moneyUpdateStruct*)data;
-  m_messages->addMessage(MT_Money, "Thing");
-}
-
-void MessageShell::randomRequest(const uint8_t* data)
-{
-  const randomReqStruct* randr = (const randomReqStruct*)data;
-  QString tempStr;
-
-  tempStr = QString::asprintf("Request random number between %d and %d",
-		  randr->bottom,
-		  randr->top);
-  
-  m_messages->addMessage(MT_Random, tempStr);
-}
-
-void MessageShell::random(const uint8_t* data)
-{
-  const randomStruct* randr = (const randomStruct*)data;
-  QString tempStr;
-
-  tempStr = QString::asprintf("Random number %d rolled between %d and %d by %s",
-		  randr->result,
-		  randr->bottom,
-		  randr->top,
-		  randr->name);
-  
-  m_messages->addMessage(MT_Random, tempStr);
-}
-
-void MessageShell::emoteText(const uint8_t* data)
-{
-  const emoteTextStruct* emotetext = (const emoteTextStruct*)data;
-  QString tempStr;
-
-  m_messages->addMessage(MT_Emote, emotetext->text);
-}
-
 void MessageShell::inspectData(const uint8_t* data)
 {
   const inspectDataStruct *inspt = (const inspectDataStruct *)data;
@@ -687,761 +693,4 @@ void MessageShell::inspectData(const uint8_t* data)
   }
 
   emit inspectReceived(inspt);
-}
-
-void MessageShell::logOut(const uint8_t*, size_t, uint8_t)
-{
-  m_messages->addMessage(MT_Zone, "LogoutCode: Client logged out of server");
-}
-
-void MessageShell::zoneEntryClient(const ClientZoneEntryStruct* zsentry)
-{
-  m_messages->addMessage(MT_Zone, "EntryCode: Client");
-}
-
-void MessageShell::zoneChanged(const zoneChangeStruct* zoneChange, size_t, uint8_t dir)
-{
-  QString tempStr;
-
-  if (dir == DIR_Client)
-  {
-    tempStr = "ChangeCode: Client, Zone: ";
-    tempStr += m_zoneMgr->zoneNameFromID(zoneChange->zoneId);
-  }
-  else
-  {
-    tempStr = "ChangeCode: Server, Zone:";
-    tempStr += m_zoneMgr->zoneNameFromID(zoneChange->zoneId);
-  }
-  
-  m_messages->addMessage(MT_Zone, tempStr);
-}
-
-void MessageShell::zoneNew(const uint8_t* data, size_t len, uint8_t dir)
-{
-  NetStream netStream(data, len);
-  QString newZoneShortName = netStream.readText ();
-  QString newZoneLongName = netStream.readText ();
-  QString tempStr;
-  tempStr = "NewCode: Zone: ";
-  tempStr += newZoneShortName + " (" + newZoneLongName + ")";
-  m_messages->addMessage(MT_Zone, tempStr);
-}
-
-void MessageShell::zoneBegin(const QString& shortZoneName)
-{
-  QString tempStr;
-  tempStr = QString("Zoning, Please Wait...\t(Zone: '")
-    + shortZoneName + "')";
-  m_messages->addMessage(MT_Zone, tempStr);
-}
-
-void MessageShell::zoneEnd(const QString& shortZoneName,
-			   const QString& longZoneName)
-{
-  QString tempStr;
-  tempStr = QString("Entered: ShortName = '") + shortZoneName +
-                    "' LongName = " + longZoneName;
-
-  m_messages->addMessage(MT_Zone, tempStr);
-
-  // Stamp the zone on rows from here on, and flush any narration still waiting
-  // for its confirmation so it keeps the zone it was looted in.
-  recordLoot(m_lootTracker->set_zone(shortZoneName.toStdString()));
-
-  // TODO(chat-synthesis): modern EQ renders "You have entered <zone>."
-  // client-side rather than sending it as chat, so the web chat panel never
-  // sees it. archive/test-client (commit b403896) synthesized it here via
-  //   emit chatMessage(MT_System, QString(), QString(),
-  //                    "You have entered " + longZoneName + ".", ...);
-  // This is wire-safe (zoneEnd already carries decoded names on Live), but it
-  // changes Live chat output + all zone-in replay goldens, so it's left opt-in
-  // pending a decision to enable it.
-}
-
-void MessageShell::zoneChanged(const QString& shortZoneName)
-{
-  QString tempStr;
-  tempStr = QString("Zoning, Please Wait...\t(Zone: '")
-    + shortZoneName + "')";
-  m_messages->addMessage(MT_Zone, tempStr);
-}
-
-
-void MessageShell::worldMOTD(const uint8_t* data)
-{ 
-  const worldMOTDStruct* motd = (const worldMOTDStruct*)data;
-  m_messages->addMessage(MT_Motd, QString::fromUtf8(motd->message));
-}
-
-void MessageShell::syncDateTime(const QDateTime& dt)
-{
-  QString dateString = dt.toString(pSEQPrefs->getPrefString("DateTimeFormat", "Interface", "ddd MMM dd,yyyy - hh:mm ap"));
-
-  m_messages->addMessage(MT_Time, dateString);
-}
-
-void MessageShell::handleSpell(const uint8_t* data, size_t, uint8_t dir)
-{
-  const memSpellStruct* mem = (const memSpellStruct*)data;
-  QString tempStr;
-
-  bool client = (dir == DIR_Client);
-
-  tempStr = "";
-  
-  switch (mem->action)
-  {
-  case 0:
-    {
-      if (!client)
-	tempStr = "You have finished scribing '";
-      break;
-    }
-    
-  case 1:
-    {
-      if (!client)
-	tempStr = "You finish casting '";
-      break;
-    }
-    
-  case 2:
-    {
-      if (!client)
-	tempStr = "You have finished memorizing '";
-      break;
-    }
-    
-  case 3:
-    {
-      if (!client)
-	tempStr = "You forget '";
-      break;
-    }
-
-  case 4:
-    {
-      if (!client)
-      break;
-    }
-    
-  default:
-    {
-      tempStr = QString::asprintf( "Unknown Spell Event ( %s ) - '",
-		       client  ?
-		     "Client --> Server"   :
-		       "Server --> Client"
-		       );
-      break;
-    }
-  }
-  
-  
-  if (!tempStr.isEmpty())
-  {
-    QString spellName;
-    const Spell* spell = m_spells->spell(mem->spellId);
-    
-    if (spell)
-      spellName = spell->name();
-    else
-      spellName = spell_name(mem->spellId);
-
-    if (mem->action != 4)
-      tempStr = QString::asprintf("%s%s', slot %d.",
-              tempStr.toLatin1().data(),
-              spellName.toLatin1().data(),
-              mem->slotId);
-
-    else 
-    {
-    // Spell procs send memspell packet for spell at slot 15 which causes duplicate spell cast console messages
-    // Commenting out code below and adding a case 4 above with no output removes the duplicate messages 
-      /*tempStr.sprintf("%s%s'.", 
-		      tempStr.ascii(), 
-		      (const char*)spellName);
-      */
-    }
-
-    m_messages->addMessage(MT_Spell, tempStr);
-  }
-}
-
-void MessageShell::beginCast(const uint8_t* data)
-{
-  const beginCastStruct *bcast = (const beginCastStruct *)data;
-  QString tempStr;
-
-  tempStr = "";
-
-  if (bcast->spawnId == m_player->id())
-    tempStr = "You begin casting '";
-  else
-  {
-    const Item* item = m_spawnShell->findID(tSpawn, bcast->spawnId);
-    if (item != NULL)
-      tempStr = item->name();
-    
-    if (tempStr == "" || tempStr.isEmpty())
-      tempStr = QString::asprintf("UNKNOWN (ID: %d)", bcast->spawnId);
-    
-    tempStr += " has begun casting '";
-  }
-  float casttime = ((float)bcast->castTime / 1000);
-  
-  QString spellName;
-  const Spell* spell = m_spells->spell(bcast->spellId);
-  
-  if (spell)
-    spellName = spell->name();
-  else
-    spellName = spell_name(bcast->spellId);
-
-  tempStr = QString::asprintf( "%s%s' - Casting time is %g Second%s",
-          tempStr.toLatin1().data(),
-          spellName.toLatin1().data(), casttime,
-          casttime == 1 ? "" : "s");
-
-  m_messages->addMessage(MT_Spell, tempStr);
-}
-
-void MessageShell::spellFaded(const uint8_t* data)
-{
-  // spellFadedStruct trails its `message` field with `char message[0]`; access
-  // through the typed lvalue trips -Warray-bounds. Read via byte offset.
-  const char* message = reinterpret_cast<const char*>(data)
-                        + offsetof(spellFadedStruct, message);
-  QString tempStr;
-
-  if (strlen(message) > 0)
-  {
-      tempStr = QString::asprintf( "Faded: %s", message);
-
-      m_messages->addMessage(MT_Spell, tempStr);
-  }
-}
-
-void MessageShell::interruptSpellCast(const uint8_t* data)
-{
-  const badCastStruct *icast = (const badCastStruct *)data;
-  const Item* item = m_spawnShell->findID(tSpawn, icast->spawnId);
-
-  QString tempStr;
-  if (item != NULL)
-    tempStr = QString::asprintf("%s(%d): %s",
-            item->name().toLatin1().data(), icast->spawnId, icast->message);
-  else
-    tempStr = QString::asprintf("spawn(%d): %s",
-            icast->spawnId, icast->message);
-
-  m_messages->addMessage(MT_Spell, tempStr);
-}
-
-void MessageShell::startCast(const uint8_t* data)
-{
-  const startCastStruct* cast = (const startCastStruct*)data;
-  QString spellName;
-  const Spell* spell = m_spells->spell(cast->spellId);
-  
-  if (spell)
-    spellName = spell->name();
-  else
-    spellName = spell_name(cast->spellId);
-
-  const Item* item = m_spawnShell->findID(tSpawn, cast->targetId);
-
-  QString targetName;
-
-  if (item != NULL)
-    targetName = item->name();
-  else
-    targetName = "";
-
-  QString tempStr;
-
-  tempStr = QString::asprintf("You begin casting %s.  Current Target is %s(%d)",
-          spellName.toLatin1().data(), targetName.toLatin1().data(),
-          cast->targetId);
-
-  m_messages->addMessage(MT_Spell, tempStr);
-}
-
-// 9/30/2008 - no longer used. Group info is sent differently now
-void MessageShell::groupUpdate(const uint8_t* data, size_t size, uint8_t dir)
-{
-  if (size != sizeof(groupUpdateStruct))
-  {
-    // Ignore groupFullUpdateStruct
-    return;
-  }
-  return;
-  const groupUpdateStruct* gmem = (const groupUpdateStruct*)data;
-  QString tempStr;
-
-  switch (gmem->action)
-  {
-    case GUA_Joined :
-      tempStr = QString::asprintf ("Update: %s has joined the group.", gmem->membername);
-      break;
-    case GUA_Left :
-      tempStr = QString::asprintf ("Update: %s has left the group.", gmem->membername);
-      break;
-    case GUA_LastLeft :
-      tempStr = QString::asprintf ("Update: The group has been disbanded when %s left.",
-         gmem->membername);
-      break;
-    case GUA_MakeLeader : 
-      tempStr = QString::asprintf ("Update: %s is now the leader of the group.", 
-         gmem->membername);
-      break;
-    case GUA_Started :
-      tempStr = QString::asprintf ("Update: %s has formed the group.", gmem->membername);
-      break;
-    default :
-       tempStr = QString::asprintf ("Update: Unknown Update action:%d - %s - %s)", 
-		   gmem->action, gmem->yourname, gmem->membername);
-  }
-
-  m_messages->addMessage(MT_Group, tempStr);
-}
-
-void MessageShell::groupInvite(const uint8_t* data, size_t len, uint8_t dir)
-{
-  const groupInviteStruct* gmem = (const groupInviteStruct*)data;
-  QString tempStr;
-
-  if(dir == DIR_Client)
-     tempStr = QString::asprintf("Invite: You invite %s to join the group", gmem->invitee);
-  else
-     tempStr = QString::asprintf("Invite: %s invites %s to join the group", gmem->inviter, gmem->invitee);
-
-  m_messages->addMessage(MT_Group, tempStr);
-}
-
-void MessageShell::groupDecline(const uint8_t* data)
-{
-  const groupDeclineStruct* gmem = (const groupDeclineStruct*)data;
-  QString tempStr;
-  switch(gmem->reason)
-  {
-     case 1:
-        tempStr = QString::asprintf("Invite: %s declines invite from %s (player is grouped)", 
-                        gmem->membername, gmem->yourname);
-        break;
-     case 3:
-        tempStr = QString::asprintf("Invite: %s declines invite from %s", 
-                        gmem->membername, gmem->yourname);
-        break;
-     default:
-        tempStr = QString::asprintf("Invite: %s declines invite from %s (unknown reason: %i)", 
-                        gmem->membername, gmem->yourname, gmem->reason);
-        break;
-  }
-  m_messages->addMessage(MT_Group, tempStr);
-}
-
-// TODO(chat-synthesis, live-verify): "X has joined the group",
-// "X disbands", "X is now the leader" are rendered CLIENT-SIDE on modern EQ,
-// not sent as chat — so the web panel never sees them. archive/test-client
-// (commit b403896) synthesized them by emitting chatMessage() from the three
-// group handlers below (they currently only call addMessage, which the WS sink
-// ignores) AND fanned OP_GroupFollow / OP_GroupDisband(2) / OP_GroupLeader out
-// to MessageShell in daemonapp's wiring. NOT ported active because it depends
-// on the Test groupFollowStruct layout (name@0[16], vs this struct's legacy
-// name@64) — re-verify the group struct offsets against a current Live capture
-// before wiring, and do NOT apply the Test everquest.h struct rewrite blindly.
-void MessageShell::groupFollow(const uint8_t* data)
-{
-  const groupFollowStruct* gFollow = (const groupFollowStruct*)data;
-  QString tempStr;
-
-  if(!strcmp(gFollow->invitee, m_player->name().toLatin1().data()))
-     tempStr = "Follow: You have joined the group";
-  else
-     tempStr = QString::asprintf("Follow: %s has joined the group", gFollow->invitee);
-  m_messages->addMessage(MT_Group, tempStr);
-}
-
-void MessageShell::groupDisband(const uint8_t* data)
-{
-  const groupDisbandStruct* gmem = (const groupDisbandStruct*)data;
-  QString tempStr;
-
-  tempStr = QString::asprintf ("Disband: %s disbands from the group", gmem->membername);
-  m_messages->addMessage(MT_Group, tempStr);
-}
-
-void MessageShell::groupLeaderChange(const uint8_t* data)
-{
-   const groupLeaderChangeStruct *gmem = (const groupLeaderChangeStruct*)data;
-   QString tempStr;
-   tempStr = QString::asprintf("Update: %s is now the leader of the group", 
-                    gmem->membername);
-   m_messages->addMessage(MT_Group, tempStr);
-}
-
-void MessageShell::player(const charProfileStruct* player)
-{
-  QString message;
-
-  message = QString::asprintf("Name: '%s' Last: '%s'", 
-		  player->name, player->lastName);
-  m_messages->addMessage(MT_Player, message);
-
-  message = QString::asprintf("Level: %d", player->profile.level);
-  m_messages->addMessage(MT_Player, message);
-  
-  message = QString::asprintf("PlayerMoney: P=%d G=%d S=%d C=%d",
-		 player->profile.platinum, player->profile.gold, 
-		 player->profile.silver, player->profile.copper);
-  m_messages->addMessage(MT_Player, message);
-  
-  message = QString::asprintf("BankMoney: P=%d G=%d S=%d C=%d",
-		  player->platinum_bank, player->gold_bank, 
-		  player->silver_bank, player->copper_bank);
-  m_messages->addMessage(MT_Player, message);
-
-  message = QString::asprintf("CursorMoney: P=%d G=%d S=%d C=%d",
-		  player->profile.platinum_cursor, player->profile.gold_cursor, 
-		  player->profile.silver_cursor, player->profile.copper_cursor);
-  m_messages->addMessage(MT_Player, message);
-
-  message = QString::asprintf("SharedMoney: P=%d",
-		  player->platinum_shared);
-  m_messages->addMessage(MT_Player, message);
-
-  message = QString::asprintf("DoN Crystals: Radiant=%d Ebon=%d",
-          player->currentRadCrystals, player->currentEbonCrystals);
-  m_messages->addMessage(MT_Player, message);
-
-// charProfileStruct.exp hasn't been found
-//   message = "Exp: " + Commanate(player->exp);
-//   m_messages->addMessage(MT_Player, message);
-
-  message = "ExpAA: (spent: " + Commanate(player->profile.aa_spent) + 
-      ", unspent: " + Commanate(player->profile.aa_unspent) + ")";
-  m_messages->addMessage(MT_Player, message);
-
-#if 0 
-  // Format for the aa values used to 0-1000 for group, 0-2000 for raid,
-  // but now it's different. Just drop it for now. %%%
-  message = "GroupLeadAA: " + Commanate(player->expGroupLeadAA) + 
-      " (unspent: " + Commanate(player->groupLeadAAUnspent) + ")";
-  m_messages->addMessage(MT_Player, message);
-  message = "RaidLeadAA: " + Commanate(player->expRaidLeadAA) + 
-      " (unspent: " + Commanate(player->raidLeadAAUnspent) + ")";
-  m_messages->addMessage(MT_Player, message);
-#endif
-
-// 09/03/2008 patch - this is no longer sent in charProfile
-//   message.sprintf("Group: %s %s %s %s %s %s", player->groupMembers[0],
-//     player->groupMembers[1],
-//     player->groupMembers[2],
-//     player->groupMembers[3],
-//     player->groupMembers[4],
-//     player->groupMembers[5]);
-//   m_messages->addMessage(MT_Player, message);
-
-  int buffnumber;
-  QString spellName;
-
-  for (buffnumber=0;buffnumber<MAX_BUFFS;buffnumber++)
-  {
-    if (player->profile.buffs[buffnumber].spellid && 
-            player->profile.buffs[buffnumber].duration)
-    {
-      const Spell* spell = m_spells->spell(player->profile.buffs[buffnumber].spellid);
-      if(spell)
-         spellName = spell->name();
-      else
-         spellName = spell_name(player->profile.buffs[buffnumber].spellid);
-
-      if(player->profile.buffs[buffnumber].duration == -1)
-        message = QString::asprintf("You have buff %s (permanent).", spellName.toLatin1().data());
-      else
-        message = QString::asprintf("You have buff %s duration left is %d in ticks.",
-                spellName.toLatin1().data(), player->profile.buffs[buffnumber].duration);
-
-      m_messages->addMessage(MT_Player, message);
-    }
-  }
-
-  message = "LDoN Earned Guk Points: " + Commanate(player->ldon_guk_points);
-  m_messages->addMessage(MT_Player, message);
-  message = "LDoN Earned Mira Points: " + Commanate(player->ldon_mir_points);
-  m_messages->addMessage(MT_Player, message);
-  message = "LDoN Earned MMC Points: " + Commanate(player->ldon_mmc_points);
-  m_messages->addMessage(MT_Player, message);
-  message = "LDoN Earned Ruj Points: " + Commanate(player->ldon_ruj_points);
-  m_messages->addMessage(MT_Player, message);
-  message = "LDoN Earned Tak Points: " + Commanate(player->ldon_tak_points);
-  m_messages->addMessage(MT_Player, message);
-  message = "LDoN Unspent Points: " + Commanate(player->ldon_avail_points);
-  m_messages->addMessage(MT_Player, message);
-}
-
-void MessageShell::increaseSkill(const uint8_t* data)
-{
-  const skillIncStruct* skilli = (const skillIncStruct*)data;
-  QString tempStr;
-  tempStr = QString::asprintf("Skill: %s has increased (%d)",
-          skill_name(skilli->skillId).toLatin1().data(),
-          skilli->value);
-  m_messages->addMessage(MT_Player, tempStr);
-}
-
-void MessageShell::updateLevel(const uint8_t* data)
-{
-  const levelUpUpdateStruct *levelup = (const levelUpUpdateStruct *)data;
-  QString tempStr;
-  tempStr = QString::asprintf("NewLevel: %d", levelup->level);
-  m_messages->addMessage(MT_Player, tempStr);
-}
-  
-void MessageShell::consent(const uint8_t* data, size_t, uint8_t dir)
-{
-  const consentResponseStruct* consent = (const consentResponseStruct*)data;
-
-  m_messages->addMessage(MT_General, 
-      QString("Consent: %1 %4 permission to drag %2's corpse in %3")
-	  		 .arg(QString::fromUtf8(consent->consentee))
-			 .arg(QString::fromUtf8(consent->consenter))
-             .arg(QString::fromUtf8(consent->corpseZoneName))
-             .arg((consent->allow == 1 ? "granted" : "denied")));
-}
-
-
-void MessageShell::consMessage(const uint8_t* data, size_t, uint8_t dir) 
-{
-  const considerStruct * con = (const considerStruct*)data;
-  const Item* item;
-
-  QString lvl("");
-  QString hps("");
-  QString cn("");
-  QString deity;
-
-  QString msg("Your faction standing with ");
-
-  // is it you that you've conned?
-  if (con->playerid == con->targetid) 
-  {
-    deity = m_player->deityName();
-    
-    // well, this is You
-    msg += m_player->name();
-  }
-  else 
-  {
-    // find the spawn if it exists
-    item = m_spawnShell->findID(tSpawn, con->targetid);
-    
-    // has the spawn been seen before?
-    if (item != NULL)
-    {
-      Spawn* spawn = (Spawn*)item;
-
-      // yes
-      deity = spawn->deityName();
-
-      lvl = QString::number(spawn->level());
-
-      msg += item->name() + " (Lvl: " + lvl + ")";
-    } // end if spawn found
-    else
-      msg += "Spawn:" + QString::number(con->targetid, 16);
-  } // else not yourself
-  
-  switch (con->level) 
-  {
-  case 0:
-  case 5:
-  case 20:
-    msg += " (even)";
-    break;
-  case 1:
-    msg += " (grey)";
-    break;
-  case 2:
-    msg += " (green)";
-    break;
-  case 4:
-    msg += " (blue)";
-    break;
-  case 7:
-  case 13:
-    msg += " (red)";
-    break;
-  case 6:
-  case 15:
-    msg += " (yellow)";
-    break;
-  case 3:
-  case 18:
-    msg += " (cyan)";
-    break;
-  default:
-    msg += " (unknown: " + QString::number(con->level) + ")";
-    break;
-  }
-
-  if (!deity.isEmpty())
-    msg += QString(" [") + deity + "]";
-
-  msg += QString(" is: ") + print_faction(con->faction) + " (" 
-    + QString::number(con->faction) + ")!";
-
-  m_messages->addMessage(MT_Consider, msg);
-} // end consMessage()
-
-
-void MessageShell::setExp(uint32_t totalExp, uint32_t totalTick,
-			  uint32_t minExpLevel, uint32_t maxExpLevel, 
-			  uint32_t tickExpLevel)
-{
-    QString tempStr;
-    tempStr = QString::asprintf("Exp: Set: %u total, with %u (%u/330) into level with %u left, where 1/330 = %u",
-		    totalExp, (totalExp - minExpLevel), totalTick, 
-		    (maxExpLevel - totalExp), tickExpLevel);
-    m_messages->addMessage(MT_Player, tempStr);
-}
-
-void MessageShell::newExp(uint32_t newExp, uint32_t totalExp, 
-			  uint32_t totalTick,
-			  uint32_t minExpLevel, uint32_t maxExpLevel, 
-			  uint32_t tickExpLevel)
-{
-  QString tempStr;
-  uint32_t leftExp = maxExpLevel - totalExp;
-
-  // only can display certain things if new experience is greater then 0,
-  // ie. a > 1/330'th experience increment.
-  if (newExp)
-  {
-    // calculate the number of this type of kill needed to level.
-    uint32_t needKills = leftExp / newExp;
-
-    tempStr = QString::asprintf("Exp: New: %u, %u (%u/330) into level with %u left [~%u kills]",
-		    newExp, (totalExp - minExpLevel), totalTick, 
-		    leftExp, needKills);
-  }
-  else
-    tempStr = QString::asprintf("Exp: New: < %u, %u (%u/330) into level with %u left",
-		    tickExpLevel, (totalExp - minExpLevel), totalTick, 
-		    leftExp);
-  
-  m_messages->addMessage(MT_Player, tempStr);
-}
-
-void MessageShell::setAltExp(uint32_t totalExp,
-			     uint32_t maxExp, uint32_t tickExp, 
-			     uint32_t aaPoints)
-{
-  QString tempStr;
-  tempStr = QString::asprintf("ExpAA: Set: %u total, with %u aapoints",
-		  totalExp, aaPoints);
-
-  m_messages->addMessage(MT_Player, tempStr);
-}
-
-void MessageShell::newAltExp(uint32_t newExp, uint32_t totalExp, 
-			     uint32_t totalTick, 
-			     uint32_t maxExp, uint32_t tickExp, 
-			     uint32_t aapoints)
-{
-  QString tempStr;
-  
-  // only can display certain things if new experience is greater then 0,
-  // ie. a > 1/330'th experience increment.
-  if (newExp)
-    tempStr = QString::asprintf("ExpAA: %u, %u (%u/330) with %u left",
-		    newExp, totalExp, totalTick, maxExp - totalExp);
-  else
-    tempStr = QString::asprintf("ExpAA: < %u, %u (%u/330) with %u left",
-		    tickExp, totalExp, totalTick, maxExp - totalExp);
-
-  m_messages->addMessage(MT_Player, tempStr);
-}
-
-void MessageShell::addItem(const Item* item)
-{
-  uint32_t filterFlags = item->filterFlags();
-
-  if (filterFlags == 0)
-    return;
-
-  QString prefix("Spawn");
-
-  // first handle alert
-  if (filterFlags & FILTER_FLAG_ALERT)
-    filterMessage(prefix, MT_Alert, item);
-
-  if (filterFlags & FILTER_FLAG_DANGER)
-    filterMessage(prefix, MT_Danger, item);
-
-  if (filterFlags & FILTER_FLAG_CAUTION)
-    filterMessage(prefix, MT_Caution, item);
-
-  if (filterFlags & FILTER_FLAG_HUNT)
-    filterMessage(prefix, MT_Hunt, item);
-
-  if (filterFlags & FILTER_FLAG_LOCATE)
-    filterMessage(prefix, MT_Locate, item);
-}
-
-void MessageShell::delItem(const Item* item)
-{
-  // if it's an alert log the despawn
-  if (item->filterFlags() & FILTER_FLAG_ALERT)
-    filterMessage("DeSpawn", MT_Alert, item);
-}
-
-void MessageShell::killSpawn(const Item* item)
-{
-  // if it's an alert log the kill
-  if (item->filterFlags() & FILTER_FLAG_ALERT)
-    filterMessage("Died", MT_Alert, item);
-
-  // if this is the player spawn, note the place of death
-  if (item->id() != m_player->id())
-    return;
-
-  QString message;
-  
-  // use appropriate format depending on coordinate ordering
-  if (!showeq_params->retarded_coords)
-    message = "Died in zone '%1' at %2,%3,%4";
-  else
-    message = "Died in zone '%1' at %3,%2,%4";
-  
-  m_messages->addMessage(MT_Player, 
-			 message.arg(m_zoneMgr->shortZoneName())
-			 .arg(item->x()).arg(item->y()).arg(item->z()));
-}
-
-void MessageShell::filterMessage(const QString& prefix, MessageType type,
-				 const Item* item)
-{
-  QString message;
-  QString spawnInfo;
-
-  // try to get a Spawn
-  const Spawn* spawn = spawnType(item);
-
-  // extra info if it is a spawn
-  if (spawn)
-    spawnInfo = QString::asprintf(" LVL %d, HP %d/%d", 
-		      spawn->level(), spawn->HP(), spawn->maxHP());
-
-  // use appropriate format depending on coordinate ordering
-  if (!showeq_params->retarded_coords)
-    message = "%1: %2/%3/%4 at %5,%6,%7%8";
-  else
-    message = "%1: %2/%3/%4 at %6,%5,%7%8";
-  
-  m_messages->addMessage(type, message.arg(prefix).arg(item->transformedName())
-			 .arg(item->raceString()).arg(item->classString())
-			 .arg(item->x()).arg(item->y()).arg(item->z())
-			 .arg(spawnInfo));
 }

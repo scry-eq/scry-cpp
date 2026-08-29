@@ -69,13 +69,98 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
                 zoneS2C->on(op, payload, szt, handler);
         }
     };
+    auto lifecycle = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet || m_packet->legacyLifecycleEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
+    auto entity = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet || m_packet->legacyEntitiesEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
+    auto player = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet || m_packet->legacyPlayersEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
+    auto playerAppearance = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet ||
+                m_packet->legacyPlayerAppearanceEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
+    auto progression = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet ||
+                m_packet->legacyProgressionEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
+    auto combat = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet || m_packet->legacyCombatEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
+    auto communication = [this](PacketHandler handler) {
+        return [this, handler = std::move(handler)](
+                   const uint8_t* data, size_t len, uint8_t dir) {
+            if (!m_packet ||
+                m_packet->legacyCommunicationEnabledForCurrentPacket())
+                handler(data, len, dir);
+        };
+    };
+    ms.player->setProgressionMutationGuard([this] {
+        return !m_packet ||
+               m_packet->legacyProgressionEnabledForCurrentPacket();
+    });
 
     // Backend-owned adapter holding the Legends handlers (never on the core
     // managers — see eqldispatch.h). Owned by a shared_ptr the wired closures
     // capture, so it lives as long as this box's stream dispatchers reference
     // it — no QObject parent needed.
-    auto eql = std::make_shared<EqlDispatch>(ms.zoneMgr, ms.spawnShell, ms.player,
-                                             m_dbStrings, ms.guildShell, m_guildMgr);
+    auto eql = std::make_shared<EqlDispatch>(
+        ms.zoneMgr, ms.spawnShell, ms.player, m_dbStrings, ms.guildShell,
+        m_guildMgr,
+        [this] {
+            return m_packet &&
+                   !m_packet->legacyLifecycleEnabledForCurrentPacket();
+        },
+        [this](seq::shadow::LifecycleKind kind) {
+            return m_packet &&
+                   m_packet->rustLifecycleAcceptedForCurrentPacket(kind);
+        },
+        [this] {
+            return m_packet &&
+                   !m_packet->legacyPlayersEnabledForCurrentPacket();
+        },
+        [this] {
+            return m_packet &&
+                   !m_packet->legacyProgressionEnabledForCurrentPacket();
+        },
+        [this](seq::shadow::ProgressionKind kind) {
+            if (m_packet &&
+                m_packet->rustProgressionAcceptedForCurrentPacket(kind))
+                m_packet->observeLegacyProgression({kind, {}});
+        },
+        [this](const seq::shadow::LifecycleProfile& profile) {
+            if (!m_packet) return;
+            m_packet->observeLegacyLifecycle(seq::shadow::observeSessionReset(
+                seq::rust::EventSessionResetReason::PlayerProfile));
+            m_packet->observeLegacyLifecycle(
+                seq::shadow::observeProfile(profile));
+        });
 
     // --- ZoneMgr: zone transitions + player profile.
     // (EQ Legends has no separate c2s OP_ZoneEntry: the 4606 c2s 92B is a
@@ -91,7 +176,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // zoneChange, which decodes that struct. It only raises the zoning flag.
     wire("OP_ZoneChange", SP_Zone, DIR_Client | DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::zoneChange));
+         lifecycle(seqBind(eql, &EqlDispatch::zoneChange)));
     // EQ Legends OP_NewZone S>C: the authoritative current zone, carried
     // as packed short + long name text (parsed in EqlDispatch). Fires once per
     // zone-in, AFTER the profile + bulk spawn list — EqlDispatch::newZone drives
@@ -100,7 +185,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // (identical across zones) and is not OP_NewZone. See OPCODES_LEGENDS.md.
     wire("OP_NewZone", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::newZone));
+         lifecycle(seqBind(eql, &EqlDispatch::newZone)));
     // EQ Legends OP_EnterWorld C>S, 72B: the client entering the world
     // with its character — fires at login AND on every in-place session re-entry
     // (private instance, or any zone that reuses the world socket, so BoxRegistry
@@ -116,18 +201,21 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          seqBind(eql, &EqlDispatch::enterWorld));
     wire("OP_SendZonePoints", SP_Zone, DIR_Server,
          "zonePointsStruct", SZC_None,
-         seqBind(ms.zoneMgr, &ZoneMgr::zonePoints));
+         entity(seqBind(ms.zoneMgr, &ZoneMgr::zonePoints)));
     wire("OP_DzSwitchInfo", SP_Zone, DIR_Server,
          "dzSwitchInfo", SZC_None,
-         seqBind(ms.zoneMgr, &ZoneMgr::dynamicZonePoints));
+         communication(seqBind(ms.zoneMgr, &ZoneMgr::dynamicZonePoints)));
     wire("OP_DzInfo", SP_Zone, DIR_Server,
          "dzInfo", SZC_Match,
-         seqBind(ms.zoneMgr, &ZoneMgr::dynamicZoneInfo));
+         communication(seqBind(ms.zoneMgr, &ZoneMgr::dynamicZoneInfo)));
 
     // Cross-manager: profile feeds Player too (after GroupMgr, which is
     // connected in buildManagerSet() — preserves slot fire order).
-    connect(ms.zoneMgr, SIGNAL(playerProfile(const charProfileStruct*)),
-            ms.player,  SLOT(player(const charProfileStruct*)));
+    connect(ms.zoneMgr, &ZoneMgr::playerProfile, this,
+            [this, player = ms.player](const charProfileStruct* profile) {
+        if (!m_packet || m_packet->legacyPlayersEnabledForCurrentPacket())
+            player->player(profile);
+    });
 
     // EQ Legends OP_ClientUpdate: C>S 38B self-position (was 42B pre-07/14).
     // Re-cracked 2026-07-14 against a /loc ground-truth capture: IEEE floats
@@ -138,7 +226,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // for fire order.
     wire("OP_ClientUpdate", SP_Zone, DIR_Client,
          "playerSelfPosStruct", SZC_Match,
-         seqBind(eql, &EqlDispatch::playerUpdateSelf));
+         player(seqBind(eql, &EqlDispatch::playerUpdateSelf)));
 
     // OP_TimeOfDay / OP_ZoneServerInfo feed daemon-GLOBAL sinks. Only the
     // active box wires them — otherwise every box's (now unmuted) world/zone
@@ -151,10 +239,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     if (wireGlobalSinks) {
         wire("OP_TimeOfDay", SP_Zone, DIR_Server,
              "timeOfDayStruct", SZC_Match,
-             seqBind(m_dateTimeMgr, &DateTimeMgr::timeOfDay));
+             lifecycle(seqBind(m_dateTimeMgr, &DateTimeMgr::timeOfDay)));
         wire("OP_ZoneServerInfo", SP_World, DIR_Server,
              "zoneServerInfoStruct", SZC_Match,
-             seqBind(m_zoneServerMgr, &ZoneServerMgr::zoneServerInfo));
+             lifecycle(seqBind(m_zoneServerMgr, &ZoneServerMgr::zoneServerInfo)));
     }
 
     // Guild id→name, feeding spawn guild tags via GuildMgr::guildTagUpdated.
@@ -179,17 +267,17 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // wires per-box like the rest of the box pipeline.
     wire("OP_GuildMemberList", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::guildMemberList));
+         communication(seqBind(eql, &EqlDispatch::guildMemberList)));
     wire("OP_GuildMOTD", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::guildMotd));
+         communication(seqBind(eql, &EqlDispatch::guildMotd)));
 
     // --- SpawnShell: spawn lifecycle + positions.
     // eql ground-item defs are makeDropStruct/none (variable name field);
     // szt matches conf/eql/opcodes.toml so the handler binds directly.
     wire("OP_GroundSpawn", SP_Zone, DIR_Server,
          "makeDropStruct", SZC_None,
-         seqBind(ms.spawnShell, &SpawnShell::newGroundItem));
+         entity(seqBind(ms.spawnShell, &SpawnShell::newGroundItem)));
     // OP_ClickObject is dual-direction and BOTH sides are 12B remDropStruct
     // (confirmed 2026-08-06 on a drop/pickup capture): the S>C removal is what
     // we decode; the C>S side is the client's pickup REQUEST, carrying
@@ -201,7 +289,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // no-op — the explicit form of "ignore C>S", matching legends' S>C-only handling.
     wire("OP_ClickObject", SP_Zone, DIR_Server,
          "remDropStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::removeGroundItem));
+         entity(seqBind(ms.spawnShell, &SpawnShell::removeGroundItem)));
     wire("OP_ClickObject", SP_Zone, DIR_Client,
          "uint8_t", SZC_None,
          [](const uint8_t*, size_t, uint8_t) {});
@@ -211,7 +299,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // door_stride() — so the shared handler wires directly.
     wire("OP_SpawnDoor", SP_Zone, DIR_Server,
          "doorStruct", SZC_Modulus,
-         seqBind(ms.spawnShell, &SpawnShell::newDoorSpawns));
+         entity(seqBind(ms.spawnShell, &SpawnShell::newDoorSpawns)));
     // EQ Legends OP_ZoneEntry: one spawn per payload (name + block);
     // EqlDispatch parses the variable-length name and the fixed spawn block.
     // Stock-SEQ name: the s2c OP_ZoneEntry has been the per-spawn payload since
@@ -220,7 +308,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // record, which eql routes through EqlDispatch::spawn/upsertSpawn instead.
     wire("OP_ZoneEntry", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::spawn));
+         entity(seqBind(eql, &EqlDispatch::spawn)));
     // EQ Legends OP_LoadoutSwap: a player's multiclass loadout change.
     // Variable-size (self ~118KB w/ inventory tail, broadcast ~490B) — hand-
     // decoded via decode_loadout_swap (reuses the ZoneEntry record parser), so
@@ -228,13 +316,13 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // tracked spawn's class/level. See eqldispatch.cpp / OPCODES_LEGENDS.md.
     wire("OP_LoadoutSwap", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::loadoutSwap));
+         player(seqBind(eql, &EqlDispatch::loadoutSwap)));
     // EQ Legends OP_MobUpdate: per-mob position update (14B),
     // byte-identical to Live spawnPositionUpdate — size-gate on it directly;
     // decode via the shared Rust decode_mob_update.
     wire("OP_MobUpdate", SP_Zone, DIR_Server,
          "spawnPositionUpdate", SZC_Match,
-         seqBind(eql, &EqlDispatch::mobUpdate));
+         entity(seqBind(eql, &EqlDispatch::mobUpdate)));
     // EQ Legends OP_TargetMouse: C>S target select. The Legends payload
     // is byte-identical to Live's clientTargetStruct ({u32 spawn_id}, 0 = clear),
     // so it needs NO Legends glue — wire straight to the neutral core handler,
@@ -260,22 +348,22 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // each ignores the other's type.
     wire("OP_SpawnAppearance2", SP_Zone, DIR_Server,
          "spawnAppearance2Struct", SZC_Match,
-         seqBind(eql, &EqlDispatch::spawnAppearance));
+         player(seqBind(eql, &EqlDispatch::spawnAppearance)));
     // OP_HPUpdate is eql's multiplexed stat-sync channel (u32 id + u8 flags +
     // per-stat payload), not Live's fixed hpNpcUpdateStruct — decode via
     // EqlDispatch, which passes the real packet length. Feeds spawn HP cur/max
     // (wide numeric or narrow percent) and the player's mana (wide form).
     wire("OP_HPUpdate", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::statSync));
+         player(seqBind(eql, &EqlDispatch::statSync)));
     wire("OP_MobHealth", SP_Zone, DIR_Server,
          "mobHealthStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::updateMobHealth));
+         player(seqBind(ms.spawnShell, &SpawnShell::updateMobHealth)));
 
     // Player vitals — same opcodes also feed Player (filtered by self).
     wire("OP_ManaChange", SP_Zone, DIR_Server,
          "manaDecrementStruct", SZC_Match,
-         seqBind(ms.player, &Player::manaChange));
+         player(seqBind(ms.player, &Player::manaChange)));
     wire("OP_Stamina", SP_Zone, DIR_Server,
          "staminaStruct", SZC_Match,
          seqBind(ms.player, &Player::updateStamina));
@@ -299,7 +387,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
          seqBind(ms.messageShell, &MessageShell::lootTransaction));
     wire("OP_MoneyUpdate", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::moneyUpdate));
+         progression(seqBind(eql, &EqlDispatch::moneyUpdate)));
     // OP_ExpUpdate (16B expUpdateStruct): the regular exp bar. The ids
     // were cross-wired with OP_AAExpUpdate; corrected per the community
     // l-patch. exp@0 is 0-100000 permille — the same scale the daemon already
@@ -310,7 +398,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // forwards to Player::updateExp. See OP_LevelUpdate below + OPCODES_LEGENDS.md.
     wire("OP_ExpUpdate", SP_Zone, DIR_Server,
          "expUpdateStruct", SZC_Match,
-         seqBind(eql, &EqlDispatch::expUpdate));
+         progression(seqBind(eql, &EqlDispatch::expUpdate)));
     // OP_AAExpUpdate (12B): u32 altexp (0-100000 per-AA-point
     // progress), u32 aapoints (unspent), u32 tail (unread; Live carries u8
     // percent + pad there, which updateAltExp ignores). First 8 bytes match
@@ -319,7 +407,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // predated ac918ec's rescale), so it wires straight to the Live handler.
     wire("OP_AAExpUpdate", SP_Zone, DIR_Server,
          "altExpUpdateStruct", SZC_Match,
-         seqBind(ms.player, &Player::updateAltExp));
+         progression(seqBind(ms.player, &Player::updateAltExp)));
     // OP_SendAATable (S>C): static AA ability-definition burst at zone-in
     // (one variable-length record per packet). EqlDispatch::sendAATable resolves
     // each record's descID -> titleSID -> dbstr type-1 name and records descID ->
@@ -327,7 +415,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // titles instead of "#<id>"). Variable size -> uint8_t/none. See eqldispatch.cpp.
     wire("OP_SendAATable", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(eql, &EqlDispatch::sendAATable));
+         progression(seqBind(eql, &EqlDispatch::sendAATable)));
     // OP_LevelUpdate: eql DOES have a discrete level packet — the older "no such
     // packet exists" finding is superseded (see OPCODES_LEGENDS.md). It is an 80B
     // widened container whose head is the stock levelUpUpdateStruct
@@ -336,20 +424,20 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // read to sizeof(levelUpUpdateStruct).
     wire("OP_LevelUpdate", SP_Zone, DIR_Server,
          "levelUpUpdateStruct", SZC_None,
-         seqBind(ms.player, &Player::updateLevel));
+         progression(seqBind(ms.player, &Player::updateLevel)));
     wire("OP_SkillUpdate", SP_Zone, DIR_Server,
          "skillIncStruct", SZC_Match,
-         seqBind(ms.player, &Player::increaseSkill));
+         progression(seqBind(ms.player, &Player::increaseSkill)));
     // (OP_WearChange intentionally unwired on eql — see the note above OP_SpawnAppearance2.)
     wire("OP_DeleteSpawn", SP_Zone, DIR_Server | DIR_Client,
          "deleteSpawnStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::deleteSpawn));
+         entity(seqBind(ms.spawnShell, &SpawnShell::deleteSpawn)));
     wire("OP_SpawnRename", SP_Zone, DIR_Server,
          "spawnRenameStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::renameSpawn));
+         entity(seqBind(ms.spawnShell, &SpawnShell::renameSpawn)));
     wire("OP_Illusion", SP_Zone, DIR_Server | DIR_Client,
          "spawnIllusionStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::illusionSpawn));
+         playerAppearance(seqBind(ms.spawnShell, &SpawnShell::illusionSpawn)));
     // OP_SpawnAppearance carries eql's WIDE 24B record ({u32 spawnId, u32 type,
     // u32 value}), not Live's 8B struct, and its type numbering is its own — so
     // it must NOT go to SpawnShell::updateSpawnAppearance, which applies Live's
@@ -359,7 +447,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // seq-backend-eql::size_overrides and the bytes go to eql's own handler.
     wire("OP_SpawnAppearance", SP_Zone, DIR_Server | DIR_Client,
          "spawnAppearanceStruct", SZC_Match,
-         seqBind(eql, &EqlDispatch::spawnAppearance));
+         playerAppearance(seqBind(eql, &EqlDispatch::spawnAppearance)));
     // OP_Death: mob deaths take the shared Live corpse path, but the player's OWN
     // death needs eql-specific respawn handling (EQL respawns in-zone with a new
     // self-id and sends no player-reinit OP_ZoneEntry), so route through
@@ -367,13 +455,13 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // and severs the self-id on the player's own death. See eqldispatch.cpp.
     wire("OP_Death", SP_Zone, DIR_Server,
          "newCorpseStruct", SZC_Match,
-         seqBind(eql, &EqlDispatch::death));
+         player(seqBind(eql, &EqlDispatch::death)));
     wire("OP_Shroud", SP_Zone, DIR_Server,
          "spawnShroudSelf", SZC_None,
          seqBind(ms.spawnShell, &SpawnShell::shroudSpawn));
     wire("OP_RemoveSpawn", SP_Zone, DIR_Server | DIR_Client,
          "removeSpawnStruct", SZC_None,
-         seqBind(ms.spawnShell, &SpawnShell::removeSpawn));
+         entity(seqBind(ms.spawnShell, &SpawnShell::removeSpawn)));
     // OP_Consider (24B both dirs): eql's considerStruct is its OWN 24B
     // struct (seq-backend-eql owns it; Live's is 32B), size-gated via the backend
     // size table (struct_size_overrides) — so SZC_Match validates the real 24B
@@ -387,7 +475,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // DIR_Server|DIR_Client duplicate double-registered the C>S handler.)
     wire("OP_NpcMoveUpdate", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.spawnShell, &SpawnShell::npcMoveUpdate));
+         entity(seqBind(ms.spawnShell, &SpawnShell::npcMoveUpdate)));
     // EQ Legends OP_ClientUpdate S>C, 24B: the position broadcast for
     // OTHER spawns. eql's playerSpawnPosStruct is 24B as of the 08/04 rotation
     // (was 28B on 07/29; 19-bit ×8 packed, x/y in the LOW bits of @4/@16 and z
@@ -399,10 +487,10 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // — keep here for fire order). Position re-cracked 2026-07-14; see OPCODES_LEGENDS.md.
     wire("OP_ClientUpdate", SP_Zone, DIR_Server,
          "playerSpawnPosStruct", SZC_Match,
-         seqBind(eql, &EqlDispatch::playerUpdateOther));
+         entity(seqBind(eql, &EqlDispatch::playerUpdateOther)));
     wire("OP_CorpseLocResponse", SP_Zone, DIR_Server,
          "corpseLocStruct", SZC_Match,
-         seqBind(ms.spawnShell, &SpawnShell::corpseLoc));
+         entity(seqBind(ms.spawnShell, &SpawnShell::corpseLoc)));
 
     // --- MessageShell: chat / system / NPC text.
     wire("OP_CommonMessage", SP_Zone, DIR_Client | DIR_Server,
@@ -437,16 +525,16 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // OP_GroupDisband/2 (leave/disband). OP_GroupMemberList is dead here.
     wire("OP_GroupUpdate", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::groupUpdate));
+         communication(seqBind(ms.groupMgr, &GroupMgr::groupUpdate)));
     wire("OP_GroupFollow", SP_Zone, DIR_Server,
          "groupFollowStruct", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::addGroupMember));
+         communication(seqBind(ms.groupMgr, &GroupMgr::addGroupMember)));
     wire("OP_GroupDisband", SP_Zone, DIR_Server,
          "groupDisbandStruct", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::removeGroupMember));
+         communication(seqBind(ms.groupMgr, &GroupMgr::removeGroupMember)));
     wire("OP_GroupDisband2", SP_Zone, DIR_Server,
          "groupDisbandStruct", SZC_None,
-         seqBind(ms.groupMgr, &GroupMgr::removeGroupMember));
+         communication(seqBind(ms.groupMgr, &GroupMgr::removeGroupMember)));
 
     // --- SpellShell. (OP_SimpleMessage here is a SECOND receiver after
     // MessageShell above — order preserved.)
@@ -457,7 +545,7 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     // arrives via OP_BuffList (below), so cast-start insertion is pure noise.
     wire("OP_Buff", SP_Zone, DIR_Server,
          "uint8_t", SZC_None,
-         seqBind(ms.spellShell, &SpellShell::buff));
+         combat(seqBind(ms.spellShell, &SpellShell::buff)));
     // OP_BuffList/2/3 (73e2/713a/5c47, Xerxes 07/14 map): authoritative per-spawn
     // active-buff lists with real remaining durations. Same format + handler; the
     // handler resolves the owner by findability (self → buff panel, findable mob
@@ -465,26 +553,26 @@ void DaemonApp::wireBoxPipeline(EQPacketStream* worldC2S, EQPacketStream* worldS
     for (const char* op : {"OP_BuffList", "OP_BuffList2", "OP_BuffList3"})
       wire(op, SP_Zone, DIR_Server,
            "uint8_t", SZC_None,
-           seqBind(ms.spellShell, &SpellShell::buffList));
+           combat(seqBind(ms.spellShell, &SpellShell::buffList)));
     wire("OP_Action", SP_Zone, DIR_Server | DIR_Client,
          "actionStruct", SZC_Match,
-         seqBind(ms.spellShell, &SpellShell::action));
+         combat(seqBind(ms.spellShell, &SpellShell::action)));
     wire("OP_Action", SP_Zone, DIR_Server | DIR_Client,
          "actionAltStruct", SZC_Match,
-         seqBind(ms.spellShell, &SpellShell::action));
+         combat(seqBind(ms.spellShell, &SpellShell::action)));
     wire("OP_SimpleMessage", SP_Zone, DIR_Server,
          "simpleMessageStruct", SZC_Match,
-         seqBind(ms.spellShell, &SpellShell::simpleMessage));
+         combat(seqBind(ms.spellShell, &SpellShell::simpleMessage)));
 
     // --- CombatRouter.
     wire("OP_Action2", SP_Zone, DIR_Client | DIR_Server,
          "action2Struct", SZC_Match,
-         seqBind(ms.combatRouter, &CombatRouter::action2));
+         combat(seqBind(ms.combatRouter, &CombatRouter::action2)));
     // OP_BeginCast (S>C, 19B): a spawn started casting. Surfaced as a
     // transient cast indicator on the target (NOT a buff — cast-start buff
     // insertion was deliberately dropped, see OP_CastSpell note above). Gate
     // size 19 is eql-owned via seq-backend-eql size_overrides(beginCastStruct).
     wire("OP_BeginCast", SP_Zone, DIR_Server,
          "beginCastStruct", SZC_Match,
-         seqBind(ms.combatRouter, &CombatRouter::beginCast));
+         combat(seqBind(ms.combatRouter, &CombatRouter::beginCast)));
 }

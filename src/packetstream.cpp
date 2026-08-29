@@ -85,9 +85,7 @@ EQPacketStream::EQPacketStream(EQStreamID streamid, uint8_t dir,
     m_dispatchers(),
     m_streamid(streamid),
     m_dir(dir),
-    m_packetCount(0),
     m_session_tracking_enabled(0),
-    m_maxCacheCount(0),
     m_arqSeqExp(0),
     m_arqSeqGiveUp(arqSeqGiveUp),
     m_arqSeqFound(false),
@@ -233,7 +231,6 @@ void EQPacketStream::resetCache()
     seqDebug("Resetting sequence cache[%s]", EQStreamStr[m_streamid]);
 #endif
     m_cache.clear();
-    emit cacheSize(0, m_streamid);
 }
 
 ////////////////////////////////////////////////////
@@ -254,7 +251,6 @@ void EQPacketStream::setCache(uint16_t serverArqSeq, EQProtocolPacket& packet)
 
       m_cache.insert(EQPacketMap::value_type(serverArqSeq, 
          new EQProtocolPacket(packet, true)));
-      emit cacheSize(m_cache.size(), (int)m_streamid);
    }
    else
    {
@@ -278,10 +274,6 @@ void EQPacketStream::setCache(uint16_t serverArqSeq, EQProtocolPacket& packet)
 #endif
    }
 
-#ifdef PACKET_CACHE_DIAG
-   if (m_cache.size() > m_maxCacheCount)
-      m_maxCacheCount = m_cache.size();
-#endif // PACKET_CACHE_DIAG
 }
 
 ////////////////////////////////////////////////////
@@ -321,7 +313,6 @@ void EQPacketStream::processCache()
       
       // incremente the expected arq sequence number
       m_arqSeqExp++;
-      emit seqExpect(m_arqSeqExp, (int)m_streamid);
       
       // attempt to find the new current expencted arq seq
       it = m_cache.find(m_arqSeqExp);
@@ -372,7 +363,6 @@ void EQPacketStream::processCache()
         
       // erase the packet from the cache
       m_cache.erase(eraseIt);
-      emit cacheSize(m_cache.size(), (int)m_streamid);
         
     #ifdef PACKET_CACHE_DIAG
       seqDebug("SEQ: REMOVING arq %04x from stream %s cache, cache count %04d",
@@ -404,7 +394,6 @@ void EQPacketStream::processCache()
       
       // erase the packet from the cache
       m_cache.erase(eraseIt);
-      emit cacheSize(m_cache.size(), (int)m_streamid);
     
 #ifdef PACKET_CACHE_DIAG
       seqDebug("SEQ: REMOVING arq %04x from stream %s cache, cache count %04d",
@@ -428,6 +417,28 @@ void EQPacketStream::dispatchPacket(const uint8_t* data, size_t len,
 				    uint16_t opCode,
 				    const EQPacketOPCode* opcodeEntry)
 {
+  const int64_t timestamp = m_timestampProvider ? m_timestampProvider() : 0;
+  dispatchPacketAt(data, len, opCode, opcodeEntry, timestamp, {}, false, 0);
+}
+
+void EQPacketStream::dispatchPacketAt(const uint8_t* data, size_t len,
+				      uint16_t opCode,
+				      const EQPacketOPCode* opcodeEntry,
+                                      int64_t captureTimeMs,
+                                      EQPacketFlowKey flowKey,
+                                      bool sourceIsLow,
+                                      uintptr_t attributionToken)
+{
+  if (m_applicationPacketHook) {
+    if (!m_applicationPacketHook(m_streamid, m_dir, opCode, data, len,
+                                 captureTimeMs, flowKey, sourceIsLow,
+                                 attributionToken)) {
+      if (m_applicationPacketCompleteHook)
+        m_applicationPacketCompleteHook(false);
+      return;
+    }
+  }
+
   // Always fire the 5-arg signal so per-box observers
   // (NamePromoter, ZoneServerObserver) keep working across all
   // boxes — they don't conflict with the singleton state managers.
@@ -437,7 +448,11 @@ void EQPacketStream::dispatchPacket(const uint8_t* data, size_t len,
   // on()-wired EQPacketDispatch activations and the 6-arg
   // signal so the singleton state managers receive at most one
   // box's stream of decoded events at a time.
-  if (m_muted) return;
+  if (m_muted) {
+    if (m_applicationPacketCompleteHook)
+      m_applicationPacketCompleteHook(false);
+    return;
+  }
 
   bool unknown = true;
 
@@ -531,14 +546,14 @@ void EQPacketStream::dispatchPacket(const uint8_t* data, size_t len,
 #endif
 
   emit decodedPacket(data, len, m_dir, opCode, opcodeEntry, unknown);
+  if (m_applicationPacketCompleteHook)
+    m_applicationPacketCompleteHook(true);
 }
 
 ////////////////////////////////////////////////////
 // handle a new packet on the stream
 void EQPacketStream::handlePacket(EQUDPIPPacketFormat& packet)
 {
-  emit numPacket(++m_packetCount, (int)m_streamid);
-
   // Packet is ours now. Logging needs to know this later on.
   packet.setSessionKey(getSessionKey());
 
@@ -639,6 +654,13 @@ void EQPacketStream::handlePacket(EQUDPIPPacketFormat& packet)
 // we use net opcodes here.
 void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 {
+  auto dispatchApplication = [this, &packet](const uint8_t* data, size_t len,
+                                             uint16_t opcode,
+                                             const EQPacketOPCode* entry) {
+    dispatchPacketAt(data, len, opcode, entry, packet.captureTimeMs(),
+                     packet.flowKey(), packet.sourceIsLow(),
+                     packet.attributionToken());
+  };
 #if defined(PACKET_PROCESS_DIAG) && (PACKET_PROCESS_DIAG > 2)
   seqDebug("-->EQPacketStream::processPacket, subpacket=%s on stream %s (%d)",
     (isSubpacket ? "true" : "false"), EQStreamStr[m_streamid], m_streamid);
@@ -648,7 +670,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
   {
     // This is an app-opcode directly on the wire with no wrapping protocol
     // information. Weird, but whatever gets the stream read, right?
-	dispatchPacket(packet.payload(), packet.payloadLength(), 
+        dispatchApplication(packet.payload(), packet.payloadLength(),
       packet.getNetOpCode(), m_opcodeDB.find(packet.getNetOpCode()));
     return;
   }
@@ -699,7 +721,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 #endif
 
           // App opcode. Dispatch it, skipping opcode.
-          dispatchPacket(&subpacket[2], subpacketLength-2, 
+          dispatchApplication(&subpacket[2], subpacketLength-2,
             subOpCode, m_opcodeDB.find(subOpCode));
 
         }
@@ -712,6 +734,10 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 
           // Net opcode. false = copy. true = subpacket
           EQProtocolPacket spacket(subpacket, subpacketLength, false, true);
+          spacket.setCaptureTimeMs(packet.captureTimeMs());
+          spacket.setFlowKey(packet.flowKey());
+          spacket.setSourceIsLow(packet.sourceIsLow());
+          spacket.setAttributionToken(packet.attributionToken());
 
           processPacket(spacket, true);
         }
@@ -723,7 +749,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 #endif
 
           // App opcode. Dispatch it, skipping opcode.
-          dispatchPacket(&subpacket[2], subpacketLength-2, 
+          dispatchApplication(&subpacket[2], subpacketLength-2,
             subOpCode, m_opcodeDB.find(subOpCode));
         }
         subpacket += subpacketLength;
@@ -772,7 +798,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 #endif
 
           // Dispatch, skipping op code.
-          dispatchPacket(&subpacket[2], subpacketLength-2, 
+          dispatchApplication(&subpacket[2], subpacketLength-2,
             subOpCode, m_opcodeDB.find(subOpCode));
 
           // Move ahead
@@ -807,7 +833,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 #endif
 
           // Dispatch, skipping op code.
-          dispatchPacket(&subpacket[2], longOne-2, 
+          dispatchApplication(&subpacket[2], longOne-2,
             subOpCode, m_opcodeDB.find(subOpCode));
 
           // Move ahead
@@ -820,14 +846,12 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
     {
       // Normal unfragmented sequenced packet.
       uint16_t seq = packet.arqSeq();
-      emit seqReceive(seq, (int)m_streamid);
 
       // Future packet?
       if (seq == m_arqSeqExp)
       {
         // Expected packet.
         m_arqSeqExp++;
-        emit seqExpect(m_arqSeqExp, (int)m_streamid);
 
         // OpCode next. Net order for op codes.
         uint16_t subOpCode = *(uint16_t*)(packet.payload());
@@ -851,7 +875,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 #endif
 
           // App opcode. Dispatch it, skipping opcode.
-          dispatchPacket(&packet.payload()[3], packet.payloadLength()-3, 
+          dispatchApplication(&packet.payload()[3], packet.payloadLength()-3,
             subOpCode, m_opcodeDB.find(subOpCode));
 
         }
@@ -860,13 +884,17 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
           // Net opcode. false = no copy. true = subpacket.
           EQProtocolPacket spacket(packet.payload(), 
             packet.payloadLength(), false, true);
+          spacket.setCaptureTimeMs(packet.captureTimeMs());
+          spacket.setFlowKey(packet.flowKey());
+          spacket.setSourceIsLow(packet.sourceIsLow());
+          spacket.setAttributionToken(packet.attributionToken());
 
           processPacket(spacket, true);
         }
         else
         {
           // App opcode. Dispatch, skipping opcode.
-          dispatchPacket(&packet.payload()[2], packet.payloadLength()-2,
+          dispatchApplication(&packet.payload()[2], packet.payloadLength()-2,
             subOpCode, m_opcodeDB.find(subOpCode));
         }
       }
@@ -899,14 +927,12 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
     {
       // Fragmented sequenced data packet.
       uint16_t seq = packet.arqSeq();
-      emit seqReceive(seq, (int)m_streamid);
 
       // Future packet?
       if (seq == m_arqSeqExp)
       {
         // Expected packet.
         m_arqSeqExp++;
-        emit seqExpect(m_arqSeqExp, (int)m_streamid);
        
 #if defined(PACKET_PROCESS_DIAG) && (PACKET_PROCESS_DIAG > 1)
         seqDebug("SEQ: Found next sequence number in data stream %s (%d), incrementing expected seq, %04x (op code %04x)", 
@@ -937,7 +963,7 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
             EQStreamStr[m_streamid], m_streamid, fragOpCode);
 #endif
 
-            dispatchPacket(&m_fragment.data()[3], m_fragment.size()-3,
+            dispatchApplication(&m_fragment.data()[3], m_fragment.size()-3,
               fragOpCode, m_opcodeDB.find(fragOpCode)); 
           }
           else if (IS_NET_OPCODE(fragOpCode))
@@ -946,11 +972,16 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
              seqDebug("EQPacket: IS_NET_OPCODE(%04x), size = %d",fragOpCode,m_fragment.size());
 #endif
              EQProtocolPacket spacket(m_fragment.data(), m_fragment.size(), false, true);
+             spacket.setCaptureTimeMs(packet.captureTimeMs());
+             spacket.setFlowKey(packet.flowKey());
+             spacket.setSourceIsLow(packet.sourceIsLow());
+             spacket.setAttributionToken(packet.attributionToken());
              processPacket(spacket, true);
           }
           else
           {
-            dispatchPacket(&m_fragment.data()[2], m_fragment.size()-2, fragOpCode, m_opcodeDB.find(fragOpCode));
+            dispatchApplication(&m_fragment.data()[2], m_fragment.size()-2,
+                                fragOpCode, m_opcodeDB.find(fragOpCode));
           }
           m_fragment.reset();
         }
@@ -1017,8 +1048,6 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
 
         m_maxLength = maxPacketSize;
       }
-
-      emit maxLength((int) m_maxLength, (int) m_streamid);
 
 #if defined(PACKET_PROCESS_DIAG) || defined(PACKET_SESSION_DIAG)
       seqDebug("EQPacket: SessionRequest found, resetting expected seq, stream %s (%d) (session tracking %s)",
@@ -1103,8 +1132,6 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
         m_maxLength = maxPacketSize;
       }
 
-      emit maxLength((int) m_maxLength, (int) m_streamid);
-
 #if defined(PACKET_PROCESS_DIAG) || defined(PACKET_SESSION_DIAG)
       seqDebug("EQPacket: SessionResponse found %s:%u->%s:%u, resetting expected seq, stream %s (%d) (session tracking %s)",
         qUtf8Printable(((EQUDPIPPacketFormat&) packet).getIPv4SourceA()),
@@ -1161,7 +1188,6 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
         if (m_streamid == world2client)
         {
           m_session_tracking_enabled = 1;
-          emit sessionTrackingChanged(m_session_tracking_enabled);
         }
         // If this is the zone server talking to us, close the latch and lock
         else if (m_streamid == zone2client)
@@ -1175,7 +1201,6 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
           emit lockOnClient(((EQUDPIPPacketFormat&) packet).getSourcePort(),
             ((EQUDPIPPacketFormat&) packet).getDestPort(),
             ((EQUDPIPPacketFormat&) packet).getIPv4DestN());
-          emit sessionTrackingChanged(m_session_tracking_enabled);
         }
       }
     }
@@ -1221,7 +1246,6 @@ void EQPacketStream::processPacket(EQProtocolPacket& packet, bool isSubpacket)
       if (m_session_tracking_enabled)
       {
         m_session_tracking_enabled = 1;
-        emit sessionTrackingChanged(m_session_tracking_enabled);
 
         m_sessionClientPort = 0;
         m_sessionClientIP = 0;

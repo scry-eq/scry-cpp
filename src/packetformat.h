@@ -52,6 +52,24 @@ typedef uint32_t in_addr_t;
 
 #include "util.h"
 
+struct EQPacketFlowKey
+{
+  uint64_t endpointLow = 0;
+  uint64_t endpointHigh = 0;
+
+  friend bool operator==(const EQPacketFlowKey& lhs, const EQPacketFlowKey& rhs)
+  {
+    return lhs.endpointLow == rhs.endpointLow &&
+           lhs.endpointHigh == rhs.endpointHigh;
+  }
+  friend bool operator<(const EQPacketFlowKey& lhs, const EQPacketFlowKey& rhs)
+  {
+    return lhs.endpointLow < rhs.endpointLow ||
+           (lhs.endpointLow == rhs.endpointLow && lhs.endpointHigh < rhs.endpointHigh);
+  }
+  bool isValid() const { return endpointLow != 0 || endpointHigh != 0; }
+};
+
 // Forward declarations
 class QString;
 
@@ -106,7 +124,11 @@ class EQProtocolPacket
       m_payloadLength(0),
       m_arqSeq(0), 
       m_ownCopy(false), 
-      m_subpacket(false)
+      m_subpacket(false),
+      m_captureTimeMs(0),
+      m_flowKey(),
+      m_sourceIsLow(false),
+      m_attributionToken(0)
     {  }
     
   EQProtocolPacket(uint8_t* packet, uint32_t length, 
@@ -182,6 +204,15 @@ class EQProtocolPacket
 
   bool isSubpacket() const { return m_subpacket; }
 
+  int64_t captureTimeMs() const { return m_captureTimeMs; }
+  void setCaptureTimeMs(int64_t value) { m_captureTimeMs = value; }
+  EQPacketFlowKey flowKey() const { return m_flowKey; }
+  void setFlowKey(EQPacketFlowKey value) { m_flowKey = value; }
+  bool sourceIsLow() const { return m_sourceIsLow; }
+  void setSourceIsLow(bool value) { m_sourceIsLow = value; }
+  uintptr_t attributionToken() const { return m_attributionToken; }
+  void setAttributionToken(uintptr_t value) { m_attributionToken = value; }
+
   // Payload is uncompressed (after decode is called) and aligned to the
   // beginning of the payload (after net op, flags, seq if applicable)
   uint8_t* payload() const { return m_payload; }
@@ -217,6 +248,15 @@ class EQProtocolPacket
   uint16_t m_arqSeq; // local copy to speed up comparisons
   bool m_ownCopy;
   bool m_subpacket;
+  // Metadata supplied by EQPacket before stream processing. It follows cached
+  // and nested protocol packets so application dispatch does not sample the
+  // timestamp or attribution of whichever later frame happened to drain them.
+  // sourceIsLow records the factual wire orientation before a Box is known;
+  // attribution can later derive client/server direction from the flow.
+  int64_t m_captureTimeMs;
+  EQPacketFlowKey m_flowKey;
+  bool m_sourceIsLow;
+  uintptr_t m_attributionToken;
 };
 
 inline bool operator<(const EQProtocolPacket& p1, const EQProtocolPacket& p2)
@@ -294,4 +334,3 @@ class EQUDPIPPacketFormat : public EQProtocolPacket
 };
 
 #endif // _PACKETFORMAT_H_
-

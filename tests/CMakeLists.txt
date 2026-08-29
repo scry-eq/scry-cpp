@@ -47,6 +47,10 @@ target_link_libraries(tomlpreferences_test PRIVATE
   Qt6::Test
 )
 
+target_compile_definitions(tomlpreferences_test PRIVATE
+  SEQ_SOURCE_DIR_PATH="${CMAKE_SOURCE_DIR}"
+)
+
 target_compile_options(tomlpreferences_test PRIVATE
   -Wall
   -Wno-unused-parameter
@@ -186,6 +190,21 @@ target_compile_options(packetstream_dispatch_test PRIVATE
 
 add_test(NAME packetstream_dispatch_test COMMAND packetstream_dispatch_test)
 
+add_executable(provisionalflow_test
+  provisionalflow_test.cpp
+)
+
+target_link_libraries(provisionalflow_test PRIVATE
+  seq-daemon-core
+  Qt6::Test
+)
+
+target_compile_options(provisionalflow_test PRIVATE
+  -Wall
+)
+
+add_test(NAME provisionalflow_test COMMAND provisionalflow_test)
+
 # FFI smoke test for the Rust decoder bridge (seq::rust::decode_*). seq-daemon-core
 # links seq-bridge-cxx PUBLIC, so it propagates the generated cxx header here.
 add_executable(rustdecode_test
@@ -204,3 +223,44 @@ target_compile_options(rustdecode_test PRIVATE
 )
 
 add_test(NAME rustdecode_test COMMAND rustdecode_test)
+
+add_executable(rustsession_test
+  rustsession_test.cpp
+)
+
+target_link_libraries(rustsession_test PRIVATE
+  seq-daemon-core
+  Qt6::Test
+)
+
+target_compile_options(rustsession_test PRIVATE
+  -Wall
+  -Werror
+  -Wno-unused-parameter
+  -Wno-deprecated-declarations
+)
+
+add_test(NAME rustsession_test COMMAND rustsession_test)
+
+add_executable(applicationtrace_test
+  applicationtrace_test.cpp
+)
+
+target_link_libraries(applicationtrace_test PRIVATE
+  seq-daemon-core
+  Qt6::Test
+)
+
+target_compile_definitions(applicationtrace_test PRIVATE
+  SEQ_DECODER_RS_DIR_PATH="${SEQ_DECODER_RS_DIR}"
+  SEQ_TRACE_TARGET_DIR="${CMAKE_CURRENT_BINARY_DIR}/seq-trace-cargo-${SEQ_TARGET}"
+)
+
+target_compile_options(applicationtrace_test PRIVATE
+  -Wall
+  -Werror
+  -Wno-unused-parameter
+  -Wno-deprecated-declarations
+)
+
+add_test(NAME applicationtrace_test COMMAND applicationtrace_test)

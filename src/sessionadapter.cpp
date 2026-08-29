@@ -465,11 +465,7 @@ void SessionAdapter::connectPerBox()
     }
 
     if (m_groupMgr) {
-        connect(m_groupMgr, SIGNAL(added(const QString&, const Spawn*)),
-                this,       SLOT(onGroupChanged()));
-        connect(m_groupMgr, SIGNAL(removed(const QString&, const Spawn*)),
-                this,       SLOT(onGroupChanged()));
-        connect(m_groupMgr, SIGNAL(cleared()),
+        connect(m_groupMgr, SIGNAL(rosterUpdated()),
                 this,       SLOT(onGroupChanged()));
     }
 
@@ -953,19 +949,11 @@ void SessionAdapter::onKillSpawn(const Item* deceased, const Item* killer,
 
 void SessionAdapter::onZoneBegin(const QString& shortName)
 {
-    seq::v1::Envelope env;
-    auto* zc = env.mutable_zone_changed();
-    zc->set_zone_short(shortName.toStdString());
-    if (m_zoneMgr) {
-        zc->set_zone_long(m_zoneMgr->longZoneName().toStdString());
-    }
-    // DaemonApp::loadZoneMap is wired to the same zoneChanged signal, so by
-    // the time this slot runs the MapData reflects the new zone. (Qt invokes
-    // direct-connected slots in connection order; loadZoneMap was connected
-    // before SessionAdapter.)
-    if (m_mapData && m_mapData->numLayers() > 0) {
-        seq::encode::fillMapGeometry(zc->mutable_geometry(), *m_mapData);
-    }
+    // DaemonApp::loadZoneMap is wired to the same zone signal before this
+    // adapter, so the shared production projector sees the new geometry.
+    seq::v1::Envelope env = seq::encode::zoneChanged(
+        shortName, m_zoneMgr ? m_zoneMgr->longZoneName() : QString(),
+        m_mapData);
     sendOrBuffer(std::move(env));
 }
 
@@ -1292,23 +1280,12 @@ void SessionAdapter::onWornSlotsChanged()
 void SessionAdapter::onEqTimeSync(const QDateTime& dt)
 {
     if (!dt.isValid()) return;
-    seq::v1::Envelope env;
-    auto* sync = env.mutable_eq_time_sync();
-    sync->set_year(dt.date().year());
-    sync->set_month(dt.date().month());
-    sync->set_day(dt.date().day());
-    sync->set_hour(dt.time().hour());
-    sync->set_minute(dt.time().minute());
-    sendOrBuffer(std::move(env));
+    sendOrBuffer(seq::encode::eqTimeSync(dt));
 }
 
 void SessionAdapter::onZoneServerChanged(const QString& host, quint16 port)
 {
-    seq::v1::Envelope env;
-    auto* zs = env.mutable_zone_server();
-    zs->set_host(host.toStdString());
-    zs->set_port(port);
-    sendOrBuffer(std::move(env));
+    sendOrBuffer(seq::encode::zoneServer(host, port));
 }
 
 void SessionAdapter::sendBoxList()

@@ -10,6 +10,8 @@
 #include <QStandardPaths>
 #include <QTimer>
 
+#include <algorithm>
+
 #include "main.h"
 
 #include "category.h"
@@ -19,7 +21,6 @@
 #include "dbstrings.h"
 #include "eqstr.h"
 #include "everquest.h"
-#include "spellmessages.h"
 #include "filesink.h"
 #include "filtermgr.h"
 #include "group.h"
@@ -41,6 +42,7 @@
 #include "packetinfo.h"
 #include "player.h"
 #include "prefsbroker.h"
+#include "rustsession.h"
 #include "sessionadapter.h"
 #include "spawnmonitor.h"
 #include "spawnshell.h"
@@ -56,6 +58,98 @@
 
 namespace seq { void initGlobals(const QString& def, const QString& user); }
 
+namespace {
+seq::shadow::LifecycleSelector lifecycleSelector(const QString& value)
+{
+    if (value == QLatin1String("legacy"))
+        return seq::shadow::LifecycleSelector::Legacy;
+    if (value == QLatin1String("rust"))
+        return seq::shadow::LifecycleSelector::Rust;
+    return seq::shadow::LifecycleSelector::Shadow;
+}
+
+QString qString(const ::rust::String& value)
+{
+    return QString::fromUtf8(value.data(), int(value.size()));
+}
+
+seq::shadow::LifecycleProfile lifecycleProfile(const charProfileStruct& value)
+{
+    seq::shadow::LifecycleProfile out;
+    out.name = std::string(value.name, strnlen(value.name, sizeof(value.name)));
+    out.lastName = std::string(value.lastName,
+                               strnlen(value.lastName, sizeof(value.lastName)));
+    out.classId = value.profile.class_;
+    out.level = value.profile.level;
+    out.race = value.profile.race;
+    out.deity = value.profile.deity;
+    out.currentHp = value.profile.curHp;
+    out.mana = value.profile.MANA;
+    out.aaIds.reserve(MAX_AA);
+    out.aaValues.reserve(MAX_AA);
+    for (const auto& aa : value.profile.aa_array) {
+        out.aaIds.push_back(aa.AA);
+        out.aaValues.push_back(aa.value);
+    }
+    out.aaSpent = value.profile.aa_spent;
+    out.skills.assign(std::begin(value.profile.skills),
+                      std::end(value.profile.skills));
+    out.strength = value.profile.STR;
+    out.stamina = value.profile.STA;
+    out.charisma = value.profile.CHA;
+    out.dexterity = value.profile.DEX;
+    out.intelligence = value.profile.INT;
+    out.agility = value.profile.AGI;
+    out.wisdom = value.profile.WIS;
+    out.platinum = value.profile.platinum;
+    out.gold = value.profile.gold;
+    out.silver = value.profile.silver;
+    out.copper = value.profile.copper;
+    return out;
+}
+
+ItemTemplate itemTemplate(const seq::rust::EventItemTemplate& value)
+{
+    ItemTemplate out;
+    out.serial = qString(value.serial);
+    out.itemName = qString(value.name);
+    out.loreName = qString(value.lore_name);
+    out.itemId = value.item_id;
+    if (value.has_icon) out.icon = value.icon;
+    if (value.has_stack_count) {
+        out.wireStackCount = value.stack_count;
+        out.stackCount = value.stack_count;
+    }
+    if (value.has_weight_tenths) {
+        out.weightTenths = value.weight_tenths;
+        out.weight = float(value.weight_tenths) / 10.0f;
+    }
+    if (value.has_flags) {
+        out.wireFlags = value.flags;
+        out.flags = value.flags;
+    }
+    if (value.has_corruption) {
+        out.wireCorruption = value.corruption;
+        out.corruption = int8_t(std::clamp(value.corruption, -128, 127));
+    }
+    out.slotBitmask = value.slot_mask;
+    out.containerId = value.container_id;
+    out.containerSlot = value.container_slot;
+    out.parentSlot = value.parent_slot;
+    out.mainSlot = value.parent_slot == 0xFFFF ? 0 : value.parent_slot;
+    out.subSlot = value.container_slot;
+    for (size_t i = 0; i < ITEM_STAT_COUNT && i < value.stats.size(); ++i)
+        out.stats[i] = int8_t(std::clamp(value.stats[i], -128, 127));
+    for (size_t i = 0; i < ITEM_RES_COUNT && i < value.resists.size(); ++i)
+        out.resists[i] = int8_t(std::clamp(value.resists[i], -128, 127));
+    out.hp = value.hp;
+    out.mana = value.mana;
+    out.endurance = value.endurance;
+    out.ac = value.ac;
+    return out;
+}
+}
+
 DaemonApp::DaemonApp(Config cfg, QObject* parent)
     : QObject(parent)
     , m_cfg(std::move(cfg))
@@ -66,6 +160,12 @@ DaemonApp::DaemonApp(Config cfg, QObject* parent)
 
 DaemonApp::~DaemonApp()
 {
+    // The final Rust loot flush writes through MessageShell/LootStore, so
+    // the packet owner must go before QObject child cleanup reaches them.
+    if (m_packet) {
+        delete m_packet;
+        m_packet = nullptr;
+    }
     // The golden adapter's m_sink points at m_goldenSink (a unique_ptr
     // member). Members are torn down in reverse declaration order, but
     // m_goldenAdapter is a raw pointer cleaned up by ~QObject much
@@ -180,20 +280,6 @@ bool DaemonApp::start()
     }
     if (dbstrFile.exists())
         m_dbStrings->load(dbstrFile.absoluteFilePath());
-
-    // spells_us_str.txt — per-spell message text (cast/effect/wear-off lines).
-    // Loaded here so the plumbing is in place, but its consumers in
-    // MessageShell::simpleMessage are gated behind a TODO pending Live wire
-    // verification (the selectors + spell-id field were derived from Test —
-    // see archive/test-client commit b403896). Inert until that is wired.
-    m_spellMessages = new SpellMessages();
-    QFileInfo spellStrFile = m_dataLocationMgr->findExistingFile(".", "spells_us_str.txt");
-    if (!spellStrFile.exists()) {
-        QFileInfo fi(QStringLiteral("/usr/local/share/showeq/spells_us_str.txt"));
-        if (fi.exists()) spellStrFile = fi;
-    }
-    if (spellStrFile.exists())
-        m_spellMessages->load(spellStrFile.absoluteFilePath());
 
     // EQPacket reads `[VPacket] Filename` from pSEQPrefs to decide where
     // to record/playback. Set it before constructing EQPacket so both
@@ -428,6 +514,101 @@ bool DaemonApp::start()
     }
 
     if (m_packet) {
+        m_packet->setLifecycleEventHandler(
+            [this](const Box* box, const seq::shadow::Event& event) {
+                applyRustLifecycle(box, event);
+            });
+        m_packet->setEntityEventHandler(
+            [this](const Box* box, const seq::shadow::Event& event) {
+                applyRustEntity(box, event);
+            });
+        m_packet->setPlayerEventHandler(
+            [this](const Box* box, const seq::shadow::Event& event) {
+                applyRustPlayer(box, event);
+            });
+        m_packet->setProgressionBatchHandler(
+            [this](const Box* box, const seq::shadow::Batch& batch) {
+                applyRustProgression(box, batch);
+            });
+        m_packet->setLootBatchHandler(
+            [this](const Box* box, const seq::shadow::Batch& batch) {
+                applyRustLoot(box, batch);
+            });
+        m_packet->setCombatBatchHandler(
+            [this](const Box* box, const seq::shadow::Batch& batch) {
+                applyRustCombat(box, batch);
+            });
+        m_packet->setCommunicationEventHandler(
+            [this](const Box* box, const seq::shadow::Event& event) {
+                applyRustCommunication(box, event);
+            });
+        m_packet->setCommunicationProjectionProvider(
+            [this](const Box* box, const seq::shadow::Batch& batch) {
+                const ManagerSet* managers = nullptr;
+                if (box) {
+                    const auto found = m_boxManagers.constFind(box);
+                    if (found != m_boxManagers.cend()) managers = &found.value();
+                }
+                if (!managers) managers = &m_activeManagers;
+                seq::shadow::ChatTextResolver resolver;
+                if (managers->messageShell) {
+                    resolver = [shell = managers->messageShell](
+                                   uint32_t formatId,
+                                   const std::vector<std::string>& args) {
+                        return shell->resolveChatText(formatId, args)
+                            .toStdString();
+                    };
+                }
+                return seq::shadow::projectCommunication(batch, resolver);
+            });
+        m_packet->setLifecycleProjectionEnricher(
+            [this](const Box* box, bool addHostZoneProjection,
+                   std::vector<seq::shadow::LifecycleObservation>& events,
+                   std::vector<seq::v1::Envelope>& envelopes) {
+                const ManagerSet* managers = nullptr;
+                const auto found = m_boxManagers.constFind(box);
+                if (found != m_boxManagers.cend()) managers = &found.value();
+                if (!managers) managers = &m_activeManagers;
+#if !defined(SEQ_TARGET_EQL)
+                if (managers->zoneMgr) {
+                    for (auto& event : events) {
+                        if (event.kind ==
+                            seq::shadow::LifecycleKind::ZoneChanged) {
+                            event = seq::shadow::observeZoneChanged(
+                                managers->zoneMgr->shortZoneName().toStdString(),
+                                managers->zoneMgr->longZoneName().toStdString());
+                        }
+                    }
+                }
+#endif
+                if (addHostZoneProjection && managers->zoneMgr) {
+                    envelopes.push_back(seq::encode::zoneChanged(
+                        managers->zoneMgr->shortZoneName(),
+                        managers->zoneMgr->longZoneName(), m_mapData.get()));
+                }
+                if (!m_mapData || m_mapData->numLayers() == 0) return;
+                for (seq::v1::Envelope& envelope : envelopes) {
+                    if (envelope.has_zone_changed())
+                        seq::encode::fillMapGeometry(
+                            envelope.mutable_zone_changed()->mutable_geometry(),
+                            *m_mapData);
+                }
+            });
+        m_packet->setLifecycleGlobalOwnershipPredicate(
+            [this](const Box* box) {
+                BoxRegistry& registry = m_packet->boxRegistry();
+                const Box* active = registry.currentBoxFor(
+                    registry.activeCharacterId());
+                if (!active) active = registry.primary();
+                return !box || box == active;
+            });
+        connectLifecycleObservers();
+        connectEntityObservers();
+        connectPlayerObservers();
+        connectProgressionObservers();
+        connectCombatObservers();
+        connectCommunicationObservers();
+
         // Tap decoded packets BEFORE the regular wiring so the logger
         // sees every dispatch (it doesn't matter for correctness — the
         // signal is broadcast — but keeping it adjacent to where the
@@ -605,6 +786,1135 @@ bool DaemonApp::start()
     return true;
 }
 
+void DaemonApp::applyRustLifecycle(const Box* box,
+                                   const seq::shadow::Event& event)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+    BoxRegistry& registry = m_packet->boxRegistry();
+    const Box* activeBox = registry.currentBoxFor(registry.activeCharacterId());
+    if (!activeBox) activeBox = registry.primary();
+    const bool ownsGlobalSinks = !box || box == activeBox;
+
+    std::visit([&](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        const auto& payload = value.payload;
+        if constexpr (std::is_same_v<T, seq::shadow::SessionReset>) {
+            // Clear before the profile event repopulates (legacy order).
+            if (payload.reason == seq::rust::EventSessionResetReason::PlayerProfile ||
+                payload.reason == seq::rust::EventSessionResetReason::EnterWorld) {
+                if (managers->spawnShell) managers->spawnShell->clear();
+                if (managers->player) managers->player->setID(0);
+            }
+        } else if constexpr (std::is_same_v<T, seq::shadow::EnterWorld>) {
+            if (box && !payload.character_name.empty())
+                m_packet->boxRegistry().promoteByName(
+                    const_cast<Box*>(box), qString(payload.character_name));
+        } else if constexpr (std::is_same_v<T, seq::shadow::ZoneServerInfo>) {
+            m_packet->applyValidatedZoneServerInfo(const_cast<Box*>(box),
+                                                   payload.port);
+            if (ownsGlobalSinks)
+                m_zoneServerMgr->applyZoneServerInfo(qString(payload.host),
+                                                     payload.port);
+        } else if constexpr (std::is_same_v<T, seq::shadow::PlayerProfile>) {
+            if (!managers->player) return;
+            Player* player = managers->player;
+            if (m_packet->legacyProgressionEnabledForCurrentPacket()) {
+                player->seedSkills(std::vector<uint32_t>(payload.skills.begin(),
+                                                          payload.skills.end()));
+                player->seedPurchasedAA(
+                    std::vector<uint32_t>(payload.aa_ids.begin(), payload.aa_ids.end()),
+                    std::vector<uint32_t>(payload.aa_values.begin(),
+                                          payload.aa_values.end()),
+                    payload.aa_spent);
+                player->setMoneyCoins(payload.platinum, payload.gold,
+                                      payload.silver, payload.copper);
+            }
+            player->seedBaseStats(uint16_t(payload.str_), uint16_t(payload.sta),
+                                  uint16_t(payload.cha), uint16_t(payload.dex),
+                                  uint16_t(payload.int_), uint16_t(payload.agi),
+                                  uint16_t(payload.wis),
+                                  m_packet->legacyProgressionEnabledForCurrentPacket());
+            // The player decoder takes identity publication from the profile. Until then,
+            // lifecycle keeps the old boundary for legacy and shadow sessions.
+            if (m_packet->legacyPlayersEnabledForCurrentPacket())
+                player->applyLifecycleIdentity(
+                    qString(payload.name), qString(payload.last_name),
+                    uint16_t(payload.race), uint8_t(payload.class_), payload.level,
+                    uint16_t(payload.deity), payload.class_mask);
+        } else if constexpr (std::is_same_v<T, seq::shadow::ZoneTransition>) {
+            if (managers->zoneMgr)
+                managers->zoneMgr->applyLifecycleTransition(
+                    qString(payload.character_name), payload.has_zone_id,
+                    payload.zone_id, payload.has_instance_id,
+                    payload.instance_id, payload.confirmed);
+        } else if constexpr (std::is_same_v<T, seq::shadow::ZoneChanged>) {
+            if (managers->zoneMgr)
+                managers->zoneMgr->applyLifecycleZone(
+                    qString(payload.short_name), qString(payload.long_name));
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::ZoneEnvironmentChanged>) {
+            if (managers->zoneMgr)
+                managers->zoneMgr->applyLifecycleEnvironment(
+                    qString(payload.zone_file), payload.experience_multiplier,
+                    payload.safe_x, payload.safe_y, payload.safe_z);
+        } else if constexpr (std::is_same_v<T, seq::shadow::TimeOfDay>) {
+            if (ownsGlobalSinks)
+                m_dateTimeMgr->applyTimeOfDay(
+                    payload.year, payload.month, payload.day, payload.hour,
+                    payload.minute);
+        }
+    }, event);
+}
+
+void DaemonApp::applyRustProgression(const Box* box,
+                                     const seq::shadow::Batch& batch)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+    Player* player = managers->player;
+
+    BoxRegistry& registry = m_packet->boxRegistry();
+    const Box* activeBox = registry.currentBoxFor(registry.activeCharacterId());
+    if (!activeBox) activeBox = registry.primary();
+    const bool ownsItemCache = !box || box == activeBox;
+    bool playerMutated = false;
+
+    for (const seq::shadow::Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, seq::shadow::InventorySnapshot>) {
+                if (!ownsItemCache || !m_itemCache) return;
+                QList<ItemTemplate> items;
+                items.reserve(int(p.items.size()));
+                for (const auto& item : p.items)
+                    items.push_back(itemTemplate(item));
+                m_itemCache->replaceInventory(items);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::InventoryItemUpdated>) {
+                if (ownsItemCache && m_itemCache) {
+                    m_itemCache->applyInventoryItem(
+                        itemTemplate(p.item),
+                        p.has_previous_location
+                            ? std::optional<uint32_t>(
+                                  p.previous_location.container_id)
+                            : std::nullopt,
+                        p.has_previous_location
+                            ? std::optional<uint16_t>(
+                                  p.previous_location.container_slot)
+                            : std::nullopt,
+                        p.has_previous_location
+                            ? std::optional<uint16_t>(
+                                  p.previous_location.parent_slot)
+                            : std::nullopt);
+                }
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::EquipmentSnapshot>) {
+                if (!ownsItemCache || !m_itemCache) return;
+                QHash<int, uint32_t> equipment;
+                for (const auto& item : p.items)
+                    equipment.insert(int(item.container_slot), item.item_id);
+                m_itemCache->replaceEquipment(equipment);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::EquipmentSlotUpdated>) {
+                if (!ownsItemCache || !m_itemCache) return;
+                // Vacate before set, literally as the stream orders it.
+                m_itemCache->clearEquipmentSlot(int(p.slot));
+                if (p.has_item)
+                    m_itemCache->setEquipmentSlot(int(p.slot), p.item.item_id);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::MoneyBalanceUpdated>) {
+                if (!player) return;
+                player->setMoneyCoins(p.platinum, p.gold, p.silver, p.copper);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::SkillsSnapshot>) {
+                if (!player) return;
+                std::vector<std::pair<uint32_t, uint32_t>> skills;
+                skills.reserve(p.skills.size());
+                for (const auto& skill : p.skills)
+                    skills.emplace_back(skill.skill_id, skill.value);
+                player->replaceSkills(skills);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::SkillValueUpdated>) {
+                if (!player) return;
+                player->applySkillValue(p.skill_id, p.value);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::ExperienceUpdated>) {
+                if (!player) return;
+                player->applyExperienceProgress(
+                    p.experience,
+                    p.has_level ? std::optional<uint32_t>(p.level)
+                                : std::nullopt,
+                    p.has_previous_level
+                        ? std::optional<uint32_t>(p.previous_level)
+                        : std::nullopt);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::AlternateAdvancementSnapshot>) {
+                if (!player) return;
+                std::vector<std::pair<uint32_t, uint32_t>> purchased;
+                purchased.reserve(p.purchased.size());
+                for (const auto& aa : p.purchased)
+                    purchased.emplace_back(aa.ability_id, aa.rank);
+                player->replaceAlternateAdvancement(
+                    purchased,
+                    p.has_spent_points
+                        ? std::optional<uint32_t>(p.spent_points)
+                        : std::nullopt,
+                    p.unspent_points, p.experience);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::AlternateAdvancementUpdated>) {
+                if (!player) return;
+                player->applyAlternateAdvancement(
+                    p.experience, p.unspent_points);
+                playerMutated = true;
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::AlternateAbilityDefined>) {
+                if (!player || !m_dbStrings) return;
+                const QString name = m_dbStrings->nameById(p.title_string_id);
+                if (!name.isEmpty()) player->setAAName(p.ability_id, name);
+            }
+        }, event);
+    }
+
+    // Progression decoding owns one Player.dat write per decoded batch. Individual typed
+    // primitives above never write, which avoids partial profile snapshots.
+    if (playerMutated && player && showeq_params->savePlayerState)
+        player->savePlayerState();
+}
+
+void DaemonApp::applyRustLoot(const Box* box,
+                              const seq::shadow::Batch& batch)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+    if (!managers->messageShell) return;
+
+    for (const seq::shadow::Event& event : batch.events) {
+        if (const auto* acquired =
+                std::get_if<seq::shadow::LootAcquired>(&event)) {
+            managers->messageShell->applyLootAcquired(acquired->payload);
+        } else if (const auto* snapshot =
+                       std::get_if<seq::shadow::CorpseLootSnapshot>(&event)) {
+            managers->messageShell->applyCorpseLootSnapshot(snapshot->payload);
+        }
+    }
+}
+
+void DaemonApp::applyRustCombat(const Box* box,
+                                const seq::shadow::Batch& batch)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+
+    for (const seq::shadow::Event& event : batch.events) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, seq::shadow::CombatDamage>) {
+                if (!managers->combatRouter) return;
+                managers->combatRouter->applyDamage(
+                    p.has_source_id ? std::optional<uint32_t>(p.source_id)
+                                    : std::nullopt,
+                    p.has_target_id ? std::optional<uint32_t>(p.target_id)
+                                    : std::nullopt,
+                    p.kind, p.damage,
+                    p.has_spell_id ? std::optional<uint32_t>(p.spell_id)
+                                   : std::nullopt);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::SpellActionResolved>) {
+                if (managers->combatRouter) {
+                    managers->combatRouter->applyCastResolved(
+                        p.has_source_id
+                            ? std::optional<uint32_t>(p.source_id)
+                            : std::nullopt,
+                        p.spell_id);
+                }
+                if (!managers->spellShell) return;
+                managers->spellShell->applySpellAction(
+                    p.has_source_id ? std::optional<uint32_t>(p.source_id)
+                                    : std::nullopt,
+                    p.has_target_id ? std::optional<uint32_t>(p.target_id)
+                                    : std::nullopt,
+                    p.spell_id,
+                    p.has_caster_level
+                        ? std::optional<uint8_t>(p.caster_level)
+                        : std::nullopt,
+                    p.kind);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::SpellCastStarted>) {
+                if (!managers->combatRouter) return;
+                managers->combatRouter->applyCastStarted(
+                    p.has_caster_id ? std::optional<uint32_t>(p.caster_id)
+                                    : std::nullopt,
+                    p.has_target_id ? std::optional<uint32_t>(p.target_id)
+                                    : std::nullopt,
+                    p.spell_id,
+                    p.has_cast_time_ms
+                        ? std::optional<uint32_t>(p.cast_time_ms)
+                        : std::nullopt,
+                    p.has_slot ? std::optional<int32_t>(p.slot)
+                               : std::nullopt);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::SpellCastInterrupted>) {
+                if (!managers->combatRouter) return;
+                managers->combatRouter->applyCastInterrupted(
+                    p.has_caster_id ? std::optional<uint32_t>(p.caster_id)
+                                    : std::nullopt,
+                    p.spell_id);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::BuffAdded> ||
+                std::is_same_v<T, seq::shadow::BuffUpdated>) {
+                if (!managers->spellShell) return;
+                const std::optional<QString> casterName = p.has_caster_name
+                    ? std::optional<QString>(qString(p.caster_name))
+                    : std::nullopt;
+                managers->spellShell->applyActiveBuff(
+                    p.has_owner_id ? std::optional<uint32_t>(p.owner_id)
+                                   : std::nullopt,
+                    p.spell_id,
+                    p.has_remaining_ticks
+                        ? std::optional<int32_t>(p.remaining_ticks)
+                        : std::nullopt,
+                    p.has_slot ? std::optional<uint32_t>(p.slot)
+                               : std::nullopt,
+                    p.has_caster_id ? std::optional<uint32_t>(p.caster_id)
+                                    : std::nullopt,
+                    casterName);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::BuffRemoved>) {
+                if (!managers->spellShell) return;
+                managers->spellShell->removeActiveBuff(
+                    p.has_owner_id ? std::optional<uint32_t>(p.owner_id)
+                                   : std::nullopt,
+                    p.spell_id,
+                    p.has_slot ? std::optional<uint32_t>(p.slot)
+                               : std::nullopt);
+            }
+        }, event);
+    }
+}
+
+void DaemonApp::applyRustCommunication(
+    const Box* box, const seq::shadow::Event& event)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+
+    std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            const auto& p = value.payload;
+            if constexpr (std::is_same_v<T, seq::shadow::ChatMessage>) {
+                if (managers->messageShell)
+                    managers->messageShell->applyChatMessage(p);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::GroupRosterUpdated>) {
+                if (!managers->groupMgr) return;
+                std::vector<GroupRosterEntry> members;
+                members.reserve(p.members.size());
+                for (const auto& member : p.members) {
+                    members.push_back(GroupRosterEntry{
+                        member.slot, qString(member.name),
+                        member.has_level
+                            ? std::optional<uint32_t>(member.level)
+                            : std::nullopt});
+                }
+                managers->groupMgr->applyRoster(members, p.complete);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::GuildRosterUpdated>) {
+                if (!managers->guildShell) return;
+                QVector<GuildRosterEntry> members;
+                members.reserve(int(p.members.size()));
+                for (const auto& member : p.members) {
+                    GuildRosterEntry row;
+                    row.name = qString(member.name);
+                    row.level = uint8_t(member.level);
+                    row.classVal = uint8_t(member.class_);
+                    row.classMask = member.class_mask;
+                    row.guildRank = member.rank;
+                    row.lastOn = member.last_on;
+                    row.banker = uint8_t(member.banker);
+                    row.alt = uint8_t(member.alt);
+                    row.fullMember = member.full_member ? 1u : 0u;
+                    row.publicNote = qString(member.public_note);
+                    row.zoneId = uint16_t(member.zone_id);
+                    members.push_back(std::move(row));
+                }
+                managers->guildShell->setRoster(
+                    p.guild_id, members, p.complete);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::GuildMotdUpdated>) {
+                if (managers->guildShell)
+                    managers->guildShell->setMotd(
+                        p.guild_id, qString(p.message), qString(p.sender));
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::GuildRankNamesUpdated>) {
+                if (!managers->guildShell) return;
+                QMap<uint32_t, QString> ranks;
+                for (const auto& rank : p.ranks)
+                    ranks.insert(rank.rank_index, qString(rank.rank_name));
+                managers->guildShell->setRankNames(p.guild_id, ranks);
+            } else if constexpr (
+                std::is_same_v<T, seq::shadow::DynamicZoneUpdated>) {
+                if (!managers->zoneMgr) return;
+                managers->zoneMgr->applyDynamicZoneState(
+                    p.active,
+                    p.has_zone_id
+                        ? std::optional<uint16_t>(p.zone_id) : std::nullopt,
+                    p.has_instance_id
+                        ? std::optional<uint16_t>(p.instance_id)
+                        : std::nullopt,
+                    p.has_kind ? std::optional<uint32_t>(p.kind) : std::nullopt,
+                    p.has_position
+                        ? std::optional<float>(p.position.x) : std::nullopt,
+                    p.has_position
+                        ? std::optional<float>(p.position.y) : std::nullopt,
+                    p.has_position
+                        ? std::optional<float>(p.position.z) : std::nullopt,
+                    p.has_max_players
+                        ? std::optional<uint32_t>(p.max_players)
+                        : std::nullopt,
+                    qString(p.expedition_name), qString(p.leader_name),
+                    p.complete);
+            }
+    }, event);
+}
+
+void DaemonApp::applyRustPlayer(const Box* box,
+                               const seq::shadow::Event& event)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+    if (!managers->player || !managers->spawnShell) return;
+
+    std::visit([&](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        const auto& p = value.payload;
+        if constexpr (std::is_same_v<T, seq::shadow::PlayerIdentityUpdated>) {
+            managers->player->applyPlayerIdentity(
+                p.has_spawn_id ? std::optional<uint32_t>(p.spawn_id)
+                               : std::nullopt,
+                qString(p.name), qString(p.last_name), uint16_t(p.race),
+                uint8_t(p.class_), uint16_t(p.deity), uint8_t(p.level),
+                p.class_mask);
+        } else if constexpr (std::is_same_v<T, seq::shadow::PlayerMoved>) {
+            managers->player->applyPlayerMovement(
+                p.has_spawn_id ? std::optional<uint32_t>(p.spawn_id)
+                               : std::nullopt,
+                p.pos.x, p.pos.y, p.pos.z, p.pos.heading_deg);
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::PlayerVitalsUpdated>) {
+            managers->player->applyPlayerVitals(
+                p.has_health, p.health.current,
+                p.has_health && p.health.has_maximum
+                    ? std::optional<int32_t>(p.health.maximum) : std::nullopt,
+                p.has_mana, p.mana.current,
+                p.has_mana && p.mana.has_maximum
+                    ? std::optional<int32_t>(p.mana.maximum) : std::nullopt,
+                p.has_endurance, p.endurance.current,
+                p.has_endurance && p.endurance.has_maximum
+                    ? std::optional<int32_t>(p.endurance.maximum) : std::nullopt);
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::SpawnHealthUpdated>) {
+            if (p.id <= UINT16_MAX)
+                managers->spawnShell->updateSpawnHP(
+                    uint16_t(p.id), p.current, p.maximum);
+        } else if constexpr (std::is_same_v<T, seq::shadow::PlayerDied>) {
+#if defined(SEQ_TARGET_EQL)
+            managers->player->applyPlayerDeath();
+#else
+            managers->spawnShell->applyPlayerDeath(
+                p.has_killer_id ? std::optional<uint32_t>(p.killer_id)
+                                : std::nullopt);
+#endif
+        } else if constexpr (std::is_same_v<T, seq::shadow::SpawnDied>) {
+            managers->spawnShell->applySpawnDeath(
+                p.id, p.has_killer_id ? std::optional<uint32_t>(p.killer_id)
+                                      : std::nullopt);
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::SpawnIdentityUpdated>) {
+            if (p.id <= UINT16_MAX)
+                managers->spawnShell->updateSpawnIdentity(
+                    uint16_t(p.id), uint8_t(p.level), uint8_t(p.class_),
+                    uint16_t(p.race));
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::PlayerAppearanceUpdated>) {
+            managers->player->applyPlayerAppearance(
+                p.has_race ? std::optional<uint32_t>(p.race) : std::nullopt,
+                p.has_gender ? std::optional<uint8_t>(p.gender) : std::nullopt,
+                p.has_animation ? std::optional<uint32_t>(p.animation)
+                                : std::nullopt);
+        }
+    }, event);
+}
+
+void DaemonApp::applyRustEntity(const Box* box,
+                                const seq::shadow::Event& event)
+{
+    const ManagerSet* managers = nullptr;
+    if (box) {
+        const auto found = m_boxManagers.constFind(box);
+        if (found != m_boxManagers.cend()) managers = &found.value();
+    }
+    if (!managers) managers = &m_activeManagers;
+    if (!managers->spawnShell || !managers->zoneMgr) return;
+
+    std::visit([&](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        const auto& p = value.payload;
+        if constexpr (std::is_same_v<T, seq::shadow::SpawnAdded>) {
+            std::optional<std::vector<uint32_t>> equipmentModels;
+            if (p.has_equipment_models) {
+                equipmentModels.emplace();
+                equipmentModels->reserve(p.equipment_models.size());
+                for (uint32_t model : p.equipment_models)
+                    equipmentModels->push_back(model);
+            }
+            managers->spawnShell->applyEntitySpawn(
+                p.id, qString(p.name), qString(p.last_name), p.race,
+                p.class_, p.deity, p.level, p.npc, p.cur_hp,
+                p.has_max_hp ? std::optional<uint32_t>(p.max_hp) : std::nullopt,
+                p.guild_id, p.guild_server_id, p.class_mask,
+                p.has_pos ? std::optional<int32_t>(p.pos.x) : std::nullopt,
+                p.has_pos ? std::optional<int32_t>(p.pos.y) : std::nullopt,
+                p.has_pos ? std::optional<int32_t>(p.pos.z) : std::nullopt,
+                p.has_pos ? std::optional<uint16_t>(p.pos.heading_deg)
+                          : std::nullopt,
+                p.velocity.has_x ? std::optional<int32_t>(p.velocity.x)
+                                 : std::nullopt,
+                p.velocity.has_y ? std::optional<int32_t>(p.velocity.y)
+                                 : std::nullopt,
+                p.velocity.has_z ? std::optional<int32_t>(p.velocity.z)
+                                 : std::nullopt,
+                p.has_delta_heading
+                    ? std::optional<int16_t>(p.delta_heading) : std::nullopt,
+                p.has_animation ? std::optional<int16_t>(p.animation)
+                                : std::nullopt,
+                equipmentModels);
+        } else if constexpr (std::is_same_v<T, seq::shadow::SpawnMoved>) {
+            managers->spawnShell->applyEntityMove(
+                p.id, p.pos.x, p.pos.y, p.pos.z, p.pos.heading_deg,
+                p.velocity.has_x ? std::optional<int32_t>(p.velocity.x)
+                                 : std::nullopt,
+                p.velocity.has_y ? std::optional<int32_t>(p.velocity.y)
+                                 : std::nullopt,
+                p.velocity.has_z ? std::optional<int32_t>(p.velocity.z)
+                                 : std::nullopt,
+                p.has_delta_heading
+                    ? std::optional<int16_t>(p.delta_heading) : std::nullopt,
+                p.has_animation ? std::optional<int16_t>(p.animation)
+                                : std::nullopt);
+        } else if constexpr (std::is_same_v<T, seq::shadow::SpawnRemoved>) {
+            managers->spawnShell->applyEntityRemove(p.id);
+        } else if constexpr (std::is_same_v<T, seq::shadow::SpawnRenamed>) {
+            managers->spawnShell->applyEntityRename(
+                p.has_id ? std::optional<uint32_t>(p.id) : std::nullopt,
+                qString(p.old_name), qString(p.new_name));
+        } else if constexpr (std::is_same_v<T, seq::shadow::Doors>) {
+            std::vector<EntityDoorState> doors;
+            doors.reserve(p.doors.size());
+            for (const auto& door : p.doors) {
+                doors.push_back(EntityDoorState{
+                    door.id, qString(door.name), door.position.x,
+                    door.position.y, door.position.z, door.heading,
+                    door.incline, door.size, door.open_type, door.state,
+                    door.invert_state,
+                    door.has_zone_point_id
+                        ? std::optional<uint32_t>(door.zone_point_id)
+                        : std::nullopt});
+            }
+            managers->spawnShell->applyEntityDoors(doors);
+        } else if constexpr (
+            std::is_same_v<T, seq::shadow::GroundItemRemoved>) {
+            managers->spawnShell->applyEntityGroundItemRemoved(p.drop_id);
+        } else if constexpr (std::is_same_v<T, seq::shadow::GroundItem>) {
+            managers->spawnShell->applyEntityGroundItem(
+                p.id, qString(p.actor_definition), p.position.x,
+                p.position.y, p.position.z,
+                p.has_heading ? std::optional<float>(p.heading) : std::nullopt);
+        } else if constexpr (std::is_same_v<T, seq::shadow::CorpseLocated>) {
+            managers->spawnShell->applyEntityCorpseLocation(
+                p.id, p.position.x, p.position.y, p.position.z);
+        } else if constexpr (std::is_same_v<T, seq::shadow::ZonePoints>) {
+            std::vector<EntityZonePointState> points;
+            points.reserve(p.points.size());
+            for (const auto& point : p.points) {
+                points.push_back(EntityZonePointState{
+                    point.has_trigger_id
+                        ? std::optional<uint32_t>(point.trigger_id)
+                        : std::nullopt,
+                    point.has_actor_definition
+                        ? std::optional<QString>(qString(point.actor_definition))
+                        : std::nullopt,
+                    point.position.x, point.position.y, point.position.z,
+                    point.heading,
+                    point.has_destination_zone_id
+                        ? std::optional<uint16_t>(point.destination_zone_id)
+                        : std::nullopt,
+                    point.has_destination_instance_id
+                        ? std::optional<uint16_t>(point.destination_instance_id)
+                        : std::nullopt});
+            }
+            managers->zoneMgr->applyEntityZonePoints(std::move(points));
+        }
+    }, event);
+}
+
+void DaemonApp::connectLifecycleObservers()
+{
+    if (!m_packet) return;
+
+    connect(m_zoneMgr, &ZoneMgr::playerProfile, this,
+            [this](const charProfileStruct* profile) {
+        if (!profile) return;
+        m_packet->observeLegacyLifecycle(seq::shadow::observeSessionReset(
+            seq::rust::EventSessionResetReason::PlayerProfile));
+        m_packet->observeLegacyLifecycle(
+            seq::shadow::observeProfile(lifecycleProfile(*profile)));
+    });
+    connect(m_zoneMgr,
+            qOverload<const zoneChangeStruct*, size_t, uint8_t>(
+                &ZoneMgr::zoneChanged),
+            this, [this](const zoneChangeStruct* change, size_t, uint8_t dir) {
+        if (!change) return;
+        if (dir == DIR_Server)
+            m_packet->observeLegacyLifecycle(seq::shadow::observeSessionReset(
+                seq::rust::EventSessionResetReason::ZoneTransition));
+        const size_t nameLength = strnlen(change->name, sizeof(change->name));
+        m_packet->observeLegacyLifecycle(seq::shadow::observeZoneTransition(
+            std::string(change->name, nameLength), change->zoneId,
+            change->zoneInstance, dir == DIR_Server));
+    });
+    connect(m_zoneMgr, &ZoneMgr::zoneTransitionStarted, this, [this] {
+        m_packet->observeLegacyLifecycle(seq::shadow::observeZoneTransition(
+            {}, std::nullopt, std::nullopt, false));
+    });
+    connect(m_zoneMgr, &ZoneMgr::zoneEnd, this,
+            [this](const QString& shortName, const QString& longName) {
+        m_packet->observeLegacyLifecycle(seq::shadow::observeZoneChanged(
+            shortName.toStdString(), longName.toStdString()));
+        m_packet->observeLegacyLifecycle(seq::shadow::observeZoneEnvironment(
+            m_zoneMgr->zoneFile().toStdString(), m_zoneMgr->zoneExpMultiplier(),
+            m_zoneMgr->safeX(), m_zoneMgr->safeY(), m_zoneMgr->safeZ()));
+    });
+
+    auto observeZoneProjection = [this](const QString& shortName) {
+#if defined(SEQ_TARGET_EQL)
+        m_packet->observeLegacyLifecycle(seq::shadow::observeZoneChanged(
+            shortName.toStdString(),
+            m_zoneMgr->longZoneName().toStdString()));
+#endif
+        m_packet->observeLegacyLifecycleProjection(seq::encode::zoneChanged(
+            shortName, m_zoneMgr->longZoneName(), m_mapData.get()));
+    };
+    connect(m_zoneMgr, qOverload<const QString&>(&ZoneMgr::zoneBegin),
+            this, observeZoneProjection);
+    connect(m_zoneMgr, qOverload<const QString&>(&ZoneMgr::zoneChanged),
+            this, observeZoneProjection);
+    connect(m_zoneMgr, &ZoneMgr::zoneResolved, this, observeZoneProjection);
+
+    connect(m_dateTimeMgr, &DateTimeMgr::decodedTimeOfDay, this,
+            [this](uint32_t year, uint32_t month, uint32_t day,
+                   uint32_t wireHour, uint32_t minute) {
+        m_packet->observeLegacyLifecycle(seq::shadow::observeTimeOfDay(
+            year, month, day, wireHour, minute));
+    });
+    connect(m_dateTimeMgr, &DateTimeMgr::syncDateTime, this,
+            [this](const QDateTime& value) {
+        m_packet->observeLegacyLifecycleProjection(
+            seq::encode::eqTimeSync(value));
+    });
+    connect(m_zoneServerMgr, &ZoneServerMgr::zoneServerChanged, this,
+            [this](const QString& host, quint16 port) {
+        m_packet->observeLegacyLifecycleProjection(
+            seq::encode::zoneServer(host, port));
+    });
+}
+
+void DaemonApp::connectEntityObservers()
+{
+    if (!m_packet || !m_spawnShell || !m_zoneMgr) return;
+    auto record = [this](seq::shadow::EntityKind kind,
+                         seq::v1::Envelope envelope) {
+        m_packet->observeLegacyEntity({kind, {}});
+        m_packet->observeLegacyEntityProjection(std::move(envelope));
+    };
+    connect(m_spawnShell, &SpawnShell::addItem, this,
+            [this, record](const Item* item) {
+        if (!item) return;
+        seq::shadow::EntityKind kind;
+        if (item->type() == tDoors) {
+            kind = seq::shadow::EntityKind::Doors;
+        } else if (item->type() == tDrop) {
+            kind = seq::shadow::EntityKind::GroundItem;
+        } else {
+            kind = seq::shadow::EntityKind::SpawnAdded;
+        }
+        if (!m_packet->rustEntityAcceptedForCurrentPacket(kind)) return;
+        seq::v1::Envelope envelope;
+        seq::encode::fillSpawn(envelope.mutable_spawn_added()->mutable_spawn(),
+                               *item, m_categoryMgr, m_filterMgr);
+        record(kind, std::move(envelope));
+    });
+    connect(m_spawnShell, &SpawnShell::delItem, this,
+            [this, record](const Item* item) {
+        if (!item) return;
+        const auto kind = item->type() == tDrop
+            ? seq::shadow::EntityKind::GroundItemRemoved
+            : seq::shadow::EntityKind::SpawnRemoved;
+        if (!m_packet->rustEntityAcceptedForCurrentPacket(kind)) return;
+        seq::v1::Envelope envelope;
+        envelope.mutable_spawn_removed()->set_id(item->id());
+        record(kind, std::move(envelope));
+    });
+    connect(m_spawnShell, &SpawnShell::changeItem, this,
+            [this, record](const Item* item, uint32_t changeType) {
+        if (!item) return;
+        const bool renamed =
+            m_packet->rustEntityAcceptedForCurrentPacket(
+                seq::shadow::EntityKind::SpawnRenamed);
+        const bool moved =
+            m_packet->rustEntityAcceptedForCurrentPacket(
+                seq::shadow::EntityKind::SpawnMoved);
+        if (!renamed && !moved) return;
+        const auto kind = renamed ? seq::shadow::EntityKind::SpawnRenamed
+                                  : seq::shadow::EntityKind::SpawnMoved;
+        seq::v1::Envelope envelope;
+        const bool filterChanged =
+            (changeType & (tSpawnChangedFilter |
+                           tSpawnChangedRuntimeFilter)) != 0;
+        if ((changeType & tSpawnChangedALL) == tSpawnChangedALL ||
+            filterChanged) {
+            seq::encode::fillSpawn(
+                envelope.mutable_spawn_added()->mutable_spawn(), *item,
+                m_categoryMgr, m_filterMgr);
+        } else {
+            auto* update = envelope.mutable_spawn_updated();
+            update->set_id(item->id());
+            if (const auto* spawn = dynamic_cast<const Spawn*>(item)) {
+                if (changeType & tSpawnChangedPosition)
+                    seq::encode::fillPos(update->mutable_pos(), *spawn);
+                if (changeType & tSpawnChangedName)
+                    update->set_name(spawn->name().toStdString());
+            }
+        }
+        record(kind, std::move(envelope));
+    });
+    connect(m_spawnShell,
+            qOverload<const Item*, const Item*, uint16_t>(
+                &SpawnShell::killSpawn),
+            this, [this, record](const Item* deceased, const Item*, uint16_t) {
+        const auto kind = seq::shadow::EntityKind::CorpseLocated;
+        if (!deceased ||
+            !m_packet->rustEntityAcceptedForCurrentPacket(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* killed = envelope.mutable_spawn_killed();
+        killed->set_deceased_id(deceased->id());
+        killed->set_killer_id(0);
+        record(kind, std::move(envelope));
+    });
+    connect(m_zoneMgr, &ZoneMgr::entityZonePointsChanged, this, [this] {
+        const auto kind = seq::shadow::EntityKind::ZonePoints;
+        if (m_packet->rustEntityAcceptedForCurrentPacket(kind))
+            m_packet->observeLegacyEntity({kind, {}});
+    });
+}
+
+void DaemonApp::connectPlayerObservers()
+{
+    if (!m_packet || !m_player || !m_spawnShell) return;
+    auto accepted = [this](seq::shadow::PlayerKind kind) {
+        return m_packet->rustPlayerAcceptedForCurrentPacket(kind);
+    };
+    auto record = [this](seq::shadow::PlayerKind kind,
+                         seq::v1::Envelope envelope) {
+        m_packet->observeLegacyPlayer({kind, {}});
+        m_packet->observeLegacyPlayerProjection(std::move(envelope));
+    };
+
+    connect(m_player, &Player::levelChanged, this,
+            [this, accepted, record](uint8_t) {
+        const auto kind = seq::shadow::PlayerKind::PlayerIdentityUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* stats = envelope.mutable_player_stats();
+        stats->set_name(m_player->name().toStdString());
+        stats->set_class_(m_player->classVal());
+        stats->set_race(m_player->race());
+        stats->set_level(m_player->level());
+        stats->set_class_mask(m_player->classMask());
+        record(kind, std::move(envelope));
+    });
+    connect(m_player, &Player::posChanged, this,
+            [this, accepted, record](int16_t, int16_t, int16_t,
+                                     int16_t, int16_t, int16_t, int32_t) {
+        const auto kind = seq::shadow::PlayerKind::PlayerMoved;
+        if (!accepted(kind) || m_player->id() == 0) return;
+        seq::v1::Envelope envelope;
+        auto* update = envelope.mutable_spawn_updated();
+        update->set_id(m_player->id());
+        seq::encode::fillPos(update->mutable_pos(), *m_player);
+        record(kind, std::move(envelope));
+    });
+    connect(m_player, &Player::vitalsChanged, this,
+            [this, accepted, record] {
+        const auto kind = seq::shadow::PlayerKind::PlayerVitalsUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        seq::encode::fillPlayerStats(envelope.mutable_player_stats(), *m_player);
+        record(kind, std::move(envelope));
+    });
+    connect(m_spawnShell, &SpawnShell::changeItem, this,
+            [accepted, record](const Item* item, uint32_t changeType) {
+        const auto* spawn = dynamic_cast<const Spawn*>(item);
+        if (!spawn) return;
+        if ((changeType & tSpawnChangedHP) && accepted(
+                seq::shadow::PlayerKind::SpawnHealthUpdated)) {
+            seq::v1::Envelope envelope;
+            auto* update = envelope.mutable_spawn_updated();
+            update->set_id(spawn->id());
+            update->set_hp_cur(uint32_t(std::max(spawn->HP(), 0)));
+            record(seq::shadow::PlayerKind::SpawnHealthUpdated,
+                   std::move(envelope));
+        } else if ((changeType & tSpawnChangedLevel) && accepted(
+                       seq::shadow::PlayerKind::SpawnIdentityUpdated)) {
+            seq::v1::Envelope envelope;
+            auto* update = envelope.mutable_spawn_updated();
+            update->set_id(spawn->id()); update->set_level(spawn->level());
+            record(seq::shadow::PlayerKind::SpawnIdentityUpdated,
+                   std::move(envelope));
+        }
+    });
+    connect(m_spawnShell,
+            qOverload<const Item*, const Item*, uint16_t>(
+                &SpawnShell::killSpawn),
+            this, [accepted, record](const Item* deceased, const Item* killer,
+                                     uint16_t killerId) {
+        const auto kind = seq::shadow::PlayerKind::SpawnDied;
+        if (!deceased || !accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* killed = envelope.mutable_spawn_killed();
+        killed->set_deceased_id(deceased->id());
+        killed->set_killer_id(killer ? killer->id() : killerId);
+        record(kind, std::move(envelope));
+    });
+}
+
+void DaemonApp::connectProgressionObservers()
+{
+    if (!m_packet || !m_player || !m_itemCache) return;
+    auto accepted = [this](seq::shadow::ProgressionKind kind) {
+        return m_packet->rustProgressionAcceptedForCurrentPacket(kind);
+    };
+    auto observe = [this](seq::shadow::ProgressionKind kind,
+                          seq::v1::Envelope envelope) {
+        m_packet->observeLegacyProgression({kind, {}});
+        m_packet->observeLegacyProgressionProjection(std::move(envelope));
+    };
+
+    connect(m_itemCache, &ItemCache::itemLearned, this,
+            [this, accepted, observe](uint32_t itemId) {
+        const auto kind = seq::shadow::ProgressionKind::InventoryItemUpdated;
+        if (!accepted(kind)) return;
+        ItemTemplate item;
+        if (!m_itemCache->lookup(itemId, &item)) return;
+        seq::v1::Envelope envelope;
+        seq::encode::fillItem(
+            envelope.mutable_item_learned()->mutable_item(), item);
+        observe(kind, std::move(envelope));
+    });
+    connect(m_itemCache, &ItemCache::wornSlotsChanged, this,
+            [this, accepted, observe] {
+        const auto kind = seq::shadow::ProgressionKind::EquipmentSlotUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope worn;
+        seq::encode::fillWornSet(worn.mutable_worn_set(), *m_itemCache);
+        observe(kind, std::move(worn));
+        seq::v1::Envelope totals;
+        seq::encode::fillItemTotals(totals.mutable_item_totals(), *m_itemCache);
+        m_packet->observeLegacyProgressionProjection(std::move(totals));
+    });
+    connect(m_player, &Player::moneyChanged, this,
+            [accepted, observe](uint32_t copper) {
+        const auto kind = seq::shadow::ProgressionKind::MoneyBalanceUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        envelope.mutable_player_stats()->set_money_copper(copper);
+        observe(kind, std::move(envelope));
+    });
+    connect(m_player, &Player::changeSkill, this,
+            [accepted, observe](int skillId, int value) {
+        const auto kind = seq::shadow::ProgressionKind::SkillValueUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* skill = envelope.mutable_player_stats()->add_skills();
+        skill->set_skill_id(uint32_t(skillId));
+        skill->set_value(uint32_t(value));
+        observe(kind, std::move(envelope));
+    });
+    connect(m_player, &Player::levelChanged, this,
+            [this, accepted, observe](uint8_t) {
+        if (accepted(seq::shadow::ProgressionKind::SkillsSnapshot)) {
+            seq::v1::Envelope envelope;
+            auto* stats = envelope.mutable_player_stats();
+            for (uint8_t id = 0; id < MAX_KNOWN_SKILLS; ++id) {
+                const uint32_t value = m_player->getSkill(id);
+                if (value == 0 || value == UINT32_MAX) continue;
+                auto* skill = stats->add_skills();
+                skill->set_skill_id(id); skill->set_value(value);
+            }
+            observe(seq::shadow::ProgressionKind::SkillsSnapshot,
+                    std::move(envelope));
+        }
+        if (accepted(
+                seq::shadow::ProgressionKind::AlternateAdvancementSnapshot)) {
+            seq::v1::Envelope envelope;
+            auto* stats = envelope.mutable_player_stats();
+            stats->set_aa_exp_cur(m_player->getCurrentAltExp());
+            stats->set_aa_exp_max(100000);
+            stats->set_aa_points(m_player->getCurrentAApts());
+            stats->set_aa_unspent(m_player->getCurrentAAUnspent());
+            for (const auto& aa : m_player->getPurchasedAA()) {
+                auto* target = stats->add_purchased_aa();
+                target->set_ability_id(aa.abilityId);
+                target->set_rank(aa.rank);
+                const QString name = m_player->aaName(aa.abilityId);
+                if (!name.isEmpty()) target->set_name(name.toStdString());
+            }
+            observe(
+                seq::shadow::ProgressionKind::AlternateAdvancementSnapshot,
+                std::move(envelope));
+        }
+    });
+    connect(m_player, &Player::expChangedInt, this,
+            [this, accepted, observe](int current, int, int maximum) {
+        const auto kind = seq::shadow::ProgressionKind::ExperienceUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* stats = envelope.mutable_player_stats();
+        stats->set_exp_cur(uint32_t(current));
+        stats->set_exp_max(uint32_t(maximum));
+        stats->set_level(m_player->level());
+        observe(kind, std::move(envelope));
+    });
+    connect(m_player, &Player::expAltChangedInt, this,
+            [this, accepted, observe](int current, int, int maximum) {
+        const auto kind =
+            seq::shadow::ProgressionKind::AlternateAdvancementUpdated;
+        if (!accepted(kind)) return;
+        seq::v1::Envelope envelope;
+        auto* stats = envelope.mutable_player_stats();
+        stats->set_aa_exp_cur(uint32_t(current));
+        stats->set_aa_exp_max(uint32_t(maximum));
+        stats->set_aa_unspent(m_player->getCurrentAAUnspent());
+        observe(kind, std::move(envelope));
+    });
+}
+
+void DaemonApp::connectCombatObservers()
+{
+    if (!m_packet || !m_combatRouter || !m_spellShell) return;
+    auto accepted = [this](seq::shadow::CombatKind kind) {
+        return m_packet->rustCombatAcceptedForCurrentPacket(kind);
+    };
+    auto observe = [this](seq::shadow::CombatKind kind) {
+        m_packet->observeLegacyCombat({kind, {}});
+    };
+
+    connect(m_combatRouter, &CombatRouter::combatEvent, this,
+            [this, accepted, observe](uint32_t sourceId,
+                                      const QString& sourceName,
+                                      uint32_t targetId,
+                                      const QString& targetName,
+                                      uint32_t type, int32_t damage,
+                                      uint32_t spellId,
+                                      const QString& spellName) {
+        const auto kind = seq::shadow::CombatKind::CombatDamage;
+        if (!accepted(kind)) return;
+        observe(kind);
+        seq::v1::Envelope envelope;
+        auto* combat = envelope.mutable_combat();
+        combat->set_source_id(sourceId);
+        combat->set_source_name(sourceName.toStdString());
+        combat->set_target_id(targetId);
+        combat->set_target_name(targetName.toStdString());
+        combat->set_type(type);
+        combat->set_damage(damage);
+        combat->set_spell_id(spellId);
+        combat->set_spell_name(spellName.toStdString());
+        m_packet->observeLegacyCombatProjection(std::move(envelope));
+    });
+    connect(m_combatRouter, &CombatRouter::spawnCast, this,
+            [this, accepted, observe](uint32_t casterId,
+                                      const QString& casterName,
+                                      uint32_t spellId,
+                                      const QString& spellName,
+                                      uint32_t castTimeMs) {
+        const auto kind = accepted(seq::shadow::CombatKind::SpellCastStarted)
+            ? seq::shadow::CombatKind::SpellCastStarted
+            : seq::shadow::CombatKind::SpellCastInterrupted;
+        if (!accepted(kind)) return;
+        observe(kind);
+        seq::v1::Envelope envelope;
+        auto* cast = envelope.mutable_spawn_cast();
+        cast->set_caster_id(casterId);
+        cast->set_caster_name(casterName.toStdString());
+        cast->set_spell_id(spellId);
+        cast->set_spell_name(spellName.toStdString());
+        cast->set_cast_time_ms(castTimeMs);
+        m_packet->observeLegacyCombatProjection(std::move(envelope));
+    });
+
+    connect(m_spellShell, &SpellShell::spellActionResolved, this,
+            [accepted, observe] {
+        const auto kind = seq::shadow::CombatKind::SpellActionResolved;
+        if (accepted(kind)) observe(kind);
+    });
+    auto observeSpellMutation = [accepted, observe](
+                                     seq::shadow::CombatKind buffKind) {
+        if (accepted(buffKind)) observe(buffKind);
+    };
+    connect(m_spellShell, &SpellShell::addSpell, this,
+            [observeSpellMutation](const SpellItem*) {
+        observeSpellMutation(seq::shadow::CombatKind::BuffAdded);
+    });
+    connect(m_spellShell, &SpellShell::changeSpell, this,
+            [observeSpellMutation](const SpellItem*) {
+        observeSpellMutation(seq::shadow::CombatKind::BuffUpdated);
+    });
+    connect(m_spellShell, &SpellShell::delSpell, this,
+            [accepted, observe](const SpellItem*) {
+        const auto kind = seq::shadow::CombatKind::BuffRemoved;
+        if (accepted(kind)) observe(kind);
+    });
+    connect(m_spellShell, &SpellShell::addEffect, this,
+            [observeSpellMutation](const SpellItem*) {
+        observeSpellMutation(seq::shadow::CombatKind::BuffAdded);
+    });
+    connect(m_spellShell, &SpellShell::changeEffect, this,
+            [observeSpellMutation](const SpellItem*) {
+        observeSpellMutation(seq::shadow::CombatKind::BuffUpdated);
+    });
+    connect(m_spellShell, &SpellShell::delEffect, this,
+            [accepted, observe](const SpellItem*) {
+        const auto kind = seq::shadow::CombatKind::BuffRemoved;
+        if (accepted(kind)) observe(kind);
+    });
+}
+
+void DaemonApp::connectCommunicationObservers()
+{
+    if (!m_packet) return;
+    auto accepted = [this](seq::shadow::CommunicationKind kind) {
+        return m_packet->rustCommunicationAcceptedForCurrentPacket(kind);
+    };
+    auto observe = [this, accepted](seq::shadow::CommunicationKind kind,
+                                    seq::v1::Envelope envelope) {
+        if (!accepted(kind)) return;
+        m_packet->observeLegacyCommunication({kind, {}});
+        if (envelope.payload_case() != seq::v1::Envelope::PAYLOAD_NOT_SET)
+            m_packet->observeLegacyCommunicationProjection(
+                std::move(envelope));
+    };
+
+    if (m_messageShell) {
+        connect(m_messageShell, &MessageShell::chatMessage, this,
+                [observe](uint32_t channel, const QString& from,
+                          const QString& target, const QString& text,
+                          uint32_t color, const QString& channelName) {
+            seq::v1::Envelope envelope;
+            auto* chat = envelope.mutable_chat();
+            chat->set_channel(channel);
+            chat->set_from(from.toStdString());
+            chat->set_target(target.toStdString());
+            chat->set_text(text.toStdString());
+            chat->set_chat_color(color);
+            chat->set_channel_name(channelName.toStdString());
+            observe(seq::shadow::CommunicationKind::ChatMessage,
+                    std::move(envelope));
+        });
+    }
+    if (m_groupMgr) {
+        connect(m_groupMgr, &GroupMgr::rosterUpdated, this,
+                [this, observe] {
+            seq::v1::Envelope envelope;
+            seq::encode::fillGroupUpdate(envelope.mutable_group(),
+                                         *m_groupMgr);
+            observe(seq::shadow::CommunicationKind::GroupRosterUpdated,
+                    std::move(envelope));
+        });
+    }
+    if (m_guildShell) {
+        connect(m_guildShell, &GuildShell::loaded, this, [this, observe] {
+            seq::v1::Envelope envelope;
+            seq::encode::fillGuildRoster(envelope.mutable_guild_roster(),
+                                         *m_guildShell);
+            observe(seq::shadow::CommunicationKind::GuildRosterUpdated,
+                    std::move(envelope));
+        });
+        connect(m_guildShell, &GuildShell::updated, this,
+                [this, observe](const GuildMember*) {
+            seq::v1::Envelope envelope;
+            seq::encode::fillGuildRoster(envelope.mutable_guild_roster(),
+                                         *m_guildShell);
+            observe(seq::shadow::CommunicationKind::GuildRosterUpdated,
+                    std::move(envelope));
+        });
+        connect(m_guildShell, &GuildShell::motdChanged, this,
+                [this, observe] {
+            seq::v1::Envelope envelope;
+            seq::encode::fillGuildMotd(envelope.mutable_guild_motd(),
+                                       *m_guildShell);
+            observe(seq::shadow::CommunicationKind::GuildMotdUpdated,
+                    std::move(envelope));
+        });
+        connect(m_guildShell, &GuildShell::rankNamesChanged, this,
+                [this, observe] {
+            seq::v1::Envelope envelope;
+            seq::encode::fillGuildRankNames(
+                envelope.mutable_guild_rank_names(), *m_guildShell);
+            observe(seq::shadow::CommunicationKind::GuildRankNamesUpdated,
+                    std::move(envelope));
+        });
+    }
+    if (m_zoneMgr) {
+        connect(m_zoneMgr, &ZoneMgr::dynamicZoneChanged, this,
+                [observe] {
+            observe(seq::shadow::CommunicationKind::DynamicZoneUpdated,
+                    seq::v1::Envelope{});
+        });
+    }
+}
+
 bool DaemonApp::startServer()
 {
     if (!m_ws->listen(m_cfg.listenHost, m_cfg.listenPort)) {
@@ -652,23 +1962,37 @@ bool DaemonApp::startCapture()
         clientIp = pSEQPrefs->getPrefString("IP", "Network", AUTOMATIC_CLIENT_IP);
     }
     if (clientIp.isEmpty()) clientIp = AUTOMATIC_CLIENT_IP;
-    m_packet = new EQPacket(
-        opcodesToml.absoluteFilePath(),
-        /*arqSeqGiveUp*/ 512,
-        /*device*/ hasReplay ? QString() : m_cfg.device,
-        /*agent*/ hasReplay ? QString() : m_cfg.agent,
-        /*ip*/ clientIp,
-        /*mac*/ QStringLiteral("0"),
-        /*realtime*/ false,
-        /*snaplen*/ 2,
-        /*buffersize*/ 4,
-        /*sessionTracking*/ false,
-        /*recordPackets*/ wantRecord,
-        /*playbackPackets*/ hasReplay
-            ? (m_cfg.replayIsPcap ? PLAYBACK_FORMAT_TCPDUMP : PLAYBACK_FORMAT_SEQ)
-            : PLAYBACK_OFF,
-        /*playbackSpeed*/ 0,
-        this, "packet");
+    try {
+        m_packet = new EQPacket(
+            opcodesToml.absoluteFilePath(),
+            /*arqSeqGiveUp*/ 512,
+            /*device*/ hasReplay ? QString() : m_cfg.device,
+            /*agent*/ hasReplay ? QString() : m_cfg.agent,
+            /*ip*/ clientIp,
+            /*mac*/ QStringLiteral("0"),
+            /*realtime*/ false,
+            /*snaplen*/ 2,
+            /*buffersize*/ 4,
+            /*sessionTracking*/ false,
+            /*recordPackets*/ wantRecord,
+            /*playbackPackets*/ hasReplay
+                ? (m_cfg.replayIsPcap ? PLAYBACK_FORMAT_TCPDUMP
+                                      : PLAYBACK_FORMAT_SEQ)
+                : PLAYBACK_OFF,
+            /*playbackSpeed*/ 0,
+            lifecycleSelector(m_cfg.lifecycleDecoder),
+            lifecycleSelector(m_cfg.entityDecoder),
+            lifecycleSelector(m_cfg.playerDecoder),
+            lifecycleSelector(m_cfg.progressionDecoder),
+            lifecycleSelector(m_cfg.lootDecoder),
+            lifecycleSelector(m_cfg.combatDecoder),
+            lifecycleSelector(m_cfg.communicationDecoder),
+            m_cfg.applicationTraceDir,
+            this, "packet");
+    } catch (const std::exception& error) {
+        qCritical("Rust decoder setup failed: %s", error.what());
+        return false;
+    }
     if (m_cfg.strictGateSizes && m_packet->undeclaredGateSizeCount() > 0) {
         qCritical("--strict-gate-sizes: %d mapped SZC_Match opcode(s) gate on an "
                   "inherited Live sizeof — declare them in seq-backend-eql "
@@ -741,11 +2065,53 @@ ManagerSet DaemonApp::buildManagerSet()
 
     // MessageShell parses chat / system / NPC text into structured
     // signals. Needs the global MessageFilters + Messages.
-    ms.messageShell = new MessageShell(m_messages, m_eqStrings, m_spells,
-                                       m_spellMessages, m_dbStrings,
-                                       ms.zoneMgr, ms.spawnShell, ms.player,
+    ms.messageShell = new MessageShell(m_messages, m_eqStrings, ms.spawnShell,
+                                       ms.player,
                                        this, "messageShell");
     ms.messageShell->setLootStore(m_lootStore.get());
+    ms.messageShell->setLootMutationGuard([this] {
+        return !m_packet || m_packet->legacyLootEnabledForCurrentPacket();
+    });
+    ms.messageShell->setCommunicationMutationGuard([this] {
+        return !m_packet ||
+               m_packet->legacyCommunicationEnabledForCurrentPacket();
+    });
+    connect(ms.messageShell, &MessageShell::lootTransactionReceived, this,
+            [this](uint32_t corpseId, uint32_t itemId, uint32_t quantity,
+                   uint32_t coinCopper, bool fromCorpse) {
+        const auto kind = seq::shadow::LootKind::LootAcquired;
+        if (!m_packet || !m_packet->rustLootAcceptedForCurrentPacket(kind))
+            return;
+        m_packet->observeLegacyLoot({kind, {}});
+        seq::v1::Envelope envelope;
+        auto* loot = envelope.mutable_loot_transaction();
+        loot->set_corpse_id(corpseId);
+        loot->set_item_id(itemId);
+        loot->set_quantity(quantity);
+        loot->set_coin_copper(coinCopper);
+        loot->set_coin_from_corpse(fromCorpse);
+        m_packet->observeLegacyLootProjection(std::move(envelope));
+    });
+    connect(ms.messageShell, &MessageShell::lootDropsReceived, this,
+            [this](uint32_t corpseId, const QString& corpseName,
+                   const QStringList& names, const QVector<uint32_t>& icons,
+                   const QVector<uint32_t>& itemIds) {
+        const auto kind = seq::shadow::LootKind::CorpseLootSnapshot;
+        if (!m_packet || !m_packet->rustLootAcceptedForCurrentPacket(kind))
+            return;
+        m_packet->observeLegacyLoot({kind, {}});
+        seq::v1::Envelope envelope;
+        auto* loot = envelope.mutable_loot_drops();
+        loot->set_corpse_id(corpseId);
+        loot->set_corpse_name(corpseName.toStdString());
+        for (int i = 0; i < names.size(); ++i) {
+            auto* item = loot->add_items();
+            item->set_name(names[i].toStdString());
+            item->set_icon(i < icons.size() ? icons[i] : 0);
+            item->set_item_id(i < itemIds.size() ? itemIds[i] : 0);
+        }
+        m_packet->observeLegacyLootProjection(std::move(envelope));
+    });
 
     // SpellShell tracks active buffs / outgoing casts. Wires player
     // signals + clear-on-zone, mirroring showeq interface.cpp:967-988.
@@ -1203,6 +2569,17 @@ void DaemonApp::exportHandoffState(const QString& configDir) const
     // bypasses. Flush it explicitly so the new daemon loads current data.
     if (m_spawnMonitor)
         m_spawnMonitor->saveSpawnPoints();
+
+    // SIGHUP exits through _exit(75), so QObject and Session destructors do
+    // not run. Commit complete trace parts before the process handoff.
+    if (m_packet) {
+        try {
+            m_packet->finalizeApplicationTraces();
+        } catch (const std::exception& error) {
+            qFatal("application trace handoff finalization failed: %s",
+                   error.what());
+        }
+    }
 }
 
 bool DaemonApp::importHandoffState(const QString& configDir)

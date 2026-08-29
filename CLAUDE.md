@@ -14,9 +14,9 @@ wire-format quirks, and opcode-hunting technique notes.
   auth/TLS. `SessionAdapter`'s snapshot/tail ordering (connect → buffer →
   iterate → drain → flip live) is the subtlest piece; its header comment
   is load-bearing.
-- Rust decoder: the sibling `../scry-decoder-rs` repo, linked via Corrosion
-  as a **hard build dependency** — no `SEQ_USE_RUST` toggle, no C++
-  fallback.
+- Rust decoder: the pinned `scry-decoder-rs/` submodule, linked via Corrosion
+  as a **hard build dependency**. There is no `SEQ_USE_RUST` toggle or C++
+  fallback decoder.
 - Target server: **Live EQ**. `../legacy/ShowEQ-Legends/` is the
   correctness reference for protocol-layer code. `../EQMacEmu/` and Quarm
   opcodes/structs do **not** apply here — that's `scry-cpp-quarm`.
@@ -53,8 +53,11 @@ wire-format quirks, and opcode-hunting technique notes.
   `--grep`, `--buffs`, `--spawns`, `--limit` — see the script's `--help`).
   Never a per-envelope `protoc --decode` loop — it times out on real
   goldens. `rm -rf scripts/.pbgen` after a schema change.
-- Regenerate Rust struct bindings after an `everquest.h` change:
-  `(cd ../scry-decoder-rs && python3 tools/gen_eqstructs.py all)`
+- Regenerate Rust struct bindings after an `everquest.h` change by running the
+  pinned submodule's generator once for each Live and Test header:
+  `python3 scry-decoder-rs/tools/gen_eqstructs.py live src/backend/live/everquest.h`
+  and
+  `python3 scry-decoder-rs/tools/gen_eqstructs.py test src/backend/test/everquest.h`.
 - **Every local `scryd` run needs `--config-dir conf`** — without it the
   binary looks in PKGDATADIR, loads ZERO opcodes, and a `--replay` or
   `--record-golden` run silently produces nothing.
@@ -204,5 +207,5 @@ wire-format quirks, and opcode-hunting technique notes.
 - [`TEST_OPCODE.md`](TEST_OPCODE.md) — test-target opcode notes.
 - `/opcode-hunt` skill (`.claude/skills/opcode-hunt/`) — the general
   opcode-hunting procedure (recon flags, disambiguation bar, TODO template).
-- [`../scry-decoder-rs/CLAUDE.md`](../scry-decoder-rs/CLAUDE.md) — decoder
+- [`scry-decoder-rs/CLAUDE.md`](scry-decoder-rs/CLAUDE.md) — decoder
   workspace specifics.

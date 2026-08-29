@@ -117,8 +117,7 @@ GuildMember::GuildMember(const GuildRosterEntry& e)
     m_fullmember(e.fullMember),
     m_publicNote(e.publicNote),
     m_zoneId(e.zoneId),
-    // No backend sends a roster instance id; zoneId alone locates a member.
-    m_zoneInstance(0)
+    m_zoneInstance(e.zoneInstance)
 {
 }
 
@@ -274,7 +273,9 @@ void GuildShell::dumpMembers(QTextStream& out)
 }
 
 
-void GuildShell::setRoster(uint32_t guildId, const QVector<GuildRosterEntry>& rows)
+void GuildShell::setRoster(uint32_t guildId,
+                           const QVector<GuildRosterEntry>& rows,
+                           bool complete)
 {
   // Same shape as guildMemberList() below — the roster is authoritative and
   // replaces wholesale — but from already-decoded rows, so a backend whose wire
@@ -287,9 +288,15 @@ void GuildShell::setRoster(uint32_t guildId, const QVector<GuildRosterEntry>& ro
   // Rank names belong to the guild; drop them only when the guild actually
   // changes (a same-guild roster re-request isn't followed by a fresh rank-name
   // table, so keep the one we have).
-  if (guildId != m_guildId)
+  if (guildId != m_guildId ||
+      (guildId == 0 && rows.isEmpty() && !complete)) {
     m_rankNames.clear();
+    m_motd.clear();
+    m_motdSender.clear();
+    m_motdSet = false;
+  }
   m_guildId = guildId;
+  m_rosterComplete = complete;
 
   for (const GuildRosterEntry& e : rows)
   {
@@ -390,6 +397,22 @@ void GuildShell::setMotd(const QString& message, const QString& sender)
   // Length only — the MOTD text is user content and may name characters.
   seqInfo("GuildShell: MOTD for guild %u — %d chars", m_guildId, message.length());
   emit motdChanged();
+}
+
+void GuildShell::setMotd(uint32_t guildId, const QString& message,
+                         const QString& sender)
+{
+  m_guildId = guildId;
+  setMotd(message, sender);
+}
+
+void GuildShell::setRankNames(uint32_t guildId,
+                              const QMap<uint32_t, QString>& ranks)
+{
+  m_guildId = guildId;
+  if (m_rankNames == ranks) return;
+  m_rankNames = ranks;
+  emit rankNamesChanged();
 }
 
 void GuildShell::guildMemberList(const uint8_t* data, size_t len)

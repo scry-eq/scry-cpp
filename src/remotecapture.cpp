@@ -411,8 +411,3 @@ void RemoteCaptureThread::setFilter(const char* device, const char* hostname,
 
     m_filter = f;
 }
-
-const QString RemoteCaptureThread::getFilter()
-{
-    return m_filter;
-}

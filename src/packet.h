@@ -27,12 +27,19 @@
 #include <QHash>
 #include <QObject>
 #include <QSet>
-#include <QPointer>
 #include <QTimer>
+#include <memory>
+#include <map>
+#include <unordered_map>
+#include <string>
+#include <unordered_set>
 #include <vector>
 #include "boxregistry.h"
 #include "packetcommon.h"
+#include "packetformat.h"
 #include "packetinfo.h"
+#include "provisionalflow.h"
+#include "rustsession.h"
 
 #if defined (__GLIBC__) && (__GLIBC__ < 2)
 #error "Need glibc 2.1.3 or better"
@@ -85,33 +92,19 @@ class EQPacket : public QObject
 	    bool m_recordPackets,
 	    int m_playbackPackets,
 	    int8_t m_playbackSpeed, 
+	    seq::shadow::LifecycleSelector lifecycleSelector,
+	    seq::shadow::EntitySelector entitySelector,
+	    seq::shadow::PlayerSelector playerSelector,
+	    seq::shadow::ProgressionSelector progressionSelector,
+	    seq::shadow::LootSelector lootSelector,
+	    seq::shadow::CombatSelector combatSelector,
+	    seq::shadow::CommunicationSelector communicationSelector,
+	    QString applicationTraceDir,
 	    QObject *parent,
             const char *name);
    ~EQPacket();           
    void start(int delay = 0);
    void stop(void);
-
-   const QString pcapFilter();
-   int packetCount(int);
-   const QString& ip();
-   const QString& mac();
-   const QString& device();
-   in_addr_t clientAddr(void);
-   in_port_t clientPort(void);
-   in_port_t serverPort(void);
-   uint8_t session_tracking_enabled(void);
-   int playbackPackets(void);
-   int playbackSpeed(void);
-   size_t currentCacheSize(int);
-   uint32_t currentMaxLength(int);
-   uint16_t serverSeqExp(int);
-   uint16_t arqSeqGiveUp(void);
-   bool session_tracking(void);
-   bool realtime(void);
-   int snaplen(void) { return m_snaplen; }
-   int buffersize(void) { return m_buffersize; }
-   void setSnapLen(int len) { m_snaplen = len; }
-   void setBufferSize(int size) { m_buffersize = size; }
 
    // Epoch-ms timestamp of the packet currently being dispatched. During
    // --replay this is the *recorded* time (epoch seconds from the .vpk,
@@ -131,22 +124,100 @@ class EQPacket : public QObject
    // an inherited Live sizeof; --strict-gate-sizes turns that into a fatal.
    int undeclaredGateSizeCount(void) const { return m_undeclaredGateSizes; }
 
+   // Stateful Rust sessions consume every application packet. Their immutable
+   // lifecycle selector decides whether legacy handlers mutate, shadow output
+   // is compared, or typed Rust lifecycle events mutate host state.
+   void flushShadowSession(const Box* box, seq::shadow::FlushReason reason);
+   void flushAllShadowSessions(seq::shadow::FlushReason reason);
+   void finalizeApplicationTraces();
+   using LifecycleEventHandler =
+       std::function<void(const Box*, const seq::shadow::Event&)>;
+   using EntityEventHandler = LifecycleEventHandler;
+   using PlayerEventHandler = LifecycleEventHandler;
+   using ProgressionBatchHandler =
+       std::function<void(const Box*, const seq::shadow::Batch&)>;
+   using LootBatchHandler =
+       std::function<void(const Box*, const seq::shadow::Batch&)>;
+   using CombatBatchHandler = LootBatchHandler;
+   using CommunicationEventHandler =
+       std::function<void(const Box*, const seq::shadow::Event&)>;
+   using CommunicationProjectionProvider =
+       std::function<std::vector<seq::v1::Envelope>(
+           const Box*, const seq::shadow::Batch&)>;
+   using LifecycleProjectionEnricher =
+       std::function<void(const Box*, bool,
+                          std::vector<seq::shadow::LifecycleObservation>&,
+                          std::vector<seq::v1::Envelope>&)>;
+   using LifecycleGlobalOwnershipPredicate =
+       std::function<bool(const Box*)>;
+   void setLifecycleEventHandler(LifecycleEventHandler handler)
+   { m_lifecycleEventHandler = std::move(handler); }
+   void setEntityEventHandler(EntityEventHandler handler)
+   { m_entityEventHandler = std::move(handler); }
+   void setPlayerEventHandler(PlayerEventHandler handler)
+   { m_playerEventHandler = std::move(handler); }
+   void setProgressionBatchHandler(ProgressionBatchHandler handler)
+   { m_progressionBatchHandler = std::move(handler); }
+   void setLootBatchHandler(LootBatchHandler handler)
+   { m_lootBatchHandler = std::move(handler); }
+   void setCombatBatchHandler(CombatBatchHandler handler)
+   { m_combatBatchHandler = std::move(handler); }
+   void setCommunicationEventHandler(CommunicationEventHandler handler)
+   { m_communicationEventHandler = std::move(handler); }
+   void setCommunicationProjectionProvider(
+       CommunicationProjectionProvider provider)
+   { m_communicationProjectionProvider = std::move(provider); }
+   void setLifecycleProjectionEnricher(LifecycleProjectionEnricher enricher)
+   { m_lifecycleProjectionEnricher = std::move(enricher); }
+   void setLifecycleGlobalOwnershipPredicate(
+       LifecycleGlobalOwnershipPredicate predicate)
+   { m_lifecycleGlobalOwnershipPredicate = std::move(predicate); }
+   bool legacyLifecycleEnabledForCurrentPacket() const;
+   bool rustLifecycleAcceptedForCurrentPacket(
+       seq::shadow::LifecycleKind kind) const;
+   bool legacyEntitiesEnabledForCurrentPacket() const;
+   bool rustEntityAcceptedForCurrentPacket(seq::shadow::EntityKind kind) const;
+   bool legacyPlayersEnabledForCurrentPacket() const;
+   bool legacyPlayerAppearanceEnabledForCurrentPacket() const;
+   bool rustPlayerAcceptedForCurrentPacket(seq::shadow::PlayerKind kind) const;
+   bool legacyProgressionEnabledForCurrentPacket() const;
+   bool rustProgressionAcceptedForCurrentPacket(
+       seq::shadow::ProgressionKind kind) const;
+   bool legacyLootEnabledForCurrentPacket() const;
+   bool rustLootAcceptedForCurrentPacket(seq::shadow::LootKind kind) const;
+   bool legacyCombatEnabledForCurrentPacket() const;
+   bool rustCombatAcceptedForCurrentPacket(seq::shadow::CombatKind kind) const;
+   bool legacyCommunicationEnabledForCurrentPacket() const;
+   bool rustCommunicationAcceptedForCurrentPacket(
+       seq::shadow::CommunicationKind kind) const;
+   void observeLegacyLoot(seq::shadow::LootObservation observation);
+   void observeLegacyLootProjection(seq::v1::Envelope envelope);
+   void observeLegacyCombat(seq::shadow::CombatObservation observation);
+   void observeLegacyCombatProjection(seq::v1::Envelope envelope);
+   void observeLegacyCommunication(
+       seq::shadow::CommunicationObservation observation);
+   void observeLegacyCommunicationProjection(seq::v1::Envelope envelope);
+   void observeLegacyLifecycle(seq::shadow::LifecycleObservation observation);
+   void observeLegacyLifecycleProjection(seq::v1::Envelope envelope);
+   void observeLegacyEntity(seq::shadow::EntityObservation observation);
+   void observeLegacyEntityProjection(seq::v1::Envelope envelope);
+   void observeLegacyPlayer(seq::shadow::PlayerObservation observation);
+   void observeLegacyPlayerProjection(seq::v1::Envelope envelope);
+   void observeLegacyProgression(
+       seq::shadow::ProgressionObservation observation);
+   void observeLegacyProgressionProjection(seq::v1::Envelope envelope);
+   void applyValidatedZoneServerInfo(Box* box, uint16_t port);
+
    void exportHandoffState(const QString& configDir) const;
    bool importHandoffState(const QString& configDir);
 
  public slots:
    void processPackets(void);
    void processPlaybackPackets(void);
-   void incPlayback(void);
-   void decPlayback(void);
-   void setPlayback(int);
    void monitorIPClient(const QString& address);   
-   void monitorMACClient(const QString& address);   
    void monitorNextClient();   
    void monitorDevice(const QString& dev);   
    void session_tracking(bool enable);
-   void setArqSeqGiveUp(uint16_t giveUp);
-   void setRealtime(bool val);
    void dispatchSessionKey(uint32_t sessionId, EQStreamID streamid,
       uint32_t sessionKey);
 
@@ -166,22 +237,6 @@ class EQPacket : public QObject
    // mode so `--replay X.vpk --record-golden Y.pbstream` exits cleanly
    // instead of hanging in the event loop after EOF.
    void playbackFinished();
-
-   // used for net_stats display
-   void cacheSize(int, int);
-   void seqReceive(int, int);
-   void seqExpect(int, int);
-   void numPacket(int, int);
-   void maxLength(int, int);
-   void resetPacket(int, int);
-   void playbackSpeedChanged(int);
-   void clientChanged(in_addr_t);
-   void clientPortLatched(in_port_t);
-   void serverPortLatched(in_port_t);
-   void sessionTrackingChanged(uint8_t);
-   void toggle_session_tracking(bool);
-   void filterChanged(void);
-   void stsMessage(const QString &, int = 0);
 
    // new logging
    void newPacket(const EQUDPIPPacketFormat& packet);
@@ -245,6 +300,16 @@ class EQPacket : public QObject
    bool m_recordPackets;
    int m_playbackPackets;
    int8_t m_playbackSpeed; // Should be signed since -1 is pause
+   const seq::shadow::LifecycleSelector m_lifecycleSelector;
+   const seq::shadow::EntitySelector m_entitySelector;
+   const seq::shadow::PlayerSelector m_playerSelector;
+   const seq::shadow::ProgressionSelector m_progressionSelector;
+   const seq::shadow::LootSelector m_lootSelector;
+   const seq::shadow::CombatSelector m_combatSelector;
+   const seq::shadow::CommunicationSelector m_communicationSelector;
+   QString m_applicationTracePrefix;
+   QString m_applicationTraceCatalogHash;
+   uint64_t m_applicationTraceSession = 0;
 
    EQPacketStream* m_client2WorldStream;
    EQPacketStream* m_world2ClientStream;
@@ -255,6 +320,119 @@ class EQPacket : public QObject
    EQPacketTypeDB* m_packetTypeDB;
    EQPacketOPCodeDB* m_worldOPCodeDB;
    EQPacketOPCodeDB* m_zoneOPCodeDB;
+
+   // One immutable protocol registry for the process, then one stateful Rust
+   // session per Box. Each Session owns its lifecycle selector for its entire
+   // lifetime. Changing ownership requires a new session.
+   std::unique_ptr<seq::shadow::ProtocolRegistry> m_shadowRegistry;
+   std::unordered_map<const Box*, std::unique_ptr<seq::shadow::Session>>
+       m_shadowSessions;
+   std::unordered_set<const Box*> m_shadowDisabled;
+   struct ProvisionalShadowSession {
+       std::unique_ptr<seq::shadow::Session> session;
+       bool disabled = false;
+   };
+   std::map<EQPacketFlowKey, ProvisionalShadowSession> m_provisionalShadowSessions;
+   seq::shadow::ProvisionalPacketStore m_provisionalPackets;
+   std::map<EQPacketFlowKey, Box*> m_flowOwners;
+   uint64_t m_applicationDispatchOrder = 0;
+   struct PendingLifecycleComparison {
+       seq::shadow::Session* session = nullptr;
+       const Box* box = nullptr;
+       std::vector<seq::shadow::LifecycleObservation> rustEvents;
+       std::vector<seq::v1::Envelope> rustProjections;
+       std::vector<seq::shadow::LifecycleObservation> legacyEvents;
+       std::vector<seq::v1::Envelope> legacyProjections;
+       bool expectsHostZoneProjection = false;
+   };
+   std::optional<PendingLifecycleComparison> m_pendingLifecycle;
+   struct PendingEntityComparison {
+       seq::shadow::Session* session = nullptr;
+       const Box* box = nullptr;
+       std::vector<seq::shadow::EntityObservation> rustEvents;
+       std::vector<seq::v1::Envelope> rustProjections;
+       std::vector<seq::shadow::EntityObservation> legacyEvents;
+       std::vector<seq::v1::Envelope> legacyProjections;
+   };
+   std::optional<PendingEntityComparison> m_pendingEntity;
+   struct PendingPlayerComparison {
+       seq::shadow::Session* session = nullptr;
+       const Box* box = nullptr;
+       std::vector<seq::shadow::PlayerObservation> rustEvents;
+       std::vector<seq::v1::Envelope> rustProjections;
+       std::vector<seq::shadow::PlayerObservation> legacyEvents;
+       std::vector<seq::v1::Envelope> legacyProjections;
+   };
+   std::optional<PendingPlayerComparison> m_pendingPlayer;
+   struct PendingProgressionComparison {
+       seq::shadow::Session* session = nullptr;
+       const Box* box = nullptr;
+       std::vector<seq::shadow::ProgressionObservation> rustEvents;
+       std::vector<seq::v1::Envelope> rustProjections;
+       std::vector<seq::shadow::ProgressionObservation> legacyEvents;
+       std::vector<seq::v1::Envelope> legacyProjections;
+   };
+   std::optional<PendingProgressionComparison> m_pendingProgression;
+   struct PendingLootComparison {
+       seq::shadow::Session* session = nullptr;
+       const Box* box = nullptr;
+       std::vector<seq::shadow::LootObservation> rustEvents;
+       std::vector<seq::v1::Envelope> rustProjections;
+       std::vector<seq::shadow::LootObservation> legacyEvents;
+       std::vector<seq::v1::Envelope> legacyProjections;
+   };
+   std::optional<PendingLootComparison> m_pendingLoot;
+   struct PendingCombatComparison {
+       seq::shadow::Session* session = nullptr;
+       const Box* box = nullptr;
+       std::vector<seq::shadow::CombatObservation> rustEvents;
+       std::vector<seq::v1::Envelope> rustProjections;
+       std::vector<seq::shadow::CombatObservation> legacyEvents;
+       std::vector<seq::v1::Envelope> legacyProjections;
+   };
+   std::optional<PendingCombatComparison> m_pendingCombat;
+   struct PendingCommunicationComparison {
+       seq::shadow::Session* session = nullptr;
+       const Box* box = nullptr;
+       std::vector<seq::shadow::CommunicationObservation> rustEvents;
+       std::vector<seq::v1::Envelope> rustProjections;
+       std::vector<seq::shadow::CommunicationObservation> legacyEvents;
+       std::vector<seq::v1::Envelope> legacyProjections;
+   };
+   std::optional<PendingCommunicationComparison> m_pendingCommunication;
+   struct PendingRustLootApplication {
+       const Box* box = nullptr;
+       seq::shadow::Batch batch;
+   };
+   std::optional<PendingRustLootApplication> m_pendingRustLoot;
+   seq::shadow::Session* m_currentLifecycleSession = nullptr;
+   std::vector<seq::shadow::LifecycleKind> m_currentRustLifecycleKinds;
+   std::vector<seq::shadow::EntityKind> m_currentRustEntityKinds;
+   std::vector<seq::shadow::PlayerKind> m_currentRustPlayerKinds;
+   std::vector<seq::shadow::ProgressionKind> m_currentRustProgressionKinds;
+   std::vector<seq::shadow::LootKind> m_currentRustLootKinds;
+   std::vector<seq::shadow::CombatKind> m_currentRustCombatKinds;
+   std::vector<seq::shadow::CommunicationKind>
+       m_currentRustCommunicationKinds;
+   bool m_currentRustPacketDecoded = false;
+   uint16_t m_currentShadowOpcode = 0;
+   std::unordered_set<std::string> m_shadowMismatchWarned;
+   void warnShadowMismatch(const char* family, size_t rustEvents,
+                           size_t legacyEvents, size_t rustProjections,
+                           size_t legacyProjections);
+   LifecycleEventHandler m_lifecycleEventHandler;
+   EntityEventHandler m_entityEventHandler;
+   PlayerEventHandler m_playerEventHandler;
+   ProgressionBatchHandler m_progressionBatchHandler;
+   LootBatchHandler m_lootBatchHandler;
+   CombatBatchHandler m_combatBatchHandler;
+   CommunicationEventHandler m_communicationEventHandler;
+   CommunicationProjectionProvider m_communicationProjectionProvider;
+   LifecycleProjectionEnricher m_lifecycleProjectionEnricher;
+   LifecycleGlobalOwnershipPredicate m_lifecycleGlobalOwnershipPredicate;
+   void disableRustSession(Box* box, EQPacketFlowKey flowKey,
+                           const char* why, const char* detail);
+   void resetCurrentShadowPacket();
 
    // Stage 1 of multibox-sessions: observe every world-port-talking
    // client_ip on the wire. Read-only sibling of the legacy
@@ -294,59 +472,31 @@ class EQPacket : public QObject
    void dispatchPacket(EQUDPIPPacketFormat& packet);
    // EQ Legends UCS: forward a raw port-9877 chat payload to MessageShell.
    void decodeUCSPacket(EQUDPIPPacketFormat& packet);
+   void decodeUcsShadow(Box* box, const uint8_t* payload,
+                        size_t payloadSize, uint8_t direction);
+   void installShadowHook(EQPacketStream* stream);
+   bool decodeShadowApplication(EQStreamID stream, uint8_t direction,
+                                uint16_t opcode, const uint8_t* payload,
+                                size_t payloadSize, int64_t timestamp,
+                                EQPacketFlowKey flowKey, bool sourceIsLow,
+                                uintptr_t attributionToken);
+   void completeShadowApplication(bool legacyDispatched);
+   seq::shadow::Session* provisionalShadowSession(EQPacketFlowKey flowKey);
+   bool bindShadowFlow(EQPacketFlowKey flowKey, Box* box);
+   bool replayProvisionalFlow(EQPacketFlowKey flowKey, Box* box,
+                              seq::shadow::ProvisionalPacketFlow flow);
+   void finalizeProvisionalFlow(EQPacketFlowKey flowKey,
+                                seq::shadow::ProvisionalPacketFlow flow,
+                                seq::shadow::FlushReason reason);
+   void finalizeAllProvisionalFlows(seq::shadow::FlushReason reason);
+   void writeProvisionalTrace(
+       const seq::shadow::ProvisionalPacketFlow& flow);
+   bool rustOwnsAnyFamily() const;
+   std::unique_ptr<seq::shadow::ApplicationTraceWriter>
+       makeApplicationTraceWriter();
  protected slots:
    void resetEQPacket();
    void dispatchWorldChatData (size_t len, uint8_t* data, uint8_t direction = 0);
 };
-
-inline in_addr_t EQPacket::clientAddr(void)
-{
-   return m_client_addr;
-}
-
-inline in_port_t EQPacket::clientPort(void)
-{
-  return m_clientPort;
-}
-
-inline in_port_t EQPacket::serverPort(void)
-{
-  return m_serverPort;
-}
-
-inline uint16_t EQPacket::arqSeqGiveUp(void)
-{
-  return m_arqSeqGiveUp;
-}
-
-inline bool EQPacket::session_tracking(void)
-{
-  return m_session_tracking;
-}
-
-inline int EQPacket::playbackPackets(void)
-{
-  return m_playbackPackets;
-}
-
-inline bool EQPacket::realtime(void)
-{
-  return m_realtime;
-}
-
-inline const QString& EQPacket::ip()
-{
-  return m_ip;
-}
-
-inline const QString& EQPacket::mac()
-{
-  return m_mac;
-}
-
-inline const QString& EQPacket::device()
-{
-  return m_device;
-}
 
 #endif // _PACKET_H_

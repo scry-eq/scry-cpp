@@ -84,10 +84,23 @@ endif()
 message(STATUS "SEQ_TARGET=${SEQ_TARGET} (structs: ${SEQ_STRUCT_DIR}, data ns: ${SEQ_DATA_NAMESPACE}, legacy ns: ${SEQ_LEGACY_DATA_NAMESPACE}, opcodes: ${_seq_conf_dir})")
 
 # --- Rust decoder bridge -----------------------------------------------------
-# scry-decoder-rs is a sibling repo. seq-bridge is a cxx staticlib exposing
+# scry-decoder-rs is a pinned submodule. seq-bridge is a cxx staticlib exposing
 # the per-opcode Rust decoders (seq::rust::decode_*) to C++. Rust is the only
-# decoder — no C++ fallback, no SEQ_USE_RUST toggle. Corrosion builds seq-bridge
-# with exactly one backend feature, matched 1:1 to SEQ_TARGET (live|test|eql).
+# decoder. There is no C++ fallback or SEQ_USE_RUST toggle. Corrosion builds
+# seq-bridge with exactly one backend feature, matched 1:1 to SEQ_TARGET
+# (live|test|eql).
+# Builds and releases use the pinned submodule by default. Developers can test a
+# different decoder checkout with -DSEQ_DECODER_RS_DIR=<path>.
+set(SEQ_DECODER_RS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/scry-decoder-rs"
+    CACHE PATH "Path to the scry-decoder-rs checkout")
+if(NOT EXISTS "${SEQ_DECODER_RS_DIR}/Cargo.toml")
+  message(FATAL_ERROR
+    "scry-decoder-rs not found at ${SEQ_DECODER_RS_DIR}.\n"
+    "Run 'git submodule update --init --recursive', or pass "
+    "-DSEQ_DECODER_RS_DIR=<path> for a developer checkout.")
+endif()
+message(STATUS "scry-decoder-rs: ${SEQ_DECODER_RS_DIR}")
+
 include(FetchContent)
 FetchContent_Declare(
   Corrosion
@@ -95,17 +108,6 @@ FetchContent_Declare(
   GIT_TAG v0.6
 )
 FetchContent_MakeAvailable(Corrosion)
-
-# Defaults to the sibling checkout; override with -DSEQ_DECODER_RS_DIR=<path>
-# (CI checks the crate out inside the workspace, not as a true sibling).
-set(SEQ_DECODER_RS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../scry-decoder-rs"
-    CACHE PATH "Path to the scry-decoder-rs checkout")
-if(NOT EXISTS "${SEQ_DECODER_RS_DIR}/Cargo.toml")
-  message(FATAL_ERROR
-    "scry-decoder-rs not found at ${SEQ_DECODER_RS_DIR}.\n"
-    "Clone github.com/scry-eq/scry-decoder-rs as a sibling of "
-    "scry-cpp, or pass -DSEQ_DECODER_RS_DIR=<path>.")
-endif()
 
 corrosion_import_crate(
   MANIFEST_PATH "${SEQ_DECODER_RS_DIR}/Cargo.toml"
@@ -171,19 +173,16 @@ set_target_properties(seq-proto PROPERTIES AUTOMOC OFF AUTORCC OFF AUTOUIC OFF)
 # Sources extracted from showeq/src (authoritative list derived from
 # showeq/src/Makefile.am's showeq_SOURCES, minus all QWidget-bound files).
 set(SEQ_DAEMON_EXTRACTED_SOURCES
-  src/bazaarlog.cpp
   src/category.cpp
   src/datalocationmgr.cpp
   src/datetimemgr.cpp
   src/diagnosticmessages.cpp
   src/eqstr.cpp
   src/filter.cpp
-  src/filteredspawnlog.cpp
   src/filtermgr.cpp
   src/group.cpp
   src/guild.cpp
   src/guildshell.cpp
-  src/logger.cpp
   src/mapcore.cpp
   src/message.cpp
   src/messagefilter.cpp
@@ -196,11 +195,9 @@ set(SEQ_DAEMON_EXTRACTED_SOURCES
   src/packetformat.cpp
   src/packetfragment.cpp
   src/packetinfo.cpp
-  src/packetlog.cpp
   src/packetstream.cpp
   src/player.cpp
   src/spawn.cpp
-  src/spawnlog.cpp
   src/spawnmonitor.cpp
   src/spawnshell.cpp
   src/spells.cpp
@@ -213,8 +210,10 @@ set(SEQ_DAEMON_EXTRACTED_SOURCES
 )
 
 set(SEQ_DAEMON_CORE_NEW_SOURCES
+  src/applicationtrace.cpp
   src/boxregistry.cpp
   src/remotecapture.cpp
+  src/rustsession.cpp
   src/namepromoter.cpp
   src/zoneserverobserver.cpp
   src/protoencoder.cpp
@@ -231,7 +230,6 @@ set(SEQ_DAEMON_CORE_NEW_SOURCES
   src/lootstore.cpp
   src/zoneservermgr.cpp
   src/dbstrings.cpp
-  src/spellmessages.cpp
 )
 
 # The opcode table is the ONE part of conf/ that varies per target: Live's lives

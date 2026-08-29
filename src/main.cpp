@@ -160,6 +160,12 @@ int main(int argc, char** argv)
         "length-delimited seq.v1.Envelope protobuf. With --replay, the "
         "daemon exits at EOF — the regression-harness golden workflow.",
         "file");
+    QCommandLineOption applicationTraceOpt(QStringList{"record-app-traces"},
+        "Write strict v1 application-packet traces under DIR (user-chosen; "
+        "~/.scry/<target>/traces is conventional), one opaque file sequence "
+        "per logical Rust session, capped at 512 MiB per session. Output is "
+        "capture-derived, may contain names or chat, and must be scrubbed "
+        "before committing.", "dir");
     QCommandLineOption opcodeStatsOpt(QStringList{"opcode-stats"},
         "Patch-day diagnostic: tally every decoded opcode (known + "
         "unknown) and write a sorted report with payload-size matches "
@@ -213,6 +219,41 @@ int main(int argc, char** argv)
         "(default 600). Each zone change spawns a fresh per-character "
         "Box; the sweep retires the superseded/logged-off ones. 0 "
         "disables eviction.", "seconds");
+    QCommandLineOption lifecycleDecoderOpt(QStringList{"lifecycle-decoder"},
+        "Immutable lifecycle owner for each session: legacy, shadow, or rust. "
+        "The default is legacy. Changing it requires a session restart.",
+        "mode", "legacy");
+    QCommandLineOption entityDecoderOpt(QStringList{"entity-decoder"},
+        "Immutable entity and spatial owner for each session: legacy, shadow, "
+        "or rust. The default remains legacy until capture soak completes. "
+        "Changing it requires a session restart.",
+        "mode", "legacy");
+    QCommandLineOption playerDecoderOpt(QStringList{"player-decoder"},
+        "Immutable player identity, movement, vitals, appearance, and death "
+        "owner for each session: legacy, shadow, or rust. The default remains "
+        "legacy until capture soak completes. Changing it requires a session "
+        "restart.", "mode", "legacy");
+    QCommandLineOption progressionDecoderOpt(QStringList{"progression-decoder"},
+        "Immutable items and progression owner for each session: legacy, "
+        "shadow, or rust. The default remains legacy until capture soak "
+        "completes. Changing it requires a session restart.",
+        "mode", "legacy");
+    QCommandLineOption lootDecoderOpt(QStringList{"loot-decoder"},
+        "Immutable loot correlation and persistence owner for each session: "
+        "legacy, shadow, or rust. The default remains legacy until capture "
+        "soak completes. Changing it requires a session restart.",
+        "mode", "legacy");
+    QCommandLineOption combatDecoderOpt(QStringList{"combat-decoder"},
+        "Immutable combat, spells, casting, damage, and buffs owner for each "
+        "session: legacy, shadow, or rust. The default remains legacy until "
+        "capture soak completes. Changing it requires a session restart.",
+        "mode", "legacy");
+    QCommandLineOption communicationDecoderOpt(
+        QStringList{"communication-decoder"},
+        "Immutable chat, UCS, group, guild, and dynamic-zone owner for each "
+        "session: legacy, shadow, or rust. The default remains legacy until "
+        "capture soak completes. Changing it requires a session restart.",
+        "mode", "legacy");
     parser.addOption(deviceOpt);
     parser.addOption(ipOpt);
     parser.addOption(listenOpt);
@@ -224,6 +265,7 @@ int main(int argc, char** argv)
     parser.addOption(mapPackageOpt);
     parser.addOption(recordVpkOpt);
     parser.addOption(recordGoldenOpt);
+    parser.addOption(applicationTraceOpt);
     parser.addOption(opcodeStatsOpt);
     parser.addOption(noListenOpt);
     parser.addOption(strictGateSizesOpt);
@@ -234,6 +276,13 @@ int main(int argc, char** argv)
     parser.addOption(onlySessionOpt);
     parser.addOption(waitForClientOpt);
     parser.addOption(boxIdleTtlOpt);
+    parser.addOption(lifecycleDecoderOpt);
+    parser.addOption(entityDecoderOpt);
+    parser.addOption(playerDecoderOpt);
+    parser.addOption(progressionDecoderOpt);
+    parser.addOption(lootDecoderOpt);
+    parser.addOption(combatDecoderOpt);
+    parser.addOption(communicationDecoderOpt);
     parser.process(app);
 
     DaemonApp::Config cfg;
@@ -269,6 +318,7 @@ int main(int argc, char** argv)
     cfg.mapPackage   = parser.value(mapPackageOpt);
     cfg.recordVpk    = parser.value(recordVpkOpt);
     cfg.recordGolden = parser.value(recordGoldenOpt);
+    cfg.applicationTraceDir = parser.value(applicationTraceOpt);
     cfg.opcodeStats  = parser.value(opcodeStatsOpt);
     cfg.noListen     = parser.isSet(noListenOpt);
     cfg.strictGateSizes = parser.isSet(strictGateSizesOpt);
@@ -278,6 +328,56 @@ int main(int argc, char** argv)
     cfg.dumpAllSessions = parser.isSet(dumpAllSessionsOpt);
     cfg.onlySession   = parser.value(onlySessionOpt);
     cfg.waitForClient = parser.isSet(waitForClientOpt);
+    cfg.lifecycleDecoder = parser.value(lifecycleDecoderOpt).toLower();
+    if (cfg.lifecycleDecoder != QLatin1String("legacy") &&
+        cfg.lifecycleDecoder != QLatin1String("shadow") &&
+        cfg.lifecycleDecoder != QLatin1String("rust")) {
+        qCritical("--lifecycle-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.entityDecoder = parser.value(entityDecoderOpt).toLower();
+    if (cfg.entityDecoder != QLatin1String("legacy") &&
+        cfg.entityDecoder != QLatin1String("shadow") &&
+        cfg.entityDecoder != QLatin1String("rust")) {
+        qCritical("--entity-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.playerDecoder = parser.value(playerDecoderOpt).toLower();
+    if (cfg.playerDecoder != QLatin1String("legacy") &&
+        cfg.playerDecoder != QLatin1String("shadow") &&
+        cfg.playerDecoder != QLatin1String("rust")) {
+        qCritical("--player-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.progressionDecoder = parser.value(progressionDecoderOpt).toLower();
+    if (cfg.progressionDecoder != QLatin1String("legacy") &&
+        cfg.progressionDecoder != QLatin1String("shadow") &&
+        cfg.progressionDecoder != QLatin1String("rust")) {
+        qCritical("--progression-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.lootDecoder = parser.value(lootDecoderOpt).toLower();
+    if (cfg.lootDecoder != QLatin1String("legacy") &&
+        cfg.lootDecoder != QLatin1String("shadow") &&
+        cfg.lootDecoder != QLatin1String("rust")) {
+        qCritical("--loot-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.combatDecoder = parser.value(combatDecoderOpt).toLower();
+    if (cfg.combatDecoder != QLatin1String("legacy") &&
+        cfg.combatDecoder != QLatin1String("shadow") &&
+        cfg.combatDecoder != QLatin1String("rust")) {
+        qCritical("--combat-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
+    cfg.communicationDecoder =
+        parser.value(communicationDecoderOpt).toLower();
+    if (cfg.communicationDecoder != QLatin1String("legacy") &&
+        cfg.communicationDecoder != QLatin1String("shadow") &&
+        cfg.communicationDecoder != QLatin1String("rust")) {
+        qCritical("--communication-decoder must be legacy, shadow, or rust");
+        return 2;
+    }
     if (parser.isSet(boxIdleTtlOpt)) {
         bool ok = false;
         const qint64 secs = parser.value(boxIdleTtlOpt).toLongLong(&ok);
@@ -298,6 +398,11 @@ int main(int argc, char** argv)
     }
     if (!cfg.recordGolden.isEmpty() && QDir::isRelativePath(cfg.recordGolden)) {
         cfg.recordGolden = QFileInfo(cfg.recordGolden).absoluteFilePath();
+    }
+    if (!cfg.applicationTraceDir.isEmpty() &&
+        QDir::isRelativePath(cfg.applicationTraceDir)) {
+        cfg.applicationTraceDir =
+            QFileInfo(cfg.applicationTraceDir).absoluteFilePath();
     }
     // Golden recording must be byte-reproducible across processes. Qt seeds
     // QHash with a per-process random value, so QHash iteration order (e.g.

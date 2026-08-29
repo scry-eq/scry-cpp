@@ -27,12 +27,14 @@
 #include <QObject>
 #include <QHash>
 #include <QSet>
+#include <functional>
 #include <map>
 #include <memory>
 #include <utility>
 
 #include "packetcommon.h"
 #include "packetfragment.h"
+#include "packetformat.h"
 #include "packetinfo.h"
 
 #if (defined(__FreeBSD__) || defined(__linux__)) && defined(__GLIBC__) && (__GLIBC__ == 2) && (__GLIBC_MINOR__ < 2)
@@ -79,15 +81,10 @@ class EQPacketStream : public QObject
 		 QObject* parent = 0, const char* name = 0);
   ~EQPacketStream();
   void reset();
-  uint8_t sessionTracking();
   void setSessionTracking(uint8_t);
-  uint16_t arqSeqGiveUp();
   void setArqSeqGiveUp(uint16_t);
-  int packetCount(void);
   uint8_t dir();
   EQStreamID streamID();
-  size_t currentCacheSize();
-  uint16_t arqSeqExp();
   // Register a PacketHandler for the opcode+payload+szt (typed dispatch, no Qt
   // SLOT). The handler is appended to the payload's dispatcher and fired in
   // registration order (goldens depend on it).
@@ -99,7 +96,6 @@ class EQPacketStream : public QObject
   void close(uint32_t sessionId, EQStreamID streamid, uint8_t sessionTracking);
   uint16_t calculateCRC(EQProtocolPacket& packet);
   uint32_t getSessionKey() const { return m_sessionKey; }
-  uint32_t getMaxLength() const { return m_maxLength; }
 
   // Multibox active-box gate (Stage 3b of MULTIBOX_PLAN.md). When
   // muted, dispatchPacket() still emits the 5-arg decodedPacket
@@ -111,6 +107,24 @@ class EQPacketStream : public QObject
   // unmuted so flipping the gate later doesn't require a re-handshake.
   void setMuted(bool m) { m_muted = m; }
   bool isMuted() const  { return m_muted; }
+
+  // Runs once for each reassembled application packet, before decodedPacket
+  // observers and legacy handlers. Shadow decoding uses this path so muted
+  // boxes receive the same ordered packet stream as active boxes.
+  using ApplicationPacketHook =
+      std::function<bool(EQStreamID, uint8_t, uint16_t,
+                         const uint8_t*, size_t, int64_t,
+                         EQPacketFlowKey, bool, uintptr_t)>;
+  using ApplicationPacketCompleteHook = std::function<void(bool)>;
+  using TimestampProvider = std::function<int64_t()>;
+  void setApplicationPacketHook(ApplicationPacketHook hook,
+                                TimestampProvider timestampProvider,
+                                ApplicationPacketCompleteHook completeHook = {})
+  {
+    m_applicationPacketHook = std::move(hook);
+    m_timestampProvider = std::move(timestampProvider);
+    m_applicationPacketCompleteHook = std::move(completeHook);
+  }
 
   struct StreamHandoff {
     uint32_t sessionId;
@@ -143,28 +157,22 @@ class EQPacketStream : public QObject
   // this signals stream closure
   void closing(uint32_t sessionId, EQStreamID streamId);
 
-  // this signals a change in the session tracking state
-  void sessionTrackingChanged(uint8_t);
   void lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_t clientAddr);
 
   // Signal a new session key being received
   void sessionKey(uint32_t sessionId, EQStreamID streadid, uint32_t sessionKey);
 		    
-  // used for net_stats display
-  void cacheSize(int, int);
-  void seqReceive(int, int);
-  void seqExpect(int, int);
-  void numPacket(int, int);
-  void resetPacket(int, int);
-  void maxLength(int, int);
-
  protected:
   void resetCache();
   void setCache(uint16_t serverArqSeq, EQProtocolPacket& packet);
   void processCache();
   void processPacket(EQProtocolPacket& packet, bool subpacket);
   void dispatchPacket(const uint8_t* data, size_t len,
-		      uint16_t opCode, const EQPacketOPCode* opcodeEntry);
+			      uint16_t opCode, const EQPacketOPCode* opcodeEntry);
+  void dispatchPacketAt(const uint8_t* data, size_t len,
+			        uint16_t opCode, const EQPacketOPCode* opcodeEntry,
+                        int64_t captureTimeMs, EQPacketFlowKey flowKey,
+                        bool sourceIsLow, uintptr_t attributionToken);
   // Lookup for on(): resolve opcode+payload+szt to its
   // (lazily created) dispatcher, or nullptr with a diagnostic on miss.
   EQPacketDispatch* dispatchFor(const QString& opcodeName,
@@ -175,9 +183,11 @@ class EQPacketStream : public QObject
   QHash<void*, EQPacketDispatch*> m_dispatchers;
   EQStreamID m_streamid;
   uint8_t m_dir;
-  int m_packetCount;
   uint8_t m_session_tracking_enabled;
   bool m_muted = false;
+  ApplicationPacketHook m_applicationPacketHook;
+  ApplicationPacketCompleteHook m_applicationPacketCompleteHook;
+  TimestampProvider m_timestampProvider;
 
   // Payload-size-mismatch warnings, deduped on (opcode, length). A gated
   // opcode mismatches on EVERY packet, so warning per-packet buries the log
@@ -187,7 +197,6 @@ class EQPacketStream : public QObject
 
   // ARQ cache handling
   EQPacketMap m_cache;
-  size_t m_maxCacheCount;
   uint16_t m_arqSeqExp;
   uint16_t m_arqSeqGiveUp;
   bool m_arqSeqFound;
@@ -207,29 +216,14 @@ class EQPacketStream : public QObject
   bool m_validKey;
 };
 
-inline uint8_t EQPacketStream::sessionTracking()
-{
-  return m_session_tracking_enabled;
-}
-
 inline void EQPacketStream::setSessionTracking(uint8_t val)
 {
   m_session_tracking_enabled = val;
 }
 
-inline uint16_t EQPacketStream::arqSeqGiveUp()
-{
-  return m_arqSeqGiveUp;
-}
-
 inline void EQPacketStream::setArqSeqGiveUp(uint16_t val)
 {
   m_arqSeqGiveUp = val;
-}
-
-inline int EQPacketStream::packetCount(void)
-{
-  return m_packetCount;
 }
 
 inline uint8_t EQPacketStream::dir()
@@ -240,16 +234,6 @@ inline uint8_t EQPacketStream::dir()
 inline EQStreamID EQPacketStream::streamID()
 {
   return m_streamid;
-}
-
-inline size_t EQPacketStream::currentCacheSize()
-{
-  return m_cache.size();
-}
-
-inline uint16_t EQPacketStream::arqSeqExp()
-{
-  return m_arqSeqExp;
 }
 
 //----------------------------------------------------------------------
@@ -297,5 +281,3 @@ inline PacketHandler seqBind(std::shared_ptr<T> obj,
 }
 
 #endif //  _PACKETSTREAM_H_
-
-

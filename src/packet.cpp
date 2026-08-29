@@ -23,6 +23,8 @@
 
 /* Implementation of Packet class */
 #include <cstdio>
+#include <cstdlib>
+#include <algorithm>
 #include <unistd.h>
 #include <netdb.h>
 
@@ -32,6 +34,7 @@
 #include <netinet/if_ether.h>
 
 #include <QDir>
+#include <QCoreApplication>
 #include <QFile>
 #include <QTimer>
 #include <QFileInfo>
@@ -47,6 +50,7 @@
 #include "packetformat.h"
 #include "packetstream.h"
 #include "packetinfo.h"
+#include "rustsession.h"
 #include "vpacket.h"
 #include "everquest.h"
 #include "diagnosticmessages.h"
@@ -85,6 +89,46 @@
 //----------------------------------------------------------------------
 // Here begins the code
 
+namespace {
+
+seq::rust::SessionBackend shadowBackend()
+{
+#if defined(SEQ_TARGET_LIVE)
+  return seq::rust::SessionBackend::Live;
+#elif defined(SEQ_TARGET_TEST)
+  return seq::rust::SessionBackend::Test;
+#elif defined(SEQ_TARGET_EQL)
+  return seq::rust::SessionBackend::Eql;
+#else
+#error "unknown SEQ_TARGET"
+#endif
+}
+
+QString shadowBackendName()
+{
+#if defined(SEQ_TARGET_LIVE)
+  return QStringLiteral("live");
+#elif defined(SEQ_TARGET_TEST)
+  return QStringLiteral("test");
+#elif defined(SEQ_TARGET_EQL)
+  return QStringLiteral("eql");
+#else
+#error "unknown SEQ_TARGET"
+#endif
+}
+
+EQPacketFlowKey packetFlowKey(const EQUDPIPPacketFormat& packet)
+{
+  const uint64_t source = (uint64_t(packet.getIPv4SourceN()) << 16) |
+                          uint64_t(packet.getSourcePort());
+  const uint64_t destination = (uint64_t(packet.getIPv4DestN()) << 16) |
+                               uint64_t(packet.getDestPort());
+  return source < destination ? EQPacketFlowKey{source, destination}
+                              : EQPacketFlowKey{destination, source};
+}
+
+} // namespace
+
 
 //----------------------------------------------------------------------
 // EQPacket class methods
@@ -106,6 +150,14 @@ EQPacket::EQPacket(const QString& opcodesToml,
 		   bool recordPackets,
 		   int playbackPackets,
 		   int8_t playbackSpeed, 
+		   seq::shadow::LifecycleSelector lifecycleSelector,
+		   seq::shadow::EntitySelector entitySelector,
+		   seq::shadow::PlayerSelector playerSelector,
+		   seq::shadow::ProgressionSelector progressionSelector,
+		   seq::shadow::LootSelector lootSelector,
+		   seq::shadow::CombatSelector combatSelector,
+		   seq::shadow::CommunicationSelector communicationSelector,
+		   QString applicationTraceDir,
 		   QObject * parent, const char *name)
   : QObject (parent),
     m_packetCapture(NULL),
@@ -123,7 +175,14 @@ EQPacket::EQPacket(const QString& opcodesToml,
     m_session_tracking(sessionTrackingFlag),
     m_recordPackets(recordPackets),
     m_playbackPackets(playbackPackets),
-    m_playbackSpeed(playbackSpeed)
+    m_playbackSpeed(playbackSpeed),
+    m_lifecycleSelector(lifecycleSelector),
+    m_entitySelector(entitySelector),
+    m_playerSelector(playerSelector),
+    m_progressionSelector(progressionSelector),
+    m_lootSelector(lootSelector),
+    m_combatSelector(combatSelector),
+    m_communicationSelector(communicationSelector)
 {
   setObjectName(name);
   // create the packet type db
@@ -157,6 +216,44 @@ EQPacket::EQPacket(const QString& opcodesToml,
     seqFatal("Error loading '%s' [[zone]]!", opcodesToml.toLatin1().data());
 
   m_undeclaredGateSizes += m_zoneOPCodeDB->warnUndeclaredBackendGateSizes(*m_packetTypeDB);
+
+  try {
+    // The pinned decoder carries the canonical catalogs. One registry is
+    // shared by every per-Box Rust session created below.
+    m_shadowRegistry = std::make_unique<seq::shadow::ProtocolRegistry>();
+    m_applicationTraceCatalogHash = QString::fromStdString(
+        m_shadowRegistry->contentHash(shadowBackend()));
+    seqInfo("Rust shadow protocol catalog: %s",
+            qUtf8Printable(m_applicationTraceCatalogHash));
+    if (!applicationTraceDir.isEmpty()) {
+      QDir directory(applicationTraceDir);
+      if (!directory.exists() && !QDir().mkpath(directory.absolutePath()))
+        throw std::runtime_error(
+            QStringLiteral("could not create application trace directory %1")
+                .arg(directory.absolutePath()).toStdString());
+      const QString run = QStringLiteral("scry-%1-%2-%3")
+          .arg(shadowBackendName(),
+               QDateTime::currentDateTimeUtc().toString(
+                   QStringLiteral("yyyyMMdd-HHmmsszzz")))
+          .arg(QCoreApplication::applicationPid());
+      m_applicationTracePrefix = directory.filePath(run);
+      seqInfo("Application packet traces: %s-session-NNNNNN-part-NNNN.trace.json",
+              qUtf8Printable(m_applicationTracePrefix));
+    }
+  } catch (const std::exception& error) {
+    if (m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust ||
+        m_entitySelector == seq::shadow::EntitySelector::Rust ||
+        m_playerSelector == seq::shadow::PlayerSelector::Rust ||
+        m_progressionSelector == seq::shadow::ProgressionSelector::Rust ||
+        m_lootSelector == seq::shadow::LootSelector::Rust ||
+        m_combatSelector == seq::shadow::CombatSelector::Rust ||
+        m_communicationSelector ==
+            seq::shadow::CommunicationSelector::Rust ||
+        !applicationTraceDir.isEmpty())
+      throw;
+    // Shadow diagnostics must never take down the legacy mutation path.
+    seqWarn("Rust shadow disabled: protocol registry failed: %s", error.what());
+  }
 
 #ifdef PACKET_OPCODEDB_DIAG
   m_zoneOPCodeDB->list();
@@ -194,6 +291,13 @@ EQPacket::EQPacket(const QString& opcodesToml,
   m_streams[world2client] = m_world2ClientStream;
   m_streams[client2zone] = m_client2ZoneStream;
   m_streams[zone2client] = m_zone2ClientStream;
+
+  // Keyed by UDP flow: a mid-zone capture has packets before any Box exists.
+  if (m_shadowRegistry) {
+    for (EQPacketStream* stream : {m_client2WorldStream, m_world2ClientStream,
+                                   m_client2ZoneStream, m_zone2ClientStream})
+      installShadowHook(stream);
+  }
 
   // Stage 2 of multibox-sessions (docs/MULTIBOX_PLAN.md): every new
   // Box gets a NamePromoter so OP_EnterWorld (world C>S, char name @
@@ -264,9 +368,41 @@ EQPacket::EQPacket(const QString& opcodesToml,
     // Parent the observers under the box root (non-primary) so they're
     // torn down with the box on eviction; the primary's hang off EQPacket.
     QObject* observerParent = m_boxRoots.value(&box, this);
-    new ZoneServerObserver(&box, box.world_s2c,
-                           [this] { return nowMs(); }, observerParent);
-    new NamePromoter(&box, &m_boxes, c2s, observerParent);
+    auto* zoneObserver = new ZoneServerObserver(
+        &box, box.world_s2c, [this] { return nowMs(); }, observerParent);
+    zoneObserver->setMutationGuard(
+        [this] { return legacyLifecycleEnabledForCurrentPacket(); });
+    zoneObserver->setObservedCallback(
+        [this](const QString& host, uint16_t port) {
+          observeLegacyLifecycle(seq::shadow::observeZoneServer(
+              host.toStdString(), port));
+        });
+    auto* promoter = new NamePromoter(&box, &m_boxes, c2s, observerParent);
+    promoter->setMutationGuard(
+        [this] { return legacyLifecycleEnabledForCurrentPacket(); });
+    promoter->setPromotedObserver([this](const QString& name) {
+      observeLegacyLifecycle(seq::shadow::observeSessionReset(
+          seq::rust::EventSessionResetReason::EnterWorld));
+      observeLegacyLifecycle(
+          seq::shadow::observeEnterWorld(name.toStdString()));
+    });
+
+    if (m_shadowRegistry) {
+      try {
+        auto session = std::make_unique<seq::shadow::Session>(
+            *m_shadowRegistry, shadowBackend(), 256, 4 * 1024 * 1024,
+            m_lifecycleSelector, m_entitySelector, m_playerSelector,
+            m_progressionSelector, m_lootSelector, m_combatSelector,
+            m_communicationSelector);
+        session->setTraceWriter(makeApplicationTraceWriter());
+        m_shadowSessions.emplace(&box, std::move(session));
+        for (EQPacketStream* stream : {box.world_c2s, box.world_s2c,
+                                       box.zone_c2s, box.zone_s2c})
+          installShadowHook(stream);
+      } catch (const std::exception& error) {
+        disableRustSession(&box, {}, "session creation failed", error.what());
+      }
+    }
 
     // Per-box opcode wiring is owned by DaemonApp::onBoxCreated (it owns
     // the per-box ManagerSets and wires each box's streams to its own
@@ -321,7 +457,6 @@ EQPacket::EQPacket(const QString& opcodesToml,
               m_ip.toLatin1().data(),
               m_realtime, IP_ADDRESS_TYPE );
     }
-    emit filterChanged();
   }
   else if (m_playbackPackets == PLAYBACK_FORMAT_TCPDUMP)
   {
@@ -449,6 +584,8 @@ EQPacket::~EQPacket()
     delete m_packetCapture;
   }
 
+  flushAllShadowSessions(seq::shadow::FlushReason::Shutdown);
+
   // try to close down VPacket cleanly
   if (m_vPacket != NULL)
   {
@@ -558,6 +695,7 @@ void EQPacket::processPackets (void)
   {
     seqInfo("End of pcap playback reached. Playback Finished!");
     stop();
+    flushAllShadowSessions(seq::shadow::FlushReason::ReplayEnd);
     emit playbackFinished();
   }
 }
@@ -641,6 +779,7 @@ void EQPacket::processPlaybackPackets (void)
 
     // stop the timer, nothing more can be done...
     stop();
+    flushAllShadowSessions(seq::shadow::FlushReason::ReplayEnd);
     emit playbackFinished();
   }
 
@@ -655,6 +794,1125 @@ qint64 EQPacket::nowMs(void) const
   // goldens); it's 0 in live capture, where wall-clock is correct.
   return m_currentPacketTimeMs ? m_currentPacketTimeMs
                                : QDateTime::currentMSecsSinceEpoch();
+}
+
+void EQPacket::installShadowHook(EQPacketStream* stream)
+{
+  if (!stream) return;
+  stream->setApplicationPacketHook(
+      [this](EQStreamID streamId, uint8_t direction, uint16_t opcode,
+             const uint8_t* payload, size_t payloadSize, int64_t timestamp,
+             EQPacketFlowKey flowKey, bool sourceIsLow,
+             uintptr_t attributionToken) {
+        return decodeShadowApplication(streamId, direction, opcode, payload,
+                                       payloadSize, timestamp, flowKey,
+                                       sourceIsLow, attributionToken);
+      },
+      [this] { return int64_t(nowMs()); },
+      [this](bool legacyDispatched) {
+        completeShadowApplication(legacyDispatched);
+      });
+}
+
+std::unique_ptr<seq::shadow::ApplicationTraceWriter>
+EQPacket::makeApplicationTraceWriter()
+{
+  if (m_applicationTracePrefix.isEmpty()) return {};
+  const QString prefix = QStringLiteral("%1-session-%2")
+      .arg(m_applicationTracePrefix)
+      .arg(++m_applicationTraceSession, 6, 10, QLatin1Char('0'));
+  return std::make_unique<seq::shadow::ApplicationTraceWriter>(
+      prefix, shadowBackendName(), m_applicationTraceCatalogHash,
+      /*synthetic*/ false);
+}
+
+bool EQPacket::rustOwnsAnyFamily() const
+{
+  return m_lifecycleSelector == seq::shadow::LifecycleSelector::Rust ||
+         m_entitySelector == seq::shadow::EntitySelector::Rust ||
+         m_playerSelector == seq::shadow::PlayerSelector::Rust ||
+         m_progressionSelector == seq::shadow::ProgressionSelector::Rust ||
+         m_lootSelector == seq::shadow::LootSelector::Rust ||
+         m_combatSelector == seq::shadow::CombatSelector::Rust ||
+         m_communicationSelector ==
+             seq::shadow::CommunicationSelector::Rust;
+}
+
+seq::shadow::Session* EQPacket::provisionalShadowSession(
+    EQPacketFlowKey flowKey)
+{
+  if (!m_shadowRegistry || !flowKey.isValid()) return nullptr;
+  auto found = m_provisionalShadowSessions.find(flowKey);
+  if (found != m_provisionalShadowSessions.end())
+    return found->second.disabled ? nullptr : found->second.session.get();
+
+  try {
+    ProvisionalShadowSession provisional;
+    provisional.session = std::make_unique<seq::shadow::Session>(
+        *m_shadowRegistry, shadowBackend(), 256, 4 * 1024 * 1024,
+        m_lifecycleSelector, m_entitySelector, m_playerSelector,
+        m_progressionSelector, m_lootSelector, m_combatSelector,
+        m_communicationSelector);
+    auto [it, inserted] =
+        m_provisionalShadowSessions.emplace(flowKey, std::move(provisional));
+    return inserted ? it->second.session.get() : nullptr;
+  } catch (const std::exception& error) {
+    disableRustSession(nullptr, flowKey, "session creation failed",
+                       error.what());
+    return nullptr;
+  }
+}
+
+void EQPacket::writeProvisionalTrace(
+    const seq::shadow::ProvisionalPacketFlow& flow)
+{
+  if (m_applicationTracePrefix.isEmpty() || flow.packets.empty()) return;
+  if (!flow.complete)
+    throw std::runtime_error("incomplete provisional packet trace");
+  auto writer = makeApplicationTraceWriter();
+  std::optional<int64_t> traceTimestamp;
+  for (const auto& packet : flow.packets) {
+    if (traceTimestamp && packet.timestamp < *traceTimestamp)
+      writer->finalize();
+    traceTimestamp = packet.timestamp;
+    const bool world = packet.stream == client2world ||
+                       packet.stream == world2client;
+    writer->push(
+        world ? seq::shadow::Stream::World : seq::shadow::Stream::Zone,
+        packet.opcode,
+        packet.direction == DIR_Server
+            ? seq::shadow::Direction::ServerToClient
+            : seq::shadow::Direction::ClientToServer,
+        reinterpret_cast<const uint8_t*>(packet.payload.constData()),
+        size_t(packet.payload.size()), packet.timestamp);
+  }
+  writer->finalize();
+}
+
+void EQPacket::finalizeProvisionalFlow(
+    EQPacketFlowKey flowKey, seq::shadow::ProvisionalPacketFlow flow,
+    seq::shadow::FlushReason reason)
+{
+  auto preview = m_provisionalShadowSessions.find(flowKey);
+  try {
+    if (!flow.complete &&
+        (rustOwnsAnyFamily() || !m_applicationTracePrefix.isEmpty()))
+      throw std::runtime_error(
+          "bounded provisional packet history is incomplete");
+
+    if (preview != m_provisionalShadowSessions.end() &&
+        !preview->second.disabled && preview->second.session) {
+      const auto& flushed = preview->second.session->flush(reason);
+      const bool ownedOutput =
+          (preview->second.session->appliesRustLifecycle() &&
+           !seq::shadow::lifecycleObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustEntities() &&
+           !seq::shadow::entityObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustPlayers() &&
+           !seq::shadow::playerObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustProgression() &&
+           !seq::shadow::progressionObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustLoot() &&
+           !seq::shadow::lootObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustCombat() &&
+           !seq::shadow::combatObservations(flushed.batch).empty()) ||
+          (preview->second.session->appliesRustCommunication() &&
+           !seq::shadow::communicationObservations(flushed.batch).empty());
+      if (ownedOutput)
+        throw std::runtime_error(
+            "unattributed Rust-owned output cannot mutate host state");
+    }
+    writeProvisionalTrace(flow);
+  } catch (const std::exception& error) {
+    seqWarn("Provisional Rust flow finalization failed: %s", error.what());
+  }
+  if (preview != m_provisionalShadowSessions.end())
+    m_provisionalShadowSessions.erase(preview);
+}
+
+void EQPacket::finalizeAllProvisionalFlows(
+    seq::shadow::FlushReason reason)
+{
+  for (auto& evicted : m_provisionalPackets.takeAll())
+    finalizeProvisionalFlow(evicted.key, std::move(evicted.flow), reason);
+  m_provisionalShadowSessions.clear();
+}
+
+bool EQPacket::replayProvisionalFlow(
+    EQPacketFlowKey flowKey, Box* box,
+    seq::shadow::ProvisionalPacketFlow flow)
+{
+  if (!flow.complete) {
+    if (rustOwnsAnyFamily() || !m_applicationTracePrefix.isEmpty())
+      disableRustSession(box, flowKey, "incomplete pre-attribution history",
+                         "an owned session cannot replay a suffix");
+    else
+      seqWarn("Discarding incomplete provisional Rust shadow flow");
+    return true;
+  }
+
+  auto attributed = m_shadowSessions.find(box);
+  if (attributed == m_shadowSessions.end() ||
+      m_shadowDisabled.count(box) != 0)
+    return true;
+
+  if (!flow.packets.empty()) attributed->second->finalizeTrace();
+  std::optional<int64_t> replayTimestamp;
+  for (const auto& packet : flow.packets) {
+    if (replayTimestamp && packet.timestamp < *replayTimestamp)
+      attributed->second->finalizeTrace();
+    replayTimestamp = packet.timestamp;
+    uint8_t direction = packet.direction;
+    const bool world = packet.stream == client2world ||
+                       packet.stream == world2client;
+    if (!world) {
+      const uint64_t source = packet.sourceIsLow
+          ? flowKey.endpointLow : flowKey.endpointHigh;
+      direction = in_addr_t(source >> 16) == box->client_ip
+          ? DIR_Client : DIR_Server;
+    }
+    if (!decodeShadowApplication(
+            EQStreamID(packet.stream), direction, packet.opcode,
+            reinterpret_cast<const uint8_t*>(packet.payload.constData()),
+            size_t(packet.payload.size()), packet.timestamp, flowKey,
+            packet.sourceIsLow, reinterpret_cast<uintptr_t>(box)))
+      return false;
+    completeShadowApplication(false);
+  }
+  seqInfo("Rust session replayed %zu pre-attribution packets for box %s",
+          flow.packets.size(), qUtf8Printable(box->box_id));
+  return true;
+}
+
+bool EQPacket::bindShadowFlow(EQPacketFlowKey flowKey, Box* box)
+{
+  if (!m_shadowRegistry) return true;
+  if (!flowKey.isValid() || !box) return true;
+  m_flowOwners[flowKey] = box;
+  bool provisionalDisabled = false;
+  if (auto it = m_provisionalShadowSessions.find(flowKey);
+      it != m_provisionalShadowSessions.end()) {
+    provisionalDisabled = it->second.disabled;
+    m_provisionalShadowSessions.erase(it);
+  }
+  if (provisionalDisabled) {
+    disableRustSession(box, {}, "pre-attribution fallback",
+                       "its flow already fell back to legacy decoding");
+    return true;
+  }
+  auto flow = m_provisionalPackets.take(flowKey);
+  if (!flow) return true;
+  return replayProvisionalFlow(flowKey, box, std::move(*flow));
+}
+
+// Rust never takes the daemon down: the box (or unattributed flow) falls
+// back to legacy decoding for the rest of the session.
+void EQPacket::disableRustSession(Box* box, EQPacketFlowKey flowKey,
+                                  const char* why, const char* detail)
+{
+  if (box) {
+    m_shadowDisabled.insert(box);
+    seqWarn("Rust session disabled for box %s after %s: %s; legacy decoding "
+            "owns the rest of this session",
+            qUtf8Printable(box->box_id), why, detail);
+    return;
+  }
+  m_provisionalShadowSessions[flowKey].disabled = true;
+  seqWarn("Provisional Rust session disabled after %s: %s; legacy decoding "
+          "owns this flow", why, detail);
+}
+
+void EQPacket::resetCurrentShadowPacket()
+{
+  m_currentLifecycleSession = nullptr;
+  m_currentRustLifecycleKinds.clear();
+  m_currentRustEntityKinds.clear();
+  m_currentRustPlayerKinds.clear();
+  m_currentRustProgressionKinds.clear();
+  m_currentRustLootKinds.clear();
+  m_currentRustCombatKinds.clear();
+  m_currentRustCommunicationKinds.clear();
+  m_currentRustPacketDecoded = false;
+}
+
+bool EQPacket::decodeShadowApplication(
+    EQStreamID stream, uint8_t direction, uint16_t opcode,
+    const uint8_t* payload, size_t payloadSize, int64_t timestamp,
+    EQPacketFlowKey flowKey, bool sourceIsLow, uintptr_t attributionToken)
+{
+  const bool world = stream == client2world || stream == world2client;
+  Box* box = reinterpret_cast<Box*>(attributionToken);
+  seq::shadow::Session* session = nullptr;
+
+  auto owner = m_flowOwners.find(flowKey);
+  if (owner != m_flowOwners.end()) {
+    box = owner->second;
+  } else if (box && !bindShadowFlow(flowKey, box)) {
+    return false;
+  }
+
+  if (box) {
+    auto attributed = m_shadowSessions.find(box);
+    if (attributed == m_shadowSessions.end() ||
+        m_shadowDisabled.count(box) != 0)
+      return true;
+
+    session = attributed->second.get();
+  } else {
+    seq::shadow::BufferedApplicationPacket packet;
+    packet.order = ++m_applicationDispatchOrder;
+    packet.stream = uint8_t(stream);
+    packet.direction = direction;
+    packet.sourceIsLow = sourceIsLow;
+    packet.opcode = opcode;
+    packet.payload = QByteArray(reinterpret_cast<const char*>(payload),
+                                qsizetype(payloadSize));
+    packet.timestamp = timestamp;
+    auto appended = m_provisionalPackets.append(flowKey, std::move(packet));
+    for (auto& evicted : appended.evicted) {
+      finalizeProvisionalFlow(evicted.key, std::move(evicted.flow),
+                              seq::shadow::FlushReason::Shutdown);
+    }
+    if (appended.flowInvalidated) {
+      disableRustSession(nullptr, flowKey, "replay history overflow",
+                         "the bounded pre-attribution history is full");
+      return true;
+    }
+    if (!appended.stored) return true;
+    session = provisionalShadowSession(flowKey);
+  }
+
+  if (!session) return true;
+  m_currentLifecycleSession = session;
+  m_currentRustLifecycleKinds.clear();
+  m_currentRustEntityKinds.clear();
+  m_currentRustPlayerKinds.clear();
+  m_currentRustProgressionKinds.clear();
+  m_currentRustLootKinds.clear();
+  m_currentRustCombatKinds.clear();
+  m_currentRustCommunicationKinds.clear();
+  m_pendingRustLoot.reset();
+  m_currentRustPacketDecoded = false;
+  m_currentShadowOpcode = opcode;
+  try {
+    const seq::shadow::Record record = session->decode(
+        world ? seq::shadow::Stream::World : seq::shadow::Stream::Zone,
+        opcode,
+        direction == DIR_Server
+            ? seq::shadow::Direction::ServerToClient
+            : seq::shadow::Direction::ClientToServer,
+        payload, payloadSize, timestamp);
+    m_currentRustPacketDecoded =
+        record.batch.disposition == seq::shadow::Disposition::Decoded;
+
+    auto rustEvents = seq::shadow::lifecycleObservations(record.batch);
+    const bool ownsGlobalLifecycle =
+        !box || !m_lifecycleGlobalOwnershipPredicate ||
+        m_lifecycleGlobalOwnershipPredicate(box);
+    if (!ownsGlobalLifecycle) {
+      // Time is daemon-global; only the active box's legacy handler sees it.
+      rustEvents.erase(
+          std::remove_if(rustEvents.begin(), rustEvents.end(), [](const auto& e) {
+            return e.kind == seq::shadow::LifecycleKind::TimeOfDay;
+          }),
+          rustEvents.end());
+    }
+#if defined(SEQ_TARGET_EQL)
+    // EQL's reducer folds NewZone environment into one ZoneChanged action;
+    // compare only what it actually exposes.
+    rustEvents.erase(
+        std::remove_if(rustEvents.begin(), rustEvents.end(), [](const auto& e) {
+          return e.kind ==
+                 seq::shadow::LifecycleKind::ZoneEnvironmentChanged;
+        }),
+        rustEvents.end());
+#endif
+    for (const auto& observation : rustEvents)
+      m_currentRustLifecycleKinds.push_back(observation.kind);
+    auto rustEntityEvents = seq::shadow::entityObservations(record.batch);
+    for (const auto& observation : rustEntityEvents)
+      m_currentRustEntityKinds.push_back(observation.kind);
+    // Field equality comes from the seq.v1 envelopes; this vector only
+    // carries action order (legacy signals can't recover optional inputs).
+    for (auto& observation : rustEntityEvents)
+      observation.payload.clear();
+    auto rustPlayerEvents = seq::shadow::playerObservations(record.batch);
+    for (const auto& observation : rustPlayerEvents)
+      m_currentRustPlayerKinds.push_back(observation.kind);
+    for (auto& observation : rustPlayerEvents)
+      observation.payload.clear();
+    auto rustProgressionEvents =
+        seq::shadow::progressionObservations(record.batch);
+    for (const auto& observation : rustProgressionEvents)
+      m_currentRustProgressionKinds.push_back(observation.kind);
+    for (auto& observation : rustProgressionEvents)
+      observation.payload.clear();
+    auto rustLootEvents = seq::shadow::lootObservations(record.batch);
+    for (const auto& observation : rustLootEvents)
+      m_currentRustLootKinds.push_back(observation.kind);
+    for (auto& observation : rustLootEvents)
+      observation.payload.clear();
+    auto rustCombatEvents = seq::shadow::combatObservations(record.batch);
+    for (const auto& observation : rustCombatEvents)
+      m_currentRustCombatKinds.push_back(observation.kind);
+    for (auto& observation : rustCombatEvents)
+      observation.payload.clear();
+    auto rustCommunicationEvents =
+        seq::shadow::communicationObservations(record.batch);
+    for (const auto& observation : rustCommunicationEvents)
+      m_currentRustCommunicationKinds.push_back(observation.kind);
+    for (auto& observation : rustCommunicationEvents)
+      observation.payload.clear();
+    const bool orderedLifecycleCommunication =
+        session->appliesRustLifecycle() &&
+        session->appliesRustCommunication();
+    if (orderedLifecycleCommunication &&
+        (!rustEvents.empty() || !rustCommunicationEvents.empty())) {
+      if (box) {
+        if (!m_lifecycleEventHandler || !m_communicationEventHandler)
+          throw std::runtime_error(
+              "Rust lifecycle/communication event has no host applier");
+        // Dispatch both families in batch order so group/guild clears
+        // never trail ZoneChanged.
+        for (const seq::shadow::Event& event : record.batch.events) {
+          if (seq::shadow::isCommunicationEvent(event))
+            m_communicationEventHandler(box, event);
+          else if (seq::shadow::isLifecycleEvent(event))
+            m_lifecycleEventHandler(box, event);
+        }
+      }
+    }
+    if (session->comparesLifecycle()) {
+        PendingLifecycleComparison pending;
+        pending.session = session;
+        pending.box = box;
+        pending.rustEvents = rustEvents;
+        pending.rustProjections = seq::shadow::projectLifecycle(record.batch);
+        if (!ownsGlobalLifecycle) {
+          pending.rustProjections.erase(
+              std::remove_if(
+                  pending.rustProjections.begin(),
+                  pending.rustProjections.end(), [](const auto& envelope) {
+                    return envelope.has_eq_time_sync() ||
+                           envelope.has_zone_server();
+                  }),
+              pending.rustProjections.end());
+        }
+        for (const seq::shadow::Event& event : record.batch.events) {
+#if !defined(SEQ_TARGET_EQL)
+          if (std::holds_alternative<seq::shadow::PlayerProfile>(event))
+            pending.expectsHostZoneProjection = true;
+#endif
+          if (const auto* transition =
+                  std::get_if<seq::shadow::ZoneTransition>(&event)) {
+            if (transition->payload.confirmed &&
+                transition->payload.has_zone_id)
+              pending.expectsHostZoneProjection = true;
+          }
+        }
+        m_pendingLifecycle = std::move(pending);
+    } else if (!rustEvents.empty() && session->appliesRustLifecycle() &&
+               !orderedLifecycleCommunication) {
+      if (box) {
+        if (!m_lifecycleEventHandler) {
+          throw std::runtime_error(
+              "Rust lifecycle event has no host applier");
+        }
+        for (const seq::shadow::Event& event : record.batch.events) {
+          if (seq::shadow::isLifecycleEvent(event))
+            m_lifecycleEventHandler(box, event);
+        }
+      }
+    }
+    if (session->comparesEntities()) {
+      PendingEntityComparison pending;
+      pending.session = session;
+      pending.box = box;
+      pending.rustEvents = std::move(rustEntityEvents);
+      pending.rustProjections = seq::shadow::projectEntities(record.batch);
+      m_pendingEntity = std::move(pending);
+    } else if (!rustEntityEvents.empty() && session->appliesRustEntities()) {
+      if (box) {
+        if (!m_entityEventHandler)
+          throw std::runtime_error("Rust entity event has no host applier");
+        for (const seq::shadow::Event& event : record.batch.events) {
+          if (seq::shadow::isEntityEvent(event))
+            m_entityEventHandler(box, event);
+        }
+      }
+    }
+    if (session->comparesPlayers()) {
+      PendingPlayerComparison pending;
+      pending.session = session;
+      pending.box = box;
+      pending.rustEvents = std::move(rustPlayerEvents);
+      pending.rustProjections = seq::shadow::projectPlayers(record.batch);
+      m_pendingPlayer = std::move(pending);
+    } else if (!rustPlayerEvents.empty() && session->appliesRustPlayers()) {
+      if (box) {
+        if (!m_playerEventHandler)
+          throw std::runtime_error("Rust player event has no host applier");
+        for (const seq::shadow::Event& event : record.batch.events) {
+          if (seq::shadow::isPlayerEvent(event))
+            m_playerEventHandler(box, event);
+        }
+      }
+    }
+    if (session->comparesProgression()) {
+      PendingProgressionComparison pending;
+      pending.session = session;
+      pending.box = box;
+      pending.rustEvents = std::move(rustProgressionEvents);
+      pending.rustProjections = seq::shadow::projectProgression(record.batch);
+      m_pendingProgression = std::move(pending);
+    } else if (!rustProgressionEvents.empty() &&
+               session->appliesRustProgression()) {
+      if (box) {
+        if (!m_progressionBatchHandler)
+          throw std::runtime_error(
+              "Rust progression event has no host applier");
+        m_progressionBatchHandler(box, record.batch);
+      }
+    }
+    if (session->comparesLoot()) {
+      PendingLootComparison pending;
+      pending.session = session;
+      pending.box = box;
+      pending.rustEvents = std::move(rustLootEvents);
+      pending.rustProjections = seq::shadow::projectLoot(record.batch);
+      m_pendingLoot = std::move(pending);
+    } else if (!rustLootEvents.empty() && session->appliesRustLoot()) {
+      if (box) {
+        if (!m_lootBatchHandler)
+          throw std::runtime_error("Rust loot event has no host applier");
+        // Defer past the legacy money handler so seq.v1 stays
+        // PlayerStats-then-transaction.
+        m_pendingRustLoot = PendingRustLootApplication{box, record.batch};
+      }
+    }
+    if (session->comparesCombat()) {
+      PendingCombatComparison pending;
+      pending.session = session;
+      pending.box = box;
+      pending.rustEvents = std::move(rustCombatEvents);
+      pending.rustProjections = seq::shadow::projectCombat(record.batch);
+      m_pendingCombat = std::move(pending);
+    } else if (!rustCombatEvents.empty() && session->appliesRustCombat()) {
+      if (box) {
+        if (!m_combatBatchHandler)
+          throw std::runtime_error("Rust combat event has no host applier");
+        m_combatBatchHandler(box, record.batch);
+      }
+    }
+    if (session->comparesCommunication()) {
+      PendingCommunicationComparison pending;
+      pending.session = session;
+      pending.box = box;
+      pending.rustEvents = std::move(rustCommunicationEvents);
+      if (m_communicationProjectionProvider)
+        pending.rustProjections =
+            m_communicationProjectionProvider(box, record.batch);
+      else
+        pending.rustProjections =
+            seq::shadow::projectCommunication(record.batch);
+      m_pendingCommunication = std::move(pending);
+    } else if (!rustCommunicationEvents.empty() &&
+               session->appliesRustCommunication() &&
+               !orderedLifecycleCommunication) {
+      if (box) {
+        if (!m_communicationEventHandler)
+          throw std::runtime_error(
+              "Rust communication event has no host applier");
+        for (const seq::shadow::Event& event : record.batch.events)
+          if (seq::shadow::isCommunicationEvent(event))
+            m_communicationEventHandler(box, event);
+      }
+    }
+  } catch (const std::exception& error) {
+    m_pendingLifecycle.reset();
+    m_pendingEntity.reset();
+    m_pendingPlayer.reset();
+    m_pendingProgression.reset();
+    m_pendingLoot.reset();
+    m_pendingCombat.reset();
+    m_pendingCommunication.reset();
+    m_pendingRustLoot.reset();
+    disableRustSession(box, flowKey, "decode error", error.what());
+    resetCurrentShadowPacket();
+    return true;
+  }
+  if (!box) {
+    // The raw history can safely rebuild correlation after attribution, but
+    // applying an already-emitted owned event later is not generally exact.
+    // Some legacy compatibility handlers mutate host state before their Rust
+    // ownership guard (loot money is one example), so suppressing dispatch or
+    // replaying it later can respectively lose or duplicate that mutation.
+    const bool delayedOwnedOutput =
+        (session->appliesRustLifecycle() &&
+         !m_currentRustLifecycleKinds.empty()) ||
+        (session->appliesRustEntities() &&
+         !m_currentRustEntityKinds.empty()) ||
+        (session->appliesRustPlayers() &&
+         !m_currentRustPlayerKinds.empty()) ||
+        (session->appliesRustProgression() &&
+         !m_currentRustProgressionKinds.empty()) ||
+        (session->appliesRustLoot() && !m_currentRustLootKinds.empty()) ||
+        (session->appliesRustCombat() && !m_currentRustCombatKinds.empty()) ||
+        (session->appliesRustCommunication() &&
+         !m_currentRustCommunicationKinds.empty());
+    if (delayedOwnedOutput) {
+      disableRustSession(nullptr, flowKey, "unattributed owned event",
+                         "flow attribution is required before host apply");
+      resetCurrentShadowPacket();
+      return true;
+    }
+  }
+  return true;
+}
+
+bool EQPacket::legacyLifecycleEnabledForCurrentPacket() const
+{
+  return (!m_currentLifecycleSession ||
+          m_currentLifecycleSession->runsLegacyLifecycle());
+}
+
+bool EQPacket::rustLifecycleAcceptedForCurrentPacket(
+    seq::shadow::LifecycleKind kind) const
+{
+  return std::find(m_currentRustLifecycleKinds.begin(),
+                   m_currentRustLifecycleKinds.end(), kind) !=
+         m_currentRustLifecycleKinds.end();
+}
+
+bool EQPacket::legacyEntitiesEnabledForCurrentPacket() const
+{
+  return (!m_currentLifecycleSession ||
+          m_currentLifecycleSession->runsLegacyEntities());
+}
+
+bool EQPacket::rustEntityAcceptedForCurrentPacket(
+    seq::shadow::EntityKind kind) const
+{
+  return std::find(m_currentRustEntityKinds.begin(),
+                   m_currentRustEntityKinds.end(), kind) !=
+         m_currentRustEntityKinds.end();
+}
+
+bool EQPacket::legacyPlayersEnabledForCurrentPacket() const
+{
+  return (!m_currentLifecycleSession ||
+          m_currentLifecycleSession->runsLegacyPlayers());
+}
+
+bool EQPacket::legacyPlayerAppearanceEnabledForCurrentPacket() const
+{
+  if (legacyPlayersEnabledForCurrentPacket()) return true;
+  // These opcodes also target non-player spawns, which keep their legacy
+  // owner; undecoded Rust-owned packets stay fail-closed.
+  return m_currentRustPacketDecoded &&
+         !rustPlayerAcceptedForCurrentPacket(
+             seq::shadow::PlayerKind::PlayerAppearanceUpdated);
+}
+
+bool EQPacket::rustPlayerAcceptedForCurrentPacket(
+    seq::shadow::PlayerKind kind) const
+{
+  return std::find(m_currentRustPlayerKinds.begin(),
+                   m_currentRustPlayerKinds.end(), kind) !=
+         m_currentRustPlayerKinds.end();
+}
+
+bool EQPacket::legacyProgressionEnabledForCurrentPacket() const
+{
+  return (!m_currentLifecycleSession ||
+          m_currentLifecycleSession->runsLegacyProgression());
+}
+
+bool EQPacket::rustProgressionAcceptedForCurrentPacket(
+    seq::shadow::ProgressionKind kind) const
+{
+  return std::find(m_currentRustProgressionKinds.begin(),
+                   m_currentRustProgressionKinds.end(), kind) !=
+         m_currentRustProgressionKinds.end();
+}
+
+bool EQPacket::legacyLootEnabledForCurrentPacket() const
+{
+  return (!m_currentLifecycleSession ||
+          m_currentLifecycleSession->runsLegacyLoot());
+}
+
+bool EQPacket::rustLootAcceptedForCurrentPacket(
+    seq::shadow::LootKind kind) const
+{
+  return std::find(m_currentRustLootKinds.begin(),
+                   m_currentRustLootKinds.end(), kind) !=
+         m_currentRustLootKinds.end();
+}
+
+bool EQPacket::legacyCombatEnabledForCurrentPacket() const
+{
+  return (!m_currentLifecycleSession ||
+          m_currentLifecycleSession->runsLegacyCombat());
+}
+
+bool EQPacket::rustCombatAcceptedForCurrentPacket(
+    seq::shadow::CombatKind kind) const
+{
+  return std::find(m_currentRustCombatKinds.begin(),
+                   m_currentRustCombatKinds.end(), kind) !=
+         m_currentRustCombatKinds.end();
+}
+
+bool EQPacket::legacyCommunicationEnabledForCurrentPacket() const
+{
+  return (!m_currentLifecycleSession ||
+          m_currentLifecycleSession->runsLegacyCommunication());
+}
+
+bool EQPacket::rustCommunicationAcceptedForCurrentPacket(
+    seq::shadow::CommunicationKind kind) const
+{
+  return std::find(m_currentRustCommunicationKinds.begin(),
+                   m_currentRustCommunicationKinds.end(), kind) !=
+         m_currentRustCommunicationKinds.end();
+}
+
+void EQPacket::observeLegacyLifecycle(
+    seq::shadow::LifecycleObservation observation)
+{
+  if (m_pendingLifecycle)
+    m_pendingLifecycle->legacyEvents.push_back(std::move(observation));
+}
+
+void EQPacket::observeLegacyLifecycleProjection(seq::v1::Envelope envelope)
+{
+  if (m_pendingLifecycle)
+    m_pendingLifecycle->legacyProjections.push_back(std::move(envelope));
+}
+
+void EQPacket::observeLegacyEntity(
+    seq::shadow::EntityObservation observation)
+{
+  if (m_pendingEntity)
+    m_pendingEntity->legacyEvents.push_back(std::move(observation));
+}
+
+void EQPacket::observeLegacyEntityProjection(seq::v1::Envelope envelope)
+{
+  if (m_pendingEntity)
+    m_pendingEntity->legacyProjections.push_back(std::move(envelope));
+}
+
+void EQPacket::observeLegacyPlayer(
+    seq::shadow::PlayerObservation observation)
+{
+  if (m_pendingPlayer)
+    m_pendingPlayer->legacyEvents.push_back(std::move(observation));
+}
+
+void EQPacket::observeLegacyPlayerProjection(seq::v1::Envelope envelope)
+{
+  if (m_pendingPlayer)
+    m_pendingPlayer->legacyProjections.push_back(std::move(envelope));
+}
+
+void EQPacket::observeLegacyProgression(
+    seq::shadow::ProgressionObservation observation)
+{
+  if (m_pendingProgression)
+    m_pendingProgression->legacyEvents.push_back(std::move(observation));
+}
+
+void EQPacket::observeLegacyProgressionProjection(seq::v1::Envelope envelope)
+{
+  if (m_pendingProgression)
+    m_pendingProgression->legacyProjections.push_back(std::move(envelope));
+}
+
+void EQPacket::observeLegacyLoot(seq::shadow::LootObservation observation)
+{
+  if (m_pendingLoot)
+    m_pendingLoot->legacyEvents.push_back(std::move(observation));
+}
+
+void EQPacket::observeLegacyLootProjection(seq::v1::Envelope envelope)
+{
+  if (m_pendingLoot)
+    m_pendingLoot->legacyProjections.push_back(std::move(envelope));
+}
+
+void EQPacket::observeLegacyCombat(
+    seq::shadow::CombatObservation observation)
+{
+  if (m_pendingCombat)
+    m_pendingCombat->legacyEvents.push_back(std::move(observation));
+}
+
+void EQPacket::observeLegacyCombatProjection(seq::v1::Envelope envelope)
+{
+  if (!m_pendingCombat) return;
+  const size_t index = m_pendingCombat->legacyProjections.size();
+  if (index < m_pendingCombat->rustProjections.size()) {
+    auto& rust = m_pendingCombat->rustProjections[index];
+    if (rust.has_combat() && envelope.has_combat()) {
+      rust.mutable_combat()->set_source_name(envelope.combat().source_name());
+      rust.mutable_combat()->set_target_name(envelope.combat().target_name());
+      rust.mutable_combat()->set_spell_name(envelope.combat().spell_name());
+    } else if (rust.has_spawn_cast() && envelope.has_spawn_cast()) {
+      rust.mutable_spawn_cast()->set_caster_name(
+          envelope.spawn_cast().caster_name());
+      rust.mutable_spawn_cast()->set_spell_name(
+          envelope.spawn_cast().spell_name());
+    }
+  }
+  m_pendingCombat->legacyProjections.push_back(std::move(envelope));
+}
+
+void EQPacket::observeLegacyCommunication(
+    seq::shadow::CommunicationObservation observation)
+{
+  if (m_pendingCommunication)
+    m_pendingCommunication->legacyEvents.push_back(std::move(observation));
+}
+
+void EQPacket::observeLegacyCommunicationProjection(seq::v1::Envelope envelope)
+{
+  if (m_pendingCommunication)
+    m_pendingCommunication->legacyProjections.push_back(std::move(envelope));
+}
+
+void EQPacket::applyValidatedZoneServerInfo(Box* box, uint16_t port)
+{
+  if (!box) return;
+  box->expected_zone_server_port = htons(port);
+  box->zone_client_port = 0;
+  box->zone_server_port_bound = 0;
+  box->zone_await_ms = nowMs();
+}
+
+// One warning per (family, opcode) per daemon run; shadow runs are chatty.
+void EQPacket::warnShadowMismatch(const char* family, size_t rustEvents,
+                                  size_t legacyEvents, size_t rustProjections,
+                                  size_t legacyProjections)
+{
+  const std::string key =
+      std::string(family) + ':' + std::to_string(m_currentShadowOpcode);
+  if (!m_shadowMismatchWarned.insert(key).second) return;
+  seqWarn("Rust %s shadow mismatch on opcode %04x: events rust=%zu legacy=%zu, "
+          "seq.v1 rust=%zu legacy=%zu (further mismatches for this opcode "
+          "suppressed)",
+          family, m_currentShadowOpcode, rustEvents, legacyEvents,
+          rustProjections, legacyProjections);
+}
+
+void EQPacket::completeShadowApplication(bool legacyDispatched)
+{
+  const auto rustLoot = m_pendingRustLoot;
+  m_pendingRustLoot.reset();
+  m_currentLifecycleSession = nullptr;
+  m_currentRustLifecycleKinds.clear();
+  m_currentRustEntityKinds.clear();
+  m_currentRustPlayerKinds.clear();
+  m_currentRustProgressionKinds.clear();
+  m_currentRustLootKinds.clear();
+  m_currentRustCombatKinds.clear();
+  m_currentRustCommunicationKinds.clear();
+  m_currentRustPacketDecoded = false;
+  if (m_pendingLifecycle) {
+    PendingLifecycleComparison pending = std::move(*m_pendingLifecycle);
+    m_pendingLifecycle.reset();
+    if (legacyDispatched &&
+        (!pending.rustEvents.empty() || !pending.rustProjections.empty() ||
+         !pending.legacyEvents.empty() || !pending.legacyProjections.empty())) {
+      if (m_lifecycleProjectionEnricher)
+        m_lifecycleProjectionEnricher(
+            pending.box, pending.expectsHostZoneProjection,
+            pending.rustEvents, pending.rustProjections);
+      const seq::shadow::LifecycleComparison comparison =
+          seq::shadow::compareLifecycle(
+              pending.rustEvents, pending.rustProjections,
+              pending.legacyEvents, pending.legacyProjections);
+      if (pending.session)
+        pending.session->recordLifecycleComparison(comparison);
+      if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
+        warnShadowMismatch("lifecycle", comparison.rustEventCount,
+                           comparison.legacyEventCount,
+                           comparison.rustProjectionCount,
+                           comparison.legacyProjectionCount);
+      }
+    }
+  }
+  if (m_pendingEntity) {
+    PendingEntityComparison pending = std::move(*m_pendingEntity);
+    m_pendingEntity.reset();
+    if (legacyDispatched &&
+        (!pending.rustEvents.empty() || !pending.rustProjections.empty() ||
+         !pending.legacyEvents.empty() || !pending.legacyProjections.empty())) {
+      seq::shadow::EntityComparison comparison;
+      comparison.rustEventCount = pending.rustEvents.size();
+      comparison.legacyEventCount = pending.legacyEvents.size();
+      comparison.rustProjectionCount = pending.rustProjections.size();
+      comparison.legacyProjectionCount = pending.legacyProjections.size();
+      comparison.orderedEventsEqual =
+          pending.rustEvents == pending.legacyEvents;
+      comparison.projectionsEqual =
+          pending.rustProjections.size() == pending.legacyProjections.size();
+      if (comparison.projectionsEqual) {
+        for (size_t i = 0; i < pending.rustProjections.size(); ++i) {
+          if (pending.rustProjections[i].SerializeAsString() !=
+              pending.legacyProjections[i].SerializeAsString()) {
+            comparison.projectionsEqual = false;
+            break;
+          }
+        }
+      }
+      if (pending.session)
+        pending.session->recordEntityComparison(comparison);
+      if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
+        warnShadowMismatch("entity", comparison.rustEventCount,
+                           comparison.legacyEventCount,
+                           comparison.rustProjectionCount,
+                           comparison.legacyProjectionCount);
+      }
+    }
+  }
+  if (m_pendingPlayer) {
+    PendingPlayerComparison pending = std::move(*m_pendingPlayer);
+    m_pendingPlayer.reset();
+    if (legacyDispatched &&
+        (!pending.rustEvents.empty() || !pending.rustProjections.empty() ||
+         !pending.legacyEvents.empty() || !pending.legacyProjections.empty())) {
+      seq::shadow::PlayerComparison comparison;
+      comparison.rustEventCount = pending.rustEvents.size();
+      comparison.legacyEventCount = pending.legacyEvents.size();
+      comparison.rustProjectionCount = pending.rustProjections.size();
+      comparison.legacyProjectionCount = pending.legacyProjections.size();
+      comparison.orderedEventsEqual =
+          pending.rustEvents == pending.legacyEvents;
+      comparison.projectionsEqual =
+          pending.rustProjections.size() == pending.legacyProjections.size();
+      if (comparison.projectionsEqual) {
+        for (size_t i = 0; i < pending.rustProjections.size(); ++i) {
+          if (pending.rustProjections[i].SerializeAsString() !=
+              pending.legacyProjections[i].SerializeAsString()) {
+            comparison.projectionsEqual = false;
+            break;
+          }
+        }
+      }
+      if (pending.session)
+        pending.session->recordPlayerComparison(comparison);
+      if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
+        warnShadowMismatch("player", comparison.rustEventCount,
+                           comparison.legacyEventCount,
+                           comparison.rustProjectionCount,
+                           comparison.legacyProjectionCount);
+      }
+    }
+  }
+  if (m_pendingProgression) {
+    PendingProgressionComparison pending =
+        std::move(*m_pendingProgression);
+    m_pendingProgression.reset();
+    if (legacyDispatched &&
+        (!pending.rustEvents.empty() || !pending.rustProjections.empty() ||
+         !pending.legacyEvents.empty() ||
+         !pending.legacyProjections.empty())) {
+      seq::shadow::ProgressionComparison comparison;
+      comparison.rustEventCount = pending.rustEvents.size();
+      comparison.legacyEventCount = pending.legacyEvents.size();
+      comparison.rustProjectionCount = pending.rustProjections.size();
+      comparison.legacyProjectionCount = pending.legacyProjections.size();
+      comparison.orderedEventsEqual =
+          pending.rustEvents == pending.legacyEvents;
+      comparison.projectionsEqual =
+          pending.rustProjections.size() ==
+          pending.legacyProjections.size();
+      if (comparison.projectionsEqual) {
+        for (size_t i = 0; i < pending.rustProjections.size(); ++i) {
+          if (pending.rustProjections[i].SerializeAsString() !=
+              pending.legacyProjections[i].SerializeAsString()) {
+            comparison.projectionsEqual = false;
+            break;
+          }
+        }
+      }
+      if (pending.session)
+        pending.session->recordProgressionComparison(comparison);
+      if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
+        warnShadowMismatch("progression", comparison.rustEventCount,
+                           comparison.legacyEventCount,
+                           comparison.rustProjectionCount,
+                           comparison.legacyProjectionCount);
+      }
+    }
+  }
+  if (m_pendingLoot) {
+    PendingLootComparison pending = std::move(*m_pendingLoot);
+    m_pendingLoot.reset();
+    if (legacyDispatched &&
+        (!pending.rustEvents.empty() || !pending.rustProjections.empty() ||
+         !pending.legacyEvents.empty() ||
+         !pending.legacyProjections.empty())) {
+      seq::shadow::LootComparison comparison;
+      comparison.rustEventCount = pending.rustEvents.size();
+      comparison.legacyEventCount = pending.legacyEvents.size();
+      comparison.rustProjectionCount = pending.rustProjections.size();
+      comparison.legacyProjectionCount = pending.legacyProjections.size();
+      comparison.orderedEventsEqual =
+          pending.rustEvents == pending.legacyEvents;
+      comparison.projectionsEqual =
+          pending.rustProjections.size() ==
+          pending.legacyProjections.size();
+      if (comparison.projectionsEqual) {
+        for (size_t i = 0; i < pending.rustProjections.size(); ++i) {
+          if (pending.rustProjections[i].SerializeAsString() !=
+              pending.legacyProjections[i].SerializeAsString()) {
+            comparison.projectionsEqual = false;
+            break;
+          }
+        }
+      }
+      if (pending.session)
+        pending.session->recordLootComparison(comparison);
+      if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
+        warnShadowMismatch("loot", comparison.rustEventCount,
+                           comparison.legacyEventCount,
+                           comparison.rustProjectionCount,
+                           comparison.legacyProjectionCount);
+      }
+    }
+  }
+  if (m_pendingCombat) {
+    PendingCombatComparison pending = std::move(*m_pendingCombat);
+    m_pendingCombat.reset();
+    if (legacyDispatched &&
+        (!pending.rustEvents.empty() || !pending.rustProjections.empty() ||
+         !pending.legacyEvents.empty() ||
+         !pending.legacyProjections.empty())) {
+      seq::shadow::CombatComparison actual;
+      actual.rustEventCount = pending.rustEvents.size();
+      actual.legacyEventCount = pending.legacyEvents.size();
+      actual.rustProjectionCount = pending.rustProjections.size();
+      actual.legacyProjectionCount = pending.legacyProjections.size();
+      actual.orderedEventsEqual =
+          pending.rustEvents == pending.legacyEvents;
+      actual.projectionsEqual =
+          pending.rustProjections.size() == pending.legacyProjections.size();
+      if (actual.projectionsEqual) {
+        for (size_t i = 0; i < pending.rustProjections.size(); ++i) {
+          if (pending.rustProjections[i].SerializeAsString() !=
+              pending.legacyProjections[i].SerializeAsString()) {
+            actual.projectionsEqual = false;
+            break;
+          }
+        }
+      }
+      if (pending.session)
+        pending.session->recordCombatComparison(actual);
+      if (!actual.orderedEventsEqual || !actual.projectionsEqual) {
+        warnShadowMismatch("combat", actual.rustEventCount,
+                           actual.legacyEventCount,
+                           actual.rustProjectionCount,
+                           actual.legacyProjectionCount);
+      }
+    }
+  }
+  if (m_pendingCommunication) {
+    PendingCommunicationComparison pending =
+        std::move(*m_pendingCommunication);
+    m_pendingCommunication.reset();
+    if (legacyDispatched &&
+        (!pending.rustEvents.empty() || !pending.rustProjections.empty() ||
+         !pending.legacyEvents.empty() ||
+         !pending.legacyProjections.empty())) {
+      seq::shadow::CommunicationComparison actual;
+      actual.rustEventCount = pending.rustEvents.size();
+      actual.legacyEventCount = pending.legacyEvents.size();
+      actual.rustProjectionCount = pending.rustProjections.size();
+      actual.legacyProjectionCount = pending.legacyProjections.size();
+      actual.orderedEventsEqual = pending.rustEvents == pending.legacyEvents;
+      actual.projectionsEqual =
+          pending.rustProjections.size() ==
+          pending.legacyProjections.size();
+      if (actual.projectionsEqual) {
+        for (size_t i = 0; i < pending.rustProjections.size(); ++i) {
+          if (pending.rustProjections[i].SerializeAsString() !=
+              pending.legacyProjections[i].SerializeAsString()) {
+            actual.projectionsEqual = false;
+            break;
+          }
+        }
+      }
+      if (pending.session)
+        pending.session->recordCommunicationComparison(actual);
+      if (!actual.orderedEventsEqual || !actual.projectionsEqual) {
+        warnShadowMismatch("communication", actual.rustEventCount,
+                           actual.legacyEventCount,
+                           actual.rustProjectionCount,
+                           actual.legacyProjectionCount);
+      }
+    }
+  }
+  if (rustLoot && rustLoot->box && m_lootBatchHandler) {
+    try {
+      m_lootBatchHandler(rustLoot->box, rustLoot->batch);
+    } catch (const std::exception& error) {
+      disableRustSession(const_cast<Box*>(rustLoot->box), {},
+                         "loot apply error", error.what());
+    }
+  }
+}
+
+void EQPacket::flushShadowSession(const Box* box,
+                                  seq::shadow::FlushReason reason)
+{
+  if (!box || m_shadowDisabled.count(box) != 0) return;
+  const auto it = m_shadowSessions.find(box);
+  if (it == m_shadowSessions.end()) return;
+  try {
+    const auto& flushed = it->second->flush(reason);
+    if (it->second->appliesRustLoot() &&
+        !seq::shadow::lootObservations(flushed.batch).empty()) {
+      if (!m_lootBatchHandler)
+        throw std::runtime_error(
+            "Rust loot flush has no attributed host applier");
+      m_lootBatchHandler(box, flushed.batch);
+    }
+    if (it->second->appliesRustCombat() &&
+        !seq::shadow::combatObservations(flushed.batch).empty()) {
+      if (!m_combatBatchHandler)
+        throw std::runtime_error(
+            "Rust combat flush has no attributed host applier");
+      m_combatBatchHandler(box, flushed.batch);
+    }
+    if (it->second->appliesRustCommunication() &&
+        !seq::shadow::communicationObservations(flushed.batch).empty()) {
+      if (!m_communicationEventHandler)
+        throw std::runtime_error(
+            "Rust communication flush has no attributed host applier");
+      for (const auto& event : flushed.batch.events)
+        if (seq::shadow::isCommunicationEvent(event))
+          m_communicationEventHandler(box, event);
+    }
+  } catch (const std::exception& error) {
+    disableRustSession(const_cast<Box*>(box), {}, "flush error", error.what());
+  }
+}
+
+void EQPacket::flushAllShadowSessions(seq::shadow::FlushReason reason)
+{
+  finalizeAllProvisionalFlows(reason);
+  for (const auto& entry : m_shadowSessions)
+    flushShadowSession(entry.first, reason);
+}
+
+void EQPacket::finalizeApplicationTraces()
+{
+  finalizeAllProvisionalFlows(seq::shadow::FlushReason::Shutdown);
+  for (auto& entry : m_shadowSessions)
+    entry.second->finalizeTrace();
 }
 
 /////////////////////////////////////////////////////////
@@ -737,29 +1995,7 @@ void EQPacket::connectStream(EQPacketStream* stream)
     }
   }
 
-  // Debugging
-  connect(stream,
-      SIGNAL(cacheSize(int, int)),
-      this,
-      SIGNAL(cacheSize(int, int)));
-  connect(stream,
-      SIGNAL(seqReceive(int, int)),
-      this,
-      SIGNAL(seqReceive(int, int)));
-  connect(stream,
-      SIGNAL(seqExpect(int, int)),
-      this,
-      SIGNAL(seqExpect(int, int)));
-  connect(stream,
-      SIGNAL(numPacket(int, int)),
-      this,
-      SIGNAL(numPacket(int, int)));
-
   // Session handling
-  connect(stream,
-      SIGNAL(sessionTrackingChanged(uint8_t)),
-      this,
-      SIGNAL(sessionTrackingChanged(uint8_t)));
   connect(stream,
       SIGNAL(lockOnClient(in_port_t, in_port_t, in_addr_t)),
       this,
@@ -772,10 +2008,6 @@ void EQPacket::connectStream(EQPacketStream* stream)
       SIGNAL(sessionKey(uint32_t, EQStreamID, uint32_t)),
       this,
       SLOT(dispatchSessionKey(uint32_t, EQStreamID, uint32_t)));
-  connect(stream,
-      SIGNAL(maxLength(int, int)),
-      this,
-      SIGNAL(maxLength(int, int)));
 }
 
 ////////////////////////////////////////////////////
@@ -799,6 +2031,22 @@ void EQPacket::dispatchPacket(int size, unsigned char *buffer)
 
 void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
 {
+  packet.setCaptureTimeMs(nowMs());
+  const EQPacketFlowKey flowKey = packetFlowKey(packet);
+  const uint64_t sourceEndpoint =
+      (uint64_t(packet.getIPv4SourceN()) << 16) |
+      uint64_t(packet.getSourcePort());
+  packet.setFlowKey(flowKey);
+  packet.setSourceIsLow(sourceEndpoint == flowKey.endpointLow);
+  packet.setAttributionToken(0);
+
+  if (packet.getNetOpCode() == OP_SessionRequest) {
+    if (auto prior = m_provisionalPackets.take(flowKey))
+      finalizeProvisionalFlow(flowKey, std::move(*prior),
+                              seq::shadow::FlushReason::Reset);
+    m_flowOwners.erase(flowKey);
+  }
+
   // Detect client by world server port traffic...
   const in_port_t srcPortHost = packet.getSourcePort();
   const in_port_t dstPortHost = packet.getDestPort();
@@ -831,7 +2079,6 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
     m_ip = packet.getIPv4DestA();
     m_client_addr = packet.getIPv4DestN();
     m_detectingClient = false;
-    emit clientChanged(m_client_addr);
     seqInfo("Client Detected: %s", m_ip.toLatin1().data());
   }
   else if (m_detectingClient && dstIsWorld)
@@ -839,7 +2086,6 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
     m_ip = packet.getIPv4SourceA();
     m_client_addr = packet.getIPv4SourceN();
     m_detectingClient = false;
-    emit clientChanged(m_client_addr);
     seqInfo("Client Detected: %s", m_ip.toLatin1().data());
   }
 
@@ -913,6 +2159,8 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
     Box* box = m_boxes.lookupByWorld(client_ip, client_port, server_port);
     if (box)
     {
+      if (!bindShadowFlow(flowKey, box)) return;
+      packet.setAttributionToken(reinterpret_cast<uintptr_t>(box));
       EQPacketStream* s = srcIsServer ? box->world_s2c : box->world_c2s;
       if (s) s->handlePacket(packet);
     }
@@ -1014,6 +2262,8 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
       // the global pipeline — but now keyed on the box's session, not on
       // m_client_addr (which is identical for every same-host box).
       EQPacketStream* s = srcIsClient ? box->zone_c2s : box->zone_s2c;
+      if (!bindShadowFlow(flowKey, box)) return;
+      packet.setAttributionToken(reinterpret_cast<uintptr_t>(box));
       s->handlePacket(packet);
       return;
     }
@@ -1091,7 +2341,80 @@ void EQPacket::decodeUCSPacket(EQUDPIPPacketFormat& packet)
   in_addr_t clientAddr = (dir == DIR_Server) ? packet.getIPv4DestN()
                                              : packet.getIPv4SourceN();
 
-  emit ucsChatData(raw, (size_t)rawLen, dir, clientAddr);
+  Box* box = m_boxes.currentBoxFor(m_boxes.activeCharacterId());
+  if (!box || box->client_ip != clientAddr) {
+    box = nullptr;
+    for (const auto& candidate : m_boxes.boxes()) {
+      if (candidate->client_ip != clientAddr) continue;
+      if (!box || candidate->last_seen_ms > box->last_seen_ms)
+        box = candidate.get();
+    }
+  }
+  if (!box) {
+    emit ucsChatData(raw, size_t(rawLen), dir, clientAddr);
+    return;
+  }
+  decodeUcsShadow(box, raw, size_t(rawLen), dir);
+}
+
+void EQPacket::decodeUcsShadow(Box* box, const uint8_t* payload,
+                               size_t payloadSize, uint8_t direction)
+{
+  const auto found = box ? m_shadowSessions.find(box)
+                         : m_shadowSessions.end();
+  if (!box || found == m_shadowSessions.end() ||
+      m_shadowDisabled.count(box) != 0 || !found->second) {
+    emit ucsChatData(payload, payloadSize, direction,
+                     box ? box->client_ip : 0);
+    return;
+  }
+
+  seq::shadow::Session* session = found->second.get();
+  m_currentLifecycleSession = session;
+  m_currentShadowOpcode = 0;
+  m_currentRustCommunicationKinds.clear();
+  try {
+    const auto& record = session->decodeUcs(
+        direction == DIR_Server
+            ? seq::shadow::Direction::ServerToClient
+            : seq::shadow::Direction::ClientToServer,
+        payload, payloadSize);
+    auto observations =
+        seq::shadow::communicationObservations(record.batch);
+    for (const auto& observation : observations)
+      m_currentRustCommunicationKinds.push_back(observation.kind);
+    for (auto& observation : observations) observation.payload.clear();
+
+    if (session->comparesCommunication()) {
+      PendingCommunicationComparison pending;
+      pending.session = session;
+      pending.box = box;
+      pending.rustEvents = std::move(observations);
+      pending.rustProjections = m_communicationProjectionProvider
+          ? m_communicationProjectionProvider(box, record.batch)
+          : seq::shadow::projectCommunication(record.batch);
+      m_pendingCommunication = std::move(pending);
+    } else if (!observations.empty() &&
+               session->appliesRustCommunication()) {
+      if (!m_communicationEventHandler)
+        throw std::runtime_error(
+            "Rust UCS event has no attributed host applier");
+      for (const auto& event : record.batch.events)
+        if (seq::shadow::isCommunicationEvent(event))
+          m_communicationEventHandler(box, event);
+    }
+
+    // Shadow and legacy modes run the old parser for comparison. Rust mode
+    // reaches it too, but MessageShell's immutable guard rejects mutation.
+    emit ucsChatData(payload, payloadSize, direction, box->client_ip);
+    completeShadowApplication(true);
+  } catch (const std::exception& error) {
+    m_pendingCommunication.reset();
+    m_currentLifecycleSession = nullptr;
+    m_currentRustCommunicationKinds.clear();
+    disableRustSession(box, {}, "UCS decode error", error.what());
+    emit ucsChatData(payload, payloadSize, direction, box->client_ip);
+  }
 }
 
 ////////////////////////////////////////////////////
@@ -1099,6 +2422,21 @@ void EQPacket::decodeUCSPacket(EQUDPIPPacketFormat& packet)
 void EQPacket::onBoxAboutToBeRemoved(Box* box)
 {
   if (!box || box->is_primary) return;   // primary aliases the globals
+
+  for (auto owner = m_flowOwners.begin(); owner != m_flowOwners.end();) {
+    if (owner->second == box)
+      owner = m_flowOwners.erase(owner);
+    else
+      ++owner;
+  }
+
+  for (EQPacketStream* stream : {box->world_c2s, box->world_s2c,
+                                 box->zone_c2s, box->zone_s2c}) {
+    if (stream) stream->setApplicationPacketHook({}, {});
+  }
+  flushShadowSession(box, seq::shadow::FlushReason::Shutdown);
+  m_shadowSessions.erase(box);
+  m_shadowDisabled.erase(box);
 
   // Drop the stream pointers first. The registry frees the Box right after
   // this returns; nulling here means a stray lookup before the deleteLater
@@ -1126,7 +2464,6 @@ void EQPacket::closeStream(uint32_t sessionId, EQStreamID streamId)
   {
     m_packetCapture->setFilter(m_device.toLatin1().data(), m_ip.toLatin1().data(),
             m_realtime, IP_ADDRESS_TYPE, 0, 0);
-    emit filterChanged();
   }
 
   // Pass the close onto the streams
@@ -1150,7 +2487,6 @@ void EQPacket::unlatchClientPort()
 {
     m_clientPort = 0;
     m_serverPort = 0;
-    emit clientPortLatched(m_clientPort);
 }
 
 
@@ -1176,7 +2512,6 @@ void EQPacket::lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_
               m_realtime,
               MAC_ADDRESS_TYPE, 0,
               m_clientPort);
-      emit filterChanged();
     }
     else
     {
@@ -1185,7 +2520,6 @@ void EQPacket::lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_
               m_realtime,
               IP_ADDRESS_TYPE, 0,
               m_clientPort);
-      emit filterChanged();
     }
   }
 
@@ -1201,7 +2535,6 @@ void EQPacket::lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_
       inet_ntoa(ia), m_clientPort, m_serverPort);
   }
 
-  emit clientPortLatched(m_clientPort);
 }
 
 void EQPacket::dispatchSessionKey(uint32_t sessionId, EQStreamID streamid,
@@ -1237,126 +2570,6 @@ void EQPacket::dispatchWorldChatData (size_t len, uint8_t *data,
 }
 
 ///////////////////////////////////////////
-// Returns the current playback speed
-int EQPacket::playbackSpeed(void)
-{
-  if (m_vPacket)
-    return m_vPacket->playbackSpeed();
-  else
-    return m_packetCapture->getPlaybackSpeed();
-}
-
-///////////////////////////////////////////
-// Set the packet playback speed
-void EQPacket::setPlayback(int speed)
-{
-  if (m_vPacket)
-  {
-    m_vPacket->setPlaybackSpeed(speed);
-  }
-  else
-  {
-    m_packetCapture->setPlaybackSpeed(speed);
-  }
-    
-  QString string("");
-    
-  if (speed == 0)
-    string = QString::asprintf("Playback speed set Fast as possible");
-  else if (speed < 0)
-     string = QString::asprintf("Playback paused (']' to resume)");
-  else
-     string = QString::asprintf("Playback speed set to %d", speed);
-
-  emit stsMessage(string, 5000);
-
-  emit resetPacket(m_client2WorldStream->packetCount(), client2world);
-  emit resetPacket(m_world2ClientStream->packetCount(), world2client);
-  emit resetPacket(m_client2ZoneStream->packetCount(), client2zone);
-  emit resetPacket(m_zone2ClientStream->packetCount(), zone2client);
-
-  emit playbackSpeedChanged(speed);
-}
-
-///////////////////////////////////////////
-// Increment the packet playback speed
-void EQPacket::incPlayback(void)
-{
-  int x;
-
-  if (m_vPacket)
-  {
-    x = m_vPacket->playbackSpeed();
-  }
-  else
-  {
-    x = m_packetCapture->getPlaybackSpeed();
-  }
-    
-  switch(x)
-  {
-	// if we were paused go to 1X not full speed
-    case -1:
-      x = 1;
-      break;
-	
-    // can't go faster than full speed
-    case 0:
-      return;
-	
-    case 9:
-      x = 0;
-      break;
-	
-    default:
-      x += 1;
-      break;
-  }
-    
-  setPlayback(x);
-}
-
-///////////////////////////////////////////
-// Decrement the packet playback speed
-void EQPacket::decPlayback(void)
-{
-  int x;
-
-  if (m_vPacket)
-  {
-    x = m_vPacket->playbackSpeed();
-  }
-  else
-  {
-    x = m_packetCapture->getPlaybackSpeed();
-  }
-
-  switch(x)
-  {
-    // paused
-    case -1:
-      return;
-	  break;
-
-    // slower than 1 is paused
-    case 1:
-      x = -1;
-      break;
-	
-    // if we were full speed goto 9
-    case 0:
-      x = 9;
-      break;
-	
-    default:
-      x -= 1;
-      break;
-  }
-    
-  setPlayback(x);
-}
-
-///////////////////////////////////////////
 // Set the IP address of the client to monitor
 void EQPacket::monitorIPClient(const QString& ip)
 {
@@ -1364,7 +2577,6 @@ void EQPacket::monitorIPClient(const QString& ip)
 
   validateIP();
 
-  emit clientChanged(m_client_addr);
 
   resetEQPacket();
 
@@ -1375,40 +2587,6 @@ void EQPacket::monitorIPClient(const QString& ip)
             m_ip.toLatin1().data(),
             m_realtime,
             IP_ADDRESS_TYPE, 0, 0);
-    emit filterChanged();
-  }
-}
-
-///////////////////////////////////////////
-// Set the MAC address of the client to monitor
-void EQPacket::monitorMACClient(const QString& mac)
-{
-  m_mac = mac;
-  struct in_addr  ia;
-  inet_aton (AUTOMATIC_CLIENT_IP, &ia);
-  m_detectingClient = true;
-  m_client_addr = ia.s_addr;
-  emit clientChanged(m_client_addr);
-
-  resetEQPacket();
-
-  if (!m_mac.isEmpty() && m_mac.length() == 17)
-  {
-    seqInfo("Listening for MAC client: %s", m_mac.toLatin1().data());
-
-    if (m_playbackPackets == PLAYBACK_OFF)
-    {
-        m_packetCapture->setFilter(m_device.toLatin1().data(),
-                m_mac.toLatin1().data(),
-                m_realtime,
-                MAC_ADDRESS_TYPE, 0, 0);
-        emit filterChanged();
-    }
-  }
-  else
-  {
-      seqWarn("Invalid MAC specified.  Defaulting to auto-detect of next client.");
-      monitorNextClient();
   }
 }
 
@@ -1421,7 +2599,6 @@ void EQPacket::monitorNextClient()
   struct in_addr  ia;
   inet_aton (m_ip.toLatin1().data(), &ia);
   m_client_addr = ia.s_addr;
-  emit clientChanged(m_client_addr);
 
   resetEQPacket();
 
@@ -1432,7 +2609,6 @@ void EQPacket::monitorNextClient()
     m_packetCapture->setFilter(m_device.toLatin1().data(), NULL,
             m_realtime,
             DEFAULT_ADDRESS_TYPE, 0, 0);
-    emit filterChanged();
   }
 }
 
@@ -1475,7 +2651,6 @@ void EQPacket::monitorDevice(const QString& dev)
             m_realtime, IP_ADDRESS_TYPE );
   }
 
-  emit filterChanged();
 }
 
 ///////////////////////////////////////////
@@ -1487,39 +2662,15 @@ void EQPacket::session_tracking(bool enable)
   m_world2ClientStream->setSessionTracking(m_session_tracking);
   m_client2ZoneStream->setSessionTracking(m_session_tracking);
   m_zone2ClientStream->setSessionTracking(m_session_tracking);
-  emit sessionTrackingChanged(m_session_tracking);
 
-}
-
-///////////////////////////////////////////
-// Set the current ArqSeqGiveUp
-void EQPacket::setArqSeqGiveUp(uint16_t giveUp)
-{
-  // a sanity check, if the user set it to below 32, they're prolly nuts
-  if (giveUp >= 32)
-    m_arqSeqGiveUp = giveUp;
-
-  // a sanity check, if the user set it to below 32, they're prolly nuts
-  if (m_arqSeqGiveUp >= 32)
-    giveUp = m_arqSeqGiveUp;
-  else
-    giveUp = 32;
-
-  m_client2WorldStream->setArqSeqGiveUp(giveUp);
-  m_world2ClientStream->setArqSeqGiveUp(giveUp);
-  m_client2ZoneStream->setArqSeqGiveUp(giveUp);
-  m_zone2ClientStream->setArqSeqGiveUp(giveUp);
-}
-
-void EQPacket::setRealtime(bool val)
-{
-  m_realtime = val;
 }
 
 ///////////////////////////////////////////
 // Reset EQPacket's state
 void EQPacket::resetEQPacket()
 {
+  finalizeAllProvisionalFlows(seq::shadow::FlushReason::Reset);
+  m_flowOwners.clear();
   m_client2WorldStream->reset();
   m_client2WorldStream->setSessionTracking(m_session_tracking);
   m_world2ClientStream->reset();
@@ -1530,43 +2681,6 @@ void EQPacket::resetEQPacket()
   m_zone2ClientStream->setSessionTracking(m_session_tracking);
 
   unlatchClientPort();
-}
-
-///////////////////////////////////////////
-// Return the current pcap filter
-const QString EQPacket::pcapFilter()
-{
-  // make sure we aren't playing back packets
-  if (m_playbackPackets != PLAYBACK_OFF)
-    return QString("Playback");
-
-  return m_packetCapture->getFilter();
-}
-
-
-int EQPacket::packetCount(int stream)
-{
-  return m_streams[stream]->packetCount();
-}
-
-uint8_t EQPacket::session_tracking_enabled(void)
-{
-  return m_zone2ClientStream->sessionTracking();
-}
-
-size_t EQPacket::currentCacheSize(int stream)
-{
-  return m_streams[stream]->currentCacheSize();
-}
-
-uint32_t EQPacket::currentMaxLength(int streamId)
-{
-    return m_streams[streamId]->getMaxLength();
-}
-
-uint16_t EQPacket::serverSeqExp(int stream)
-{
-  return m_streams[stream]->arqSeqExp();
 }
 
 // ---------------------------------------------------------------------------

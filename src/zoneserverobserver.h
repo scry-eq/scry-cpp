@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <utility>
 
 class Box;
 class EQPacketOPCode;
@@ -29,6 +30,10 @@ public:
     ZoneServerObserver(Box* box, EQPacketStream* world_s2c,
                        std::function<qint64()> nowFn,
                        QObject* parent = nullptr);
+    void setMutationGuard(std::function<bool()> guard)
+    { m_mutationGuard = std::move(guard); }
+    void setObservedCallback(std::function<void(const QString&, uint16_t)> observer)
+    { m_observedCallback = std::move(observer); }
 
 private slots:
     void onDecodedPacket(const uint8_t* data, size_t len, uint8_t dir,
@@ -37,6 +42,8 @@ private slots:
 private:
     Box* m_box;
     std::function<qint64()> m_nowFn;
+    std::function<bool()> m_mutationGuard;
+    std::function<void(const QString&, uint16_t)> m_observedCallback;
 };
 
 #endif // ZONESERVEROBSERVER_H

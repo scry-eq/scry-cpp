@@ -77,13 +77,29 @@ QString invocationName(uint32_t id)
 }
 
 EqlDispatch::EqlDispatch(ZoneMgr* zoneMgr, SpawnShell* spawnShell, Player* player,
-                         DbStrings* dbStrings, GuildShell* guildShell, GuildMgr* guildMgr)
+                         DbStrings* dbStrings, GuildShell* guildShell,
+                         GuildMgr* guildMgr,
+                         std::function<bool()> rustLifecycleOwned,
+                         std::function<bool(seq::shadow::LifecycleKind)>
+                             rustLifecycleAccepted,
+                         std::function<bool()> rustPlayerOwned,
+                         std::function<bool()> rustProgressionOwned,
+                         std::function<void(seq::shadow::ProgressionKind)>
+                             progressionObserved,
+                         std::function<void(const seq::shadow::LifecycleProfile&)>
+                             profileObserved)
     : m_zoneMgr(zoneMgr)
     , m_spawnShell(spawnShell)
     , m_player(player)
     , m_dbStrings(dbStrings)
     , m_guildShell(guildShell)
     , m_guildMgr(guildMgr)
+    , m_rustLifecycleOwned(std::move(rustLifecycleOwned))
+    , m_rustLifecycleAccepted(std::move(rustLifecycleAccepted))
+    , m_rustPlayerOwned(std::move(rustPlayerOwned))
+    , m_rustProgressionOwned(std::move(rustProgressionOwned))
+    , m_progressionObserved(std::move(progressionObserved))
+    , m_profileObserved(std::move(profileObserved))
     , m_selfTracker(seq::rust::eql_self_tracker_new())
 {
 }
@@ -209,6 +225,32 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
     if (!out.ok)
         return;
 
+    if (m_profileObserved) {
+        seq::shadow::LifecycleProfile observed;
+        observed.name = std::string(out.name);
+        observed.lastName = std::string(out.last_name);
+        observed.classId = out.class_;
+        observed.level = out.level;
+        observed.race = out.race;
+        observed.deity = out.deity;
+        observed.classMask = out.class_mask;
+        m_profileObserved(observed);
+    }
+
+    if (m_rustLifecycleOwned && m_rustLifecycleOwned()) {
+        if (!m_rustLifecycleAccepted ||
+            !m_rustLifecycleAccepted(
+                seq::shadow::LifecycleKind::PlayerProfile))
+            return;
+        // Compatibility tail: Rust already applied reset + profile fields.
+        m_selfTracker->reset();
+        if (QString sn = stanceName(out.stance); !sn.isEmpty())
+            m_player->setStance(sn);
+        if (QString invName = invocationName(out.invocation); !invName.isEmpty())
+            m_player->setInvocation(invName);
+        return;
+    }
+
     // The per-zone spawn reset. eql sends this once per zone-in and BEFORE the
     // OP_ZoneEntry burst, which is what makes it the usable trigger: OP_NewZone
     // lands after the burst and would wipe it. Previously the only reset was
@@ -216,29 +258,34 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
     // world handshake was never captured (no OP_ZoneServerInfo -> zone sessions
     // bound "by world recency") stopped resetting entirely and piled every zone
     // into one list — 1900+ spawns and stale records under recycled ids.
+    const bool rustPlayer = m_rustPlayerOwned && m_rustPlayerOwned();
+    const bool rustProgression =
+        m_rustProgressionOwned && m_rustProgressionOwned();
     m_spawnShell->clear();
-    m_player->setID(0);
+    // Rust player events already set the id; don't erase it here.
+    if (!rustPlayer)
+        m_player->setID(0);
     m_selfTracker->reset();
     // Name first: setPlayerName only stores it (+ signals the box picker); the
     // setIdentity() below then emits changeItem(tSpawnChangedALL) carrying the
     // new name. An empty name (anchor block not found) leaves box-naming to
     // own-spawn adoption (SpawnShell::playerChangedID), the prior source.
     QString name = latin1(out.name);
-    if (!name.isEmpty())
+    if (!rustPlayer && !name.isEmpty())
         m_player->setPlayerName(name);
     // Seed the whole skill array (walked out of the profile in seq-backend-eql)
     // BEFORE setIdentity: setIdentity's levelChanged triggers the coalesced
     // PlayerStats snapshot, so the seeded skills ride that first snapshot and the
     // Skills window is populated at zone-in. Empty on a short-read (skills then
     // fall back to incremental OP_SkillUpdate).
-    if (!out.skills.empty())
+    if (!rustProgression && !out.skills.empty())
     {
         std::vector<uint32_t> skills(out.skills.begin(), out.skills.end());
         m_player->seedSkills(skills);
     }
     // Seed the purchased-AA list + spent points from the same profile walk
     // (parallel aa_ids/aa_values) so the AA window populates at zone-in.
-    if (!out.aa_ids.empty())
+    if (!rustProgression && !out.aa_ids.empty())
     {
         std::vector<uint32_t> aaIds(out.aa_ids.begin(), out.aa_ids.end());
         std::vector<uint32_t> aaVals(out.aa_values.begin(), out.aa_values.end());
@@ -252,20 +299,23 @@ void EqlDispatch::profile(const uint8_t* data, size_t len, uint8_t dir)
     m_player->seedBaseStats((uint16_t)out.str_, (uint16_t)out.sta,
                             (uint16_t)out.cha, (uint16_t)out.dex,
                             (uint16_t)out.int_, (uint16_t)out.agi,
-                            (uint16_t)out.wis);
+                            (uint16_t)out.wis, !rustProgression);
     if (QString sn = stanceName(out.stance); !sn.isEmpty())
         m_player->setStance(sn);
     if (QString invName = invocationName(out.invocation); !invName.isEmpty())
         m_player->setInvocation(invName);
-    m_player->setIdentity((uint16_t)out.race, (uint8_t)out.class_, out.level);
-    m_player->setClassMask(out.class_mask);   // EQL multiclass (bit N = class N)
+    if (!rustPlayer) {
+        m_player->setIdentity((uint16_t)out.race, (uint8_t)out.class_, out.level);
+        m_player->setClassMask(out.class_mask);
+    }
     // Carried coin (fixed offset, read in seq-backend-eql). Redundant with
     // OP_MoneyUpdate, which carries the same values in a far more durable 20B
     // struct — kept as a second source so a drifted profile offset or a missing
     // money broadcast can't leave the readout empty. Must come AFTER
     // setIdentity: moneyChanged fires its own PlayerStats snapshot, and emitting
     // it earlier publishes one carrying the still-default identity.
-    m_player->setMoneyCoins(out.platinum, out.gold, out.silver, out.copper);
+    if (!rustProgression)
+        m_player->setMoneyCoins(out.platinum, out.gold, out.silver, out.copper);
 }
 
 void EqlDispatch::zoneChange(const uint8_t*, size_t, uint8_t)
@@ -374,6 +424,9 @@ void EqlDispatch::playerUpdateSelf(const uint8_t* data, size_t len, uint8_t dir)
         rust::Slice<const uint8_t>{data, len});
     if (!out.ok)
         return;
+    if (m_awaitingRespawnFromId != 0 &&
+        out.spawn_id == m_awaitingRespawnFromId)
+        return;
     // Mid-session attach (sniffer started, or restarted, while already in a
     // zone) never witnesses OP_PlayerProfile or the OP_ZoneEntry burst, so the
     // name match above can never fire and the player stays invisible until they
@@ -388,6 +441,7 @@ void EqlDispatch::playerUpdateSelf(const uint8_t* data, size_t len, uint8_t dir)
 
     if (m_player->id() == 0)
         return;   // still unresolved (no id on the wire this patch)
+    m_lastKnownSelfId = uint32_t(m_player->id());
 
     // Position and heading are authoritative on every packet. The velocities are
     // NOT located for this patch and the parser surfaces 0 for them rather than
@@ -416,7 +470,7 @@ void EqlDispatch::death(const uint8_t* data, size_t len, uint8_t dir)
         // respawned PC is simply re-broadcast as an ordinary OP_ZoneEntry NewSpawn
         // and the C>S self-pos stream switches to the new id (confirmed on
         // eqlegends-corpsepin: self-id 12636 -> 12913, no id-0 dip). The Live
-        // death chain (killSpawn -> corpse-in-place, then respawnFromHover +
+        // death chain (killSpawn -> corpse-in-place, then hover respawn +
         // OP_ZoneEntry re-init) never completes here, so routing the player's own
         // death to killSpawn pins the PC record to the death spot as a renamed
         // corpse forever — the marker never follows the respawn (the reported
@@ -460,6 +514,17 @@ void EqlDispatch::enterWorld(const uint8_t*, size_t, uint8_t dir)
     // (whose OP_EnterWorld precedes any zone) does not reset.
     if (dir != DIR_Client)
         return;
+    if (m_rustLifecycleOwned && m_rustLifecycleOwned()) {
+        if (!m_rustLifecycleAccepted ||
+            !m_rustLifecycleAccepted(seq::shadow::LifecycleKind::EnterWorld))
+            return;
+        // Visible host reset is owned by SessionReset(EnterWorld); retain only
+        // the backend correlation reset needed by later EQL packet families.
+        m_selfTracker->reset();
+        m_awaitingRespawnFromId = m_lastKnownSelfId;
+        m_lastKnownSelfId = 0;
+        return;
+    }
     if (!m_sessionEstablished || !m_player)
         return;
     seqInfo("EQL: session re-entry (OP_EnterWorld) — resetting box, self-id %d -> 0",
@@ -540,6 +605,8 @@ bool EqlDispatch::consumeSelfSpawn(const QString& name, uint16_t id)
         // provisionally from the C>S self-report while we had nothing better.
         m_selfTracker->take_retired_provisional();
         m_player->setPlayerID(id);
+        m_lastKnownSelfId = id;
+        m_awaitingRespawnFromId = 0;
     }
 
     // eql keys the self's stats to the twin id, and the stat packet carrying the
@@ -563,6 +630,9 @@ void EqlDispatch::spawn(const uint8_t* data, size_t len, uint8_t dir)
     if (!out.ok)
         return;
     const QString name = latin1(out.name);
+    if (m_rustPlayerOwned && m_rustPlayerOwned() && m_player &&
+        name.compare(m_player->realName(), Qt::CaseInsensitive) == 0)
+        return;
     // Keep the local player's own ZoneEntry (and its phantom twin) out of the
     // spawn list; adopt/re-home the self-id from it instead.
     if (consumeSelfSpawn(name, (uint16_t)out.spawn_id))
@@ -655,6 +725,9 @@ void EqlDispatch::sendAATable(const uint8_t* data, size_t len, uint8_t dir)
     const QString name = m_dbStrings->nameById(out.title_sid);
     if (!name.isEmpty())
         m_player->setAAName(out.desc_id, name);
+    if (m_progressionObserved)
+        m_progressionObserved(
+            seq::shadow::ProgressionKind::AlternateAbilityDefined);
 }
 
 void EqlDispatch::mobUpdate(const uint8_t* data, size_t len, uint8_t dir)

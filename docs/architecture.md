@@ -89,13 +89,101 @@ backend's vendored `conf/eql/opcodes.toml` as input, not just this repo's.
 
 ## The decoder is Rust-only
 
-The daemon links `scry-decoder-rs`'s `seq-bridge` (a cxx staticlib) via
-Corrosion as a **hard build dependency** — there is no `SEQ_USE_RUST`
-toggle and no C++ fallback path. Every wire handler decodes through
+The daemon links the pinned `scry-decoder-rs/` submodule's `seq-bridge` (a cxx
+staticlib) via Corrosion as a **hard build dependency**. There is no
+`SEQ_USE_RUST` toggle and no C++ fallback path. Every wire handler decodes through
 `seq::rust::decode_*`; the old C++ parsers (`fillSpawnStruct` etc.) are
 gone. Backend is picked by `-DSEQ_TARGET=live|test|eql` → the decoder-rs
 `backend-*` Cargo feature, 1:1. eql's `EqlDispatch` calls the same
 `decode_*` names.
+
+CMake uses the submodule revision recorded by this repository. A developer can
+point a build at another checkout with
+`-DSEQ_DECODER_RS_DIR=/absolute/path/to/scry-decoder-rs`. CI and release builds
+do not use that override.
+
+Shadow decoding lives in `rustsession.*`. `EQPacket` owns one protocol
+registry built from the decoder's embedded catalogs. It creates one stateful
+Rust session for each `Box`. Captures that begin mid-zone retain a bounded raw
+application-packet history and a trace-free preview session per normalized UDP
+flow. When existing wire routing attributes that flow, its intact history is
+replayed into the Box session before the triggering packet, whether that
+session is cold or warm. The limit is 16 flows, 256 packets and 4 MiB per flow,
+and 16 MiB total. An incomplete history fails closed for Rust ownership and
+trace recording instead of merging a suffix.
+
+`EQPacketStream` calls the shadow hook after SOE reassembly and before its
+decoded-packet observers or legacy handlers. The hook sends the stream, numeric
+opcode, direction, payload, and capture timestamp to Rust. The adapter switches
+only on `SessionEventKind` and moves the indexed typed payload into an exhaustive
+98-alternative `std::variant`. It does no opcode lookup, backend selection, or
+correlation. Capture timestamps and attribution follow cached, nested, and
+fragmented protocol packets instead of being sampled when a cache drains. Each
+session keeps at most 256 ordered packet and flush records under a 4 MiB source
+byte budget, with monotonic record and dropped-record counts for diagnostics.
+Oversized individual records retain only their disposition and metadata.
+
+`--record-app-traces DIR` attaches one atomic strict-v1 trace writer to each
+logical Rust session at this same hook. Provisional preview sessions never own
+a writer. Adoption writes their buffered packets through the Box writer after
+a part boundary, so attribution cannot duplicate or split the packet sequence
+across owners. A flow that remains unattributed through terminal finalization
+gets one standalone trace. See `docs/application-packet-traces.md` for handling
+and scrubbing rules.
+
+`--lifecycle-decoder legacy|shadow|rust` supplies the immutable selector copied
+into each new session. The default is `legacy`. Legacy mode runs the existing
+lifecycle handlers. Shadow mode runs them and records their real manager
+signals after dispatch, then compares their ordered lifecycle events and the
+same `seq.v1` envelope constructors used by `SessionAdapter`. Rust mode applies
+the typed lifecycle variant to `ZoneMgr`, `Player`, `DateTimeMgr`, and
+`ZoneServerMgr`; wrappers suppress only the matching legacy lifecycle writes.
+Compatibility fields not yet present in the shared profile event (Live
+position, guild, languages, spellbook and buffs; EQL stance/invocation and
+self-correlation) run only after Rust accepted that profile. The accepted-event
+gate prevents malformed Rust-owned packets from reaching those tails or the raw
+`NamePromoter`/`ZoneServerObserver`. A Rust-owned decode, registry,
+session-creation, flush, or host-apply failure stops the daemon and aborts the
+current packet before observers and handlers run. It does not switch a live
+session back to legacy ownership.
+
+`--entity-decoder legacy|shadow|rust` and
+`--player-decoder legacy|shadow|rust` add independent immutable session
+selectors for the entity/spatial and player families. Both
+default to `legacy`. Shadow mode compares ordered manager observations and
+serialized `seq.v1` projections; Rust mode applies typed events through neutral
+host-state methods and gates matching legacy writes. The entity
+contract preserves optional initial position, per-axis velocity presence,
+delta heading, animation, and all nine equipment models. Player ownership
+covers tags 55 through 62, while EQL profile fields owned by other families
+remain in its compatibility tail.
+
+`--progression-decoder legacy|shadow|rust` adds the independent
+selector for tags 63 through 73. It owns inventory, equipment, money, skills,
+experience, levels, and alternate advancement. The default remains `legacy`
+until capture parity and soak evidence exist for both backends.
+
+Zone projection runs after `loadZoneMap`, so shadow comparison includes
+production map geometry. Rust installs Live/Test NewZone environment before the
+legacy-compatible `zoneEnd` signal and uses EQL's non-clearing `zoneResolved`
+path, preserving each backend's public signal and follow-up Snapshot behavior.
+`seq-events` preserves
+the EQ wire hour as 1 through 24. The public `seq.v1.EqTimeSync` contract is 0
+through 23, so `DateTimeMgr::applyTimeOfDay` performs that conversion once for
+both paths before projection.
+
+The host flushes sessions on shutdown, box eviction, and replay completion.
+Rust owns correlation resets, so host `ZoneMgr` signals never flush the Rust
+session. Self-stat and loot outputs remain shadow-only until their family
+phases. The legacy lifecycle implementation stays available for rollback until
+capture-derived Live, Test, and EQL zone-transition, reconnect, malformed, and
+profile traces complete the soak period. Rust-owned mode currently requires an
+attributed Box before its first lifecycle event; a mid-zone unattributed start
+fails closed instead of applying state to the wrong session. Composite profile
+fields absent from the current shared event remain isolated in a legacy
+compatibility tail; removing that tail is capture-gated work for their later
+event-family phases. No repository capture fixtures were available for the
+Live/Test/EQL soak in this implementation worktree.
 
 To add or change an opcode: edit the parser in `scry-decoder-rs` (see its
 own `CLAUDE.md`/`docs/architecture.md`), expose it via `seq-bridge`, then
@@ -106,13 +194,15 @@ C++ by design — the *app logic* only, never the parse: `SpellShell::buff`
 `decode_spawn`).
 
 **New-opcode decode, fixed vs. variable layout:**
-- A FIXED-layout struct → add it to
-  `../scry-decoder-rs/tools/gen_eqstructs.py`'s ALLOWLIST, run
-  `gen_eqstructs.py all` (regenerates BOTH live + test bindings —
-  `seq-decode` compiles for both, so regenerating one alone breaks the
-  other's build), decode via the `crate::eqstructs::<Struct>` binding in
-  seq-decode. Keep the real struct name in the TOML payload + `wire()`, not
-  `uint8_t`.
+- For a fixed-layout struct, add it to
+  `scry-decoder-rs/tools/gen_eqstructs.py`'s ALLOWLIST. Run the generator for
+  both headers:
+  `python3 scry-decoder-rs/tools/gen_eqstructs.py live src/backend/live/everquest.h`
+  and
+  `python3 scry-decoder-rs/tools/gen_eqstructs.py test src/backend/test/everquest.h`.
+  `seq-decode` compiles for Live and Test, so regenerate both binding files.
+  Decode through the `crate::eqstructs::<Struct>` binding in seq-decode. Keep
+  the real struct name in the TOML payload and `wire()`, not `uint8_t`.
 - A VARIABLE-layout opcode (LPText / flexible array) → `uint8_t`/`none`
   payload + a hand-rolled `Cursor` walk in `seq-decode` (see
   `seq-decode/src/guild_roster.rs`).
@@ -310,6 +400,17 @@ fetch <scry-proto-checkout> main && git reset --hard FETCH_HEAD`, then
 (`protoc --elixir_out=lib/proto`) and web (`bun run gen`) — or they
 silently lag (scry surfaces it as a compile-time
 `Seq.V1.<Msg>.__struct__/1 undefined`; web as an unknown-field no-op).
+
+## Loot ownership
+
+`--loot-decoder` selects the immutable per-session loot correlation and
+persistence owner. Legacy and shadow use `MessageShell`'s compatibility
+tracker. Rust mode consumes `CorpseLootSnapshot` and `LootAcquired`, projects
+them through the existing `seq.v1` signals, and writes the existing SQLite
+schema. The two persistence paths are mutually exclusive. Reset, replay-end,
+shutdown, and temporary-session finalization apply the Rust flush batch before
+discarding the session. `docs/event-coverage.toml` records the remaining legacy
+ownership declarations.
 
 ## Provenance
 

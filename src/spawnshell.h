@@ -40,11 +40,11 @@
 #include <cstdint>
 #endif
 #include <cstdio>
-#include <cmath>
+#include <optional>
+#include <vector>
 
 #include <QHash>
 #include <QTimer>
-#include <QTextStream>
 
 #include "everquest.h"
 #include "spawn.h"
@@ -73,6 +73,21 @@ typedef QHash<int, Item*> ItemMap;
 typedef QHashIterator<int, Item*> ItemIterator;
 typedef QHashIterator<int, Item*> ItemConstIterator;
 
+struct EntityDoorState {
+   uint32_t id = 0;
+   QString name;
+   float x = 0;
+   float y = 0;
+   float z = 0;
+   float heading = 0;
+   uint32_t incline = 0;
+   uint32_t size = 0;
+   uint8_t openType = 0;
+   uint8_t state = 0;
+   uint8_t invertState = 0;
+   std::optional<uint32_t> zonePointId;
+};
+
 //----------------------------------------------------------------------
 // SpawnShell
 class SpawnShell : public QObject
@@ -87,18 +102,12 @@ public:
    ~SpawnShell();
 
    const Item* findID(spawnItemType type, int idSpawn);
-   
-   const Item* findClosestItem(spawnItemType type, 
-			       int16_t x,
-			       int16_t y, 
-			       double& minDistance);
    Spawn* findSpawnByName(const QString& name);
    // Like findSpawnByName but compares against Spawn::transformedName()
    // (the display form, e.g. "Foo") instead of the raw m_name (which
    // can carry the server's "Foo00"-style suffix). Player spawns only.
    Spawn* findPlayerByDisplayName(const QString& name);
 
-   void dumpSpawns(spawnItemType type, QTextStream& out);
    FilterMgr* filterMgr(void) { return &m_filterMgr; }
    const ItemMap& getConstMap(spawnItemType type) const;
    const ItemMap& spawns(void) const;
@@ -116,8 +125,43 @@ public:
                     uint16_t guildID, uint16_t guildServerID, uint8_t npc,
                     uint32_t classMask = 0);
    void moveSpawn(uint16_t id, int16_t x, int16_t y, int16_t z);
+   void applyEntitySpawn(uint32_t id, const QString& name,
+                         const QString& lastName, uint32_t race,
+                         uint32_t classVal, uint32_t deity, uint8_t level,
+                         uint8_t npc, uint32_t curHp,
+                         std::optional<uint32_t> maxHp, uint32_t guildID,
+                         uint32_t guildServerID, uint32_t classMask,
+                         std::optional<int32_t> x,
+                         std::optional<int32_t> y,
+                         std::optional<int32_t> z,
+                         std::optional<uint16_t> headingDegrees,
+                         std::optional<int32_t> velocityX,
+                         std::optional<int32_t> velocityY,
+                         std::optional<int32_t> velocityZ,
+                         std::optional<int16_t> deltaHeading,
+                         std::optional<int16_t> animation,
+                         const std::optional<std::vector<uint32_t>>& equipmentModels);
+   void applyEntityMove(uint32_t id, int32_t x, int32_t y, int32_t z,
+                        uint16_t headingDegrees,
+                        std::optional<int32_t> velocityX,
+                        std::optional<int32_t> velocityY,
+                        std::optional<int32_t> velocityZ,
+                        std::optional<int16_t> deltaHeading,
+                        std::optional<int16_t> animation);
+   void applyEntityRemove(uint32_t id);
+   void applyEntityRename(std::optional<uint32_t> id,
+                          const QString& oldName, const QString& newName);
+   void applyEntityDoors(const std::vector<EntityDoorState>& doors);
+   void applyEntityGroundItem(uint32_t id, const QString& actorDefinition,
+                              float x, float y, float z,
+                              std::optional<float> heading);
+   void applyEntityGroundItemRemoved(uint32_t id);
+   void applyEntityCorpseLocation(uint32_t id, float x, float y, float z);
    void updateSpawnHP(uint16_t id, int32_t curHp, int32_t maxHp);
-   void updateSpawnIdentity(uint16_t id, uint8_t level, uint8_t classVal);
+   void updateSpawnIdentity(uint16_t id, uint8_t level, uint8_t classVal,
+                            std::optional<uint16_t> race = std::nullopt);
+   void applySpawnDeath(uint32_t id, std::optional<uint32_t> killerId);
+   void applyPlayerDeath(std::optional<uint32_t> killerId);
    // Stand/sit/duck pose only, for backends that broadcast it independently of
    // a position update (the stock position path sets animation alongside coords).
    void updateSpawnAnimation(uint16_t id, uint8_t animation);
@@ -148,7 +192,6 @@ public slots:
    void removeGroundItem(const uint8_t*, size_t, uint8_t);
    void newDoorSpawns(const uint8_t*, size_t, uint8_t);
    void newDoorSpawn(const doorStruct&, size_t, uint8_t);
-   void zoneSpawns(const uint8_t* zspawns, size_t len);
    void zoneEntry(const uint8_t* spawn, size_t len);
    void newSpawn(const uint8_t* spawn);
    void newSpawn(const spawnStruct& s);
@@ -169,13 +212,11 @@ public slots:
    void shroudSpawn(const uint8_t* spawnupdate, size_t, uint8_t);
    void updateNpcHP(const uint8_t* hpupdate);
    void updateMobHealth(const uint8_t* mobhp);
-   void spawnWearingUpdate(const uint8_t* wearing);
    void consMessage(const uint8_t* con, size_t, uint8_t);
    void clientTarget(const uint8_t* cts);
    void removeSpawn(const uint8_t* rmSpawn, size_t len, uint8_t dir);
    void deleteSpawn(const uint8_t* delSpawn);
    void killSpawn(const uint8_t* deadspawn);
-   void respawnFromHover(const uint8_t* respawn, size_t len, uint8_t dir);
    void corpseLoc(const uint8_t* corpseLoc);
 
    void playerChangedID(uint16_t oldPlayerID, uint16_t newPlayerID);
