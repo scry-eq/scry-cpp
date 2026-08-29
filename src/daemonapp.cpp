@@ -847,7 +847,7 @@ void DaemonApp::applyRustLifecycle(const Box* box,
                                   uint16_t(payload.int_), uint16_t(payload.agi),
                                   uint16_t(payload.wis),
                                   m_packet->legacyProgressionEnabledForCurrentPacket());
-            // Phase 6 takes identity publication from the profile. Until then,
+            // The player decoder takes identity publication from the profile. Until then,
             // lifecycle keeps the old boundary for legacy and shadow sessions.
             if (m_packet->legacyPlayersEnabledForCurrentPacket())
                 player->applyLifecycleIdentity(
@@ -1000,7 +1000,7 @@ void DaemonApp::applyRustProgression(const Box* box,
         }, event);
     }
 
-    // Phase 7 owns one Player.dat write per decoded batch. Individual typed
+    // Progression decoding owns one Player.dat write per decoded batch. Individual typed
     // primitives above never write, which avoids partial profile snapshots.
     if (playerMutated && player && showeq_params->savePlayerState)
         player->savePlayerState();

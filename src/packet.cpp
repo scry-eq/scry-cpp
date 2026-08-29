@@ -1445,7 +1445,7 @@ bool EQPacket::legacyPlayerAppearanceEnabledForCurrentPacket() const
 {
   if (legacyPlayersEnabledForCurrentPacket()) return true;
   // These opcodes also target non-player spawns. A decoded non-player event
-  // stays outside Phase 6 and keeps its legacy owner; malformed or unhandled
+  // stays outside player decoding and keeps its legacy owner; malformed or unhandled
   // Rust-owned packets remain fail-closed.
   return m_currentRustPacketDecoded &&
          !rustPlayerAcceptedForCurrentPacket(

@@ -2,7 +2,7 @@ schema_version = 1
 host = "cpp"
 event_manifest = "seq-events/event-coverage.json"
 
-# Current non-strict audit; capture proof and Phase 11 deletion remain pending.
+# Current non-strict audit. Capture proof and legacy-path removal remain pending.
 # Valid values: rust, legacy, not_applicable, missing.
 
 [[events]]

@@ -142,7 +142,7 @@ public:
         // only the typed Rust lifecycle path mutate state.
         QString      lifecycleDecoder = QStringLiteral("shadow");
         // Immutable entity-family owner. Legacy remains the default until
-        // capture-derived Phase 5 soak fixtures are available for both hosts.
+        // capture-derived entity soak fixtures are available for both hosts.
         QString      entityDecoder = QStringLiteral("legacy");
         QString      playerDecoder = QStringLiteral("legacy");
         QString      progressionDecoder = QStringLiteral("legacy");

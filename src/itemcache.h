@@ -51,7 +51,7 @@ public:
     // items. Marks the cache dirty.
     void insert(const ItemTemplate& tpl);
 
-    // Phase 7 semantic application. A full inventory snapshot replaces the
+    // Semantic progression application. A full inventory snapshot replaces the
     // current instance view. Live has no snapshot packet, so its cache loaded
     // from disk remains the seed and incremental updates merge into it.
     void replaceInventory(const QList<ItemTemplate>& items);

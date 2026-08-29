@@ -407,8 +407,10 @@ silently lag (scry surfaces it as a compile-time
 persistence owner. Legacy and shadow use `MessageShell`'s compatibility
 tracker. Rust mode consumes `CorpseLootSnapshot` and `LootAcquired`, projects
 them through the existing `seq.v1` signals, and writes the existing SQLite
-schema. The two persistence paths are mutually exclusive. See
-`docs/ELIXIR_NATIVE_PHASE8.md` for flush behavior and the current capture gaps.
+schema. The two persistence paths are mutually exclusive. Reset, replay-end,
+shutdown, and temporary-session finalization apply the Rust flush batch before
+discarding the session. `docs/event-coverage.toml` records the remaining legacy
+ownership declarations.
 
 ## Provenance
 
