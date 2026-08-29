@@ -102,12 +102,8 @@ void GroupMgr::player(const charProfileStruct* player)
 
 void GroupMgr::groupUpdate(const uint8_t* /*data*/, size_t /*size*/)
 {
-  // OP_GroupUpdate on this wire is a fixed-168B per-recipient status push
-  // (name@64, no member roster — count field is 0), NOT the variable full
-  // roster the legends groupRosterEQL format carries. Member identity rides
-  // OP_GroupFollow (addGroupMember) and departures OP_GroupDisband/2
-  // (removeGroupMember), so this noops. The ordered Rust session likewise
-  // ignores this fixed-status form and derives its roster from those deltas.
+  // Fixed-168B status push with no roster (count is 0); membership rides
+  // OP_GroupFollow/OP_GroupDisband, so both hosts ignore this form.
 }
 
 void GroupMgr::applyRoster(const std::vector<GroupRosterEntry>& members,

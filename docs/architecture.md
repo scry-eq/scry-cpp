@@ -102,7 +102,7 @@ point a build at another checkout with
 `-DSEQ_DECODER_RS_DIR=/absolute/path/to/scry-decoder-rs`. CI and release builds
 do not use that override.
 
-Phase-2 shadow decoding lives in `rustsession.*`. `EQPacket` owns one protocol
+Shadow decoding lives in `rustsession.*`. `EQPacket` owns one protocol
 registry built from the decoder's embedded catalogs. It creates one stateful
 Rust session for each `Box`. Captures that begin mid-zone retain a bounded raw
 application-packet history and a trace-free preview session per normalized UDP
@@ -116,7 +116,7 @@ trace recording instead of merging a suffix.
 decoded-packet observers or legacy handlers. The hook sends the stream, numeric
 opcode, direction, payload, and capture timestamp to Rust. The adapter switches
 only on `SessionEventKind` and moves the indexed typed payload into an exhaustive
-63-alternative `std::variant`. It does no opcode lookup, backend selection, or
+98-alternative `std::variant`. It does no opcode lookup, backend selection, or
 correlation. Capture timestamps and attribution follow cached, nested, and
 fragmented protocol packets instead of being sampled when a cache drains. Each
 session keeps at most 256 ordered packet and flush records under a 4 MiB source
@@ -149,16 +149,16 @@ session back to legacy ownership.
 
 `--entity-decoder legacy|shadow|rust` and
 `--player-decoder legacy|shadow|rust` add independent immutable session
-selectors for the Phase-5 entity/spatial and Phase-6 player families. Both
+selectors for the entity/spatial and player families. Both
 default to `legacy`. Shadow mode compares ordered manager observations and
 serialized `seq.v1` projections; Rust mode applies typed events through neutral
-host-state methods and gates matching legacy writes. The corrected Phase-5
+host-state methods and gates matching legacy writes. The entity
 contract preserves optional initial position, per-axis velocity presence,
 delta heading, animation, and all nine equipment models. Player ownership
-covers tags 55 through 62, while EQL profile fields assigned to later phases
+covers tags 55 through 62, while EQL profile fields owned by other families
 remain in its compatibility tail.
 
-`--progression-decoder legacy|shadow|rust` adds the independent Phase-7
+`--progression-decoder legacy|shadow|rust` adds the independent
 selector for tags 63 through 73. It owns inventory, equipment, money, skills,
 experience, levels, and alternate advancement. The default remains `legacy`
 until capture parity and soak evidence exist for both backends.
