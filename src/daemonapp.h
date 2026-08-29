@@ -137,10 +137,8 @@ public:
         // order, or "first" (= index 1). Overrides --dump-all-sessions.
         // Recon-only: does not affect proto output or goldens.
         QString      onlySession;
-        // Immutable template copied into every Rust Session. "legacy" keeps
-        // host lifecycle handlers, "shadow" compares them, and "rust" lets
-        // only the typed Rust lifecycle path mutate state.
-        QString      lifecycleDecoder = QStringLiteral("shadow");
+        // Immutable per-session family owner: legacy | shadow | rust.
+        QString      lifecycleDecoder = QStringLiteral("legacy");
         // Immutable entity-family owner. Legacy remains the default until
         // capture-derived entity soak fixtures are available for both hosts.
         QString      entityDecoder = QStringLiteral("legacy");

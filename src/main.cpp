@@ -220,8 +220,8 @@ int main(int argc, char** argv)
         "disables eviction.", "seconds");
     QCommandLineOption lifecycleDecoderOpt(QStringList{"lifecycle-decoder"},
         "Immutable lifecycle owner for each session: legacy, shadow, or rust. "
-        "The default is shadow. Changing it requires a session restart.",
-        "mode", "shadow");
+        "The default is legacy. Changing it requires a session restart.",
+        "mode", "legacy");
     QCommandLineOption entityDecoderOpt(QStringList{"entity-decoder"},
         "Immutable entity and spatial owner for each session: legacy, shadow, "
         "or rust. The default remains legacy until capture soak completes. "

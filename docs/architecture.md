@@ -132,7 +132,7 @@ gets one standalone trace. See `docs/application-packet-traces.md` for handling
 and scrubbing rules.
 
 `--lifecycle-decoder legacy|shadow|rust` supplies the immutable selector copied
-into each new session. The default is `shadow`. Legacy mode runs the existing
+into each new session. The default is `legacy`. Legacy mode runs the existing
 lifecycle handlers. Shadow mode runs them and records their real manager
 signals after dispatch, then compares their ordered lifecycle events and the
 same `seq.v1` envelope constructors used by `SessionAdapter`. Rust mode applies
