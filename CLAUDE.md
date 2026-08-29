@@ -9,7 +9,11 @@ wire-format quirks, and opcode-hunting technique notes.
 ## Stack
 
 - C++20, Qt6 (Core, Network, Xml, WebSockets — headless, no Gui/Widgets),
-  CMake 3.20+, libpcap, protobuf, zlib.
+  CMake 3.20+, libpcap, protobuf, zlib. Locked decisions: Qt WebSockets
+  (shares the QCoreApplication loop), plaintext LAN WebSocket with no
+  auth/TLS. `SessionAdapter`'s snapshot/tail ordering (connect → buffer →
+  iterate → drain → flip live) is the subtlest piece; its header comment
+  is load-bearing.
 - Rust decoder: the pinned `scry-decoder-rs/` submodule, linked via Corrosion
   as a **hard build dependency**. There is no `SEQ_USE_RUST` toggle or C++
   fallback decoder.
@@ -46,12 +50,30 @@ wire-format quirks, and opcode-hunting technique notes.
   `SEQ_BUILD_DIR=<dir>`)
 - Validate opcode tables: `tools/bindcheck.py` (wired into CI + the hook)
 - Inspect a golden: `scripts/decode_pbstream.py <golden.pbstream>` (`--kind`,
-  `--grep`, `--buffs`, `--spawns`, `--limit` — see the script's `--help`)
+  `--grep`, `--buffs`, `--spawns`, `--limit` — see the script's `--help`).
+  Never a per-envelope `protoc --decode` loop — it times out on real
+  goldens. `rm -rf scripts/.pbgen` after a schema change.
 - Regenerate Rust struct bindings after an `everquest.h` change by running the
   pinned submodule's generator once for each Live and Test header:
   `python3 scry-decoder-rs/tools/gen_eqstructs.py live src/backend/live/everquest.h`
   and
   `python3 scry-decoder-rs/tools/gen_eqstructs.py test src/backend/test/everquest.h`.
+- **Every local `scryd` run needs `--config-dir conf`** — without it the
+  binary looks in PKGDATADIR, loads ZERO opcodes, and a `--replay` or
+  `--record-golden` run silently produces nothing.
+- `--opcode-stats`, `--record-vpk`, `--record-golden`, `--dump-payload`
+  take a mandatory FILE; omitting it makes `QCommandLineParser` eat the
+  next flag silently. Pair recon/replay runs with `--no-listen`.
+- A rebuild is not finished until `cmake --build build --target setcap`
+  has run (relinking clears the caps); verify with `getcap build/scryd`.
+  Do it yourself — it's passwordless.
+- Re-record a non-live golden with the NAMESPACED guild cache cleared
+  (`rm -f ~/.scry/<target>/tmp/guilds2.dat`) and the flags `check.sh`
+  uses (`--map-package brewall`, a free `--listen` port) — a warm cache
+  shifts guild-tag timing and the golden fails *deterministically*, which
+  reads like a real regression. Three pet-heavy eql fixtures compare via
+  `scripts/semantic_diff.py` instead of byte-cmp; a newly flapping fixture
+  is a candidate for that path before assuming a regression.
 
 ## Conventions
 
@@ -108,6 +130,28 @@ wire-format quirks, and opcode-hunting technique notes.
   `SpawnShell::playerUpdate` when `pupdate->spawnId == m_player->id()` — if
   wiring changes ever reintroduce a dual-fire on any opcode, watch for 0ms
   dt bursts in a client's position log.
+- **Gate a handler on `wireGlobalSinks` only if it emits proto output.**
+  It's true for the primary box only, and every zone-in opens a fresh
+  box — the guild opcodes were once gated there and silently learned
+  guilds from the first zone only.
+- **`wire_eql.cpp` was seeded from `wire_live.cpp`** and still carries
+  dormant Live-shaped bindings for ids that are `ffff` on eql. Before
+  mapping any eql id: grep `wire_eql.cpp` for the name and compare the
+  binding's `sizeof()` to the real packet — a size match risks a silent
+  wrong-shaped decode. Gate size has three sources (C++ `sizeof`, the
+  TOML, Rust `size_overrides()`).
+- **Don't add sanity caps in `EQPacketFragmentSequence::addFragment`.**
+  Dropping an "oversized" first fragment desyncs the sequence so the next
+  continuation is read as a new first fragment and the cascade loses
+  legitimate packets (49 named spawns → 10). `seqFatal` is the correct
+  default; handle garbage streams at a higher layer.
+- **`OP_Illusion` has never fired in any capture** and is wired
+  `SZC_Match` — suspect a size gate before believing the wire lacks it.
+- **Pre-push hook from a git worktree** fails the proto-sync check
+  (`Not a valid commit name`): git exports an absolute `GIT_DIR`, so the
+  hook's `git -C proto` runs against the superproject's object store. Fix
+  by wrapping submodule calls in `env -u GIT_DIR -u GIT_WORK_TREE`; until
+  then verify by hand and push `--no-verify`.
 - **Bump `magicStr`** (e.g. `plr2`→`plr3`) whenever you change the width or
   layout of any field `savePlayerState`/`restorePlayerState` serializes —
   an older `Player.dat` would deserialize the wrong byte count and corrupt
