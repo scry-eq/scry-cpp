@@ -1092,6 +1092,7 @@ bool EQPacket::decodeShadowApplication(
   m_currentRustCommunicationKinds.clear();
   m_pendingRustLoot.reset();
   m_currentRustPacketDecoded = false;
+  m_currentShadowOpcode = opcode;
   try {
     const seq::shadow::Record& record = session->decode(
         world ? seq::shadow::Stream::World : seq::shadow::Stream::Zone,
@@ -1622,6 +1623,21 @@ void EQPacket::applyValidatedZoneServerInfo(Box* box, uint16_t port)
   box->zone_await_ms = nowMs();
 }
 
+// One warning per (family, opcode) per daemon run; shadow runs are chatty.
+void EQPacket::warnShadowMismatch(const char* family, size_t rustEvents,
+                                  size_t legacyEvents, size_t rustProjections,
+                                  size_t legacyProjections)
+{
+  const std::string key =
+      std::string(family) + ':' + std::to_string(m_currentShadowOpcode);
+  if (!m_shadowMismatchWarned.insert(key).second) return;
+  seqWarn("Rust %s shadow mismatch on opcode %04x: events rust=%zu legacy=%zu, "
+          "seq.v1 rust=%zu legacy=%zu (further mismatches for this opcode "
+          "suppressed)",
+          family, m_currentShadowOpcode, rustEvents, legacyEvents,
+          rustProjections, legacyProjections);
+}
+
 void EQPacket::completeShadowApplication(bool legacyDispatched)
 {
   const auto rustLoot = m_pendingRustLoot;
@@ -1652,11 +1668,10 @@ void EQPacket::completeShadowApplication(bool legacyDispatched)
       if (pending.session)
         pending.session->recordLifecycleComparison(comparison);
       if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
-        seqWarn("Rust lifecycle shadow mismatch: events rust=%zu legacy=%zu, "
-                "seq.v1 rust=%zu legacy=%zu",
-                comparison.rustEventCount, comparison.legacyEventCount,
-                comparison.rustProjectionCount,
-                comparison.legacyProjectionCount);
+        warnShadowMismatch("lifecycle", comparison.rustEventCount,
+                           comparison.legacyEventCount,
+                           comparison.rustProjectionCount,
+                           comparison.legacyProjectionCount);
       }
     }
   }
@@ -1687,11 +1702,10 @@ void EQPacket::completeShadowApplication(bool legacyDispatched)
       if (pending.session)
         pending.session->recordEntityComparison(comparison);
       if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
-        seqWarn("Rust entity shadow mismatch: events rust=%zu legacy=%zu, "
-                "seq.v1 rust=%zu legacy=%zu",
-                comparison.rustEventCount, comparison.legacyEventCount,
-                comparison.rustProjectionCount,
-                comparison.legacyProjectionCount);
+        warnShadowMismatch("entity", comparison.rustEventCount,
+                           comparison.legacyEventCount,
+                           comparison.rustProjectionCount,
+                           comparison.legacyProjectionCount);
       }
     }
   }
@@ -1722,11 +1736,10 @@ void EQPacket::completeShadowApplication(bool legacyDispatched)
       if (pending.session)
         pending.session->recordPlayerComparison(comparison);
       if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
-        seqWarn("Rust player shadow mismatch: events rust=%zu legacy=%zu, "
-                "seq.v1 rust=%zu legacy=%zu",
-                comparison.rustEventCount, comparison.legacyEventCount,
-                comparison.rustProjectionCount,
-                comparison.legacyProjectionCount);
+        warnShadowMismatch("player", comparison.rustEventCount,
+                           comparison.legacyEventCount,
+                           comparison.rustProjectionCount,
+                           comparison.legacyProjectionCount);
       }
     }
   }
@@ -1760,11 +1773,10 @@ void EQPacket::completeShadowApplication(bool legacyDispatched)
       if (pending.session)
         pending.session->recordProgressionComparison(comparison);
       if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
-        seqWarn("Rust progression shadow mismatch: events rust=%zu legacy=%zu, "
-                "seq.v1 rust=%zu legacy=%zu",
-                comparison.rustEventCount, comparison.legacyEventCount,
-                comparison.rustProjectionCount,
-                comparison.legacyProjectionCount);
+        warnShadowMismatch("progression", comparison.rustEventCount,
+                           comparison.legacyEventCount,
+                           comparison.rustProjectionCount,
+                           comparison.legacyProjectionCount);
       }
     }
   }
@@ -1797,11 +1809,10 @@ void EQPacket::completeShadowApplication(bool legacyDispatched)
       if (pending.session)
         pending.session->recordLootComparison(comparison);
       if (!comparison.orderedEventsEqual || !comparison.projectionsEqual) {
-        seqWarn("Rust loot shadow mismatch: events rust=%zu legacy=%zu, "
-                "seq.v1 rust=%zu legacy=%zu",
-                comparison.rustEventCount, comparison.legacyEventCount,
-                comparison.rustProjectionCount,
-                comparison.legacyProjectionCount);
+        warnShadowMismatch("loot", comparison.rustEventCount,
+                           comparison.legacyEventCount,
+                           comparison.rustProjectionCount,
+                           comparison.legacyProjectionCount);
       }
     }
   }
@@ -1833,10 +1844,10 @@ void EQPacket::completeShadowApplication(bool legacyDispatched)
       if (pending.session)
         pending.session->recordCombatComparison(actual);
       if (!actual.orderedEventsEqual || !actual.projectionsEqual) {
-        seqWarn("Rust combat shadow mismatch: events rust=%zu legacy=%zu, "
-                "seq.v1 rust=%zu legacy=%zu",
-                actual.rustEventCount, actual.legacyEventCount,
-                actual.rustProjectionCount, actual.legacyProjectionCount);
+        warnShadowMismatch("combat", actual.rustEventCount,
+                           actual.legacyEventCount,
+                           actual.rustProjectionCount,
+                           actual.legacyProjectionCount);
       }
     }
   }
@@ -1869,10 +1880,10 @@ void EQPacket::completeShadowApplication(bool legacyDispatched)
       if (pending.session)
         pending.session->recordCommunicationComparison(actual);
       if (!actual.orderedEventsEqual || !actual.projectionsEqual) {
-        seqWarn("Rust communication shadow mismatch: events rust=%zu "
-                "legacy=%zu, seq.v1 rust=%zu legacy=%zu",
-                actual.rustEventCount, actual.legacyEventCount,
-                actual.rustProjectionCount, actual.legacyProjectionCount);
+        warnShadowMismatch("communication", actual.rustEventCount,
+                           actual.legacyEventCount,
+                           actual.rustProjectionCount,
+                           actual.legacyProjectionCount);
       }
     }
   }
@@ -2413,6 +2424,7 @@ void EQPacket::decodeUcsShadow(Box* box, const uint8_t* payload,
 
   seq::shadow::Session* session = found->second.get();
   m_currentLifecycleSession = session;
+  m_currentShadowOpcode = 0;
   m_currentRustCommunicationKinds.clear();
   try {
     const auto& record = session->decodeUcs(

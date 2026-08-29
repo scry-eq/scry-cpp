@@ -31,6 +31,7 @@
 #include <memory>
 #include <map>
 #include <unordered_map>
+#include <string>
 #include <unordered_set>
 #include <vector>
 #include "boxregistry.h"
@@ -414,6 +415,11 @@ class EQPacket : public QObject
    std::vector<seq::shadow::CommunicationKind>
        m_currentRustCommunicationKinds;
    bool m_currentRustPacketDecoded = false;
+   uint16_t m_currentShadowOpcode = 0;
+   std::unordered_set<std::string> m_shadowMismatchWarned;
+   void warnShadowMismatch(const char* family, size_t rustEvents,
+                           size_t legacyEvents, size_t rustProjections,
+                           size_t legacyProjections);
    LifecycleEventHandler m_lifecycleEventHandler;
    EntityEventHandler m_entityEventHandler;
    PlayerEventHandler m_playerEventHandler;
