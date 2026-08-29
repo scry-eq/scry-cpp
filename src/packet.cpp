@@ -321,7 +321,6 @@ EQPacket::EQPacket(const QString& opcodesToml,
               m_ip.toLatin1().data(),
               m_realtime, IP_ADDRESS_TYPE );
     }
-    emit filterChanged();
   }
   else if (m_playbackPackets == PLAYBACK_FORMAT_TCPDUMP)
   {
@@ -737,29 +736,7 @@ void EQPacket::connectStream(EQPacketStream* stream)
     }
   }
 
-  // Debugging
-  connect(stream,
-      SIGNAL(cacheSize(int, int)),
-      this,
-      SIGNAL(cacheSize(int, int)));
-  connect(stream,
-      SIGNAL(seqReceive(int, int)),
-      this,
-      SIGNAL(seqReceive(int, int)));
-  connect(stream,
-      SIGNAL(seqExpect(int, int)),
-      this,
-      SIGNAL(seqExpect(int, int)));
-  connect(stream,
-      SIGNAL(numPacket(int, int)),
-      this,
-      SIGNAL(numPacket(int, int)));
-
   // Session handling
-  connect(stream,
-      SIGNAL(sessionTrackingChanged(uint8_t)),
-      this,
-      SIGNAL(sessionTrackingChanged(uint8_t)));
   connect(stream,
       SIGNAL(lockOnClient(in_port_t, in_port_t, in_addr_t)),
       this,
@@ -772,10 +749,6 @@ void EQPacket::connectStream(EQPacketStream* stream)
       SIGNAL(sessionKey(uint32_t, EQStreamID, uint32_t)),
       this,
       SLOT(dispatchSessionKey(uint32_t, EQStreamID, uint32_t)));
-  connect(stream,
-      SIGNAL(maxLength(int, int)),
-      this,
-      SIGNAL(maxLength(int, int)));
 }
 
 ////////////////////////////////////////////////////
@@ -831,7 +804,6 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
     m_ip = packet.getIPv4DestA();
     m_client_addr = packet.getIPv4DestN();
     m_detectingClient = false;
-    emit clientChanged(m_client_addr);
     seqInfo("Client Detected: %s", m_ip.toLatin1().data());
   }
   else if (m_detectingClient && dstIsWorld)
@@ -839,7 +811,6 @@ void EQPacket::dispatchPacket(EQUDPIPPacketFormat& packet)
     m_ip = packet.getIPv4SourceA();
     m_client_addr = packet.getIPv4SourceN();
     m_detectingClient = false;
-    emit clientChanged(m_client_addr);
     seqInfo("Client Detected: %s", m_ip.toLatin1().data());
   }
 
@@ -1126,7 +1097,6 @@ void EQPacket::closeStream(uint32_t sessionId, EQStreamID streamId)
   {
     m_packetCapture->setFilter(m_device.toLatin1().data(), m_ip.toLatin1().data(),
             m_realtime, IP_ADDRESS_TYPE, 0, 0);
-    emit filterChanged();
   }
 
   // Pass the close onto the streams
@@ -1150,7 +1120,6 @@ void EQPacket::unlatchClientPort()
 {
     m_clientPort = 0;
     m_serverPort = 0;
-    emit clientPortLatched(m_clientPort);
 }
 
 
@@ -1176,7 +1145,6 @@ void EQPacket::lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_
               m_realtime,
               MAC_ADDRESS_TYPE, 0,
               m_clientPort);
-      emit filterChanged();
     }
     else
     {
@@ -1185,7 +1153,6 @@ void EQPacket::lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_
               m_realtime,
               IP_ADDRESS_TYPE, 0,
               m_clientPort);
-      emit filterChanged();
     }
   }
 
@@ -1201,7 +1168,6 @@ void EQPacket::lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_
       inet_ntoa(ia), m_clientPort, m_serverPort);
   }
 
-  emit clientPortLatched(m_clientPort);
 }
 
 void EQPacket::dispatchSessionKey(uint32_t sessionId, EQStreamID streamid,
@@ -1237,126 +1203,6 @@ void EQPacket::dispatchWorldChatData (size_t len, uint8_t *data,
 }
 
 ///////////////////////////////////////////
-// Returns the current playback speed
-int EQPacket::playbackSpeed(void)
-{
-  if (m_vPacket)
-    return m_vPacket->playbackSpeed();
-  else
-    return m_packetCapture->getPlaybackSpeed();
-}
-
-///////////////////////////////////////////
-// Set the packet playback speed
-void EQPacket::setPlayback(int speed)
-{
-  if (m_vPacket)
-  {
-    m_vPacket->setPlaybackSpeed(speed);
-  }
-  else
-  {
-    m_packetCapture->setPlaybackSpeed(speed);
-  }
-    
-  QString string("");
-    
-  if (speed == 0)
-    string = QString::asprintf("Playback speed set Fast as possible");
-  else if (speed < 0)
-     string = QString::asprintf("Playback paused (']' to resume)");
-  else
-     string = QString::asprintf("Playback speed set to %d", speed);
-
-  emit stsMessage(string, 5000);
-
-  emit resetPacket(m_client2WorldStream->packetCount(), client2world);
-  emit resetPacket(m_world2ClientStream->packetCount(), world2client);
-  emit resetPacket(m_client2ZoneStream->packetCount(), client2zone);
-  emit resetPacket(m_zone2ClientStream->packetCount(), zone2client);
-
-  emit playbackSpeedChanged(speed);
-}
-
-///////////////////////////////////////////
-// Increment the packet playback speed
-void EQPacket::incPlayback(void)
-{
-  int x;
-
-  if (m_vPacket)
-  {
-    x = m_vPacket->playbackSpeed();
-  }
-  else
-  {
-    x = m_packetCapture->getPlaybackSpeed();
-  }
-    
-  switch(x)
-  {
-	// if we were paused go to 1X not full speed
-    case -1:
-      x = 1;
-      break;
-	
-    // can't go faster than full speed
-    case 0:
-      return;
-	
-    case 9:
-      x = 0;
-      break;
-	
-    default:
-      x += 1;
-      break;
-  }
-    
-  setPlayback(x);
-}
-
-///////////////////////////////////////////
-// Decrement the packet playback speed
-void EQPacket::decPlayback(void)
-{
-  int x;
-
-  if (m_vPacket)
-  {
-    x = m_vPacket->playbackSpeed();
-  }
-  else
-  {
-    x = m_packetCapture->getPlaybackSpeed();
-  }
-
-  switch(x)
-  {
-    // paused
-    case -1:
-      return;
-	  break;
-
-    // slower than 1 is paused
-    case 1:
-      x = -1;
-      break;
-	
-    // if we were full speed goto 9
-    case 0:
-      x = 9;
-      break;
-	
-    default:
-      x -= 1;
-      break;
-  }
-    
-  setPlayback(x);
-}
-
-///////////////////////////////////////////
 // Set the IP address of the client to monitor
 void EQPacket::monitorIPClient(const QString& ip)
 {
@@ -1364,7 +1210,6 @@ void EQPacket::monitorIPClient(const QString& ip)
 
   validateIP();
 
-  emit clientChanged(m_client_addr);
 
   resetEQPacket();
 
@@ -1375,40 +1220,6 @@ void EQPacket::monitorIPClient(const QString& ip)
             m_ip.toLatin1().data(),
             m_realtime,
             IP_ADDRESS_TYPE, 0, 0);
-    emit filterChanged();
-  }
-}
-
-///////////////////////////////////////////
-// Set the MAC address of the client to monitor
-void EQPacket::monitorMACClient(const QString& mac)
-{
-  m_mac = mac;
-  struct in_addr  ia;
-  inet_aton (AUTOMATIC_CLIENT_IP, &ia);
-  m_detectingClient = true;
-  m_client_addr = ia.s_addr;
-  emit clientChanged(m_client_addr);
-
-  resetEQPacket();
-
-  if (!m_mac.isEmpty() && m_mac.length() == 17)
-  {
-    seqInfo("Listening for MAC client: %s", m_mac.toLatin1().data());
-
-    if (m_playbackPackets == PLAYBACK_OFF)
-    {
-        m_packetCapture->setFilter(m_device.toLatin1().data(),
-                m_mac.toLatin1().data(),
-                m_realtime,
-                MAC_ADDRESS_TYPE, 0, 0);
-        emit filterChanged();
-    }
-  }
-  else
-  {
-      seqWarn("Invalid MAC specified.  Defaulting to auto-detect of next client.");
-      monitorNextClient();
   }
 }
 
@@ -1421,7 +1232,6 @@ void EQPacket::monitorNextClient()
   struct in_addr  ia;
   inet_aton (m_ip.toLatin1().data(), &ia);
   m_client_addr = ia.s_addr;
-  emit clientChanged(m_client_addr);
 
   resetEQPacket();
 
@@ -1432,7 +1242,6 @@ void EQPacket::monitorNextClient()
     m_packetCapture->setFilter(m_device.toLatin1().data(), NULL,
             m_realtime,
             DEFAULT_ADDRESS_TYPE, 0, 0);
-    emit filterChanged();
   }
 }
 
@@ -1475,7 +1284,6 @@ void EQPacket::monitorDevice(const QString& dev)
             m_realtime, IP_ADDRESS_TYPE );
   }
 
-  emit filterChanged();
 }
 
 ///////////////////////////////////////////
@@ -1487,33 +1295,7 @@ void EQPacket::session_tracking(bool enable)
   m_world2ClientStream->setSessionTracking(m_session_tracking);
   m_client2ZoneStream->setSessionTracking(m_session_tracking);
   m_zone2ClientStream->setSessionTracking(m_session_tracking);
-  emit sessionTrackingChanged(m_session_tracking);
 
-}
-
-///////////////////////////////////////////
-// Set the current ArqSeqGiveUp
-void EQPacket::setArqSeqGiveUp(uint16_t giveUp)
-{
-  // a sanity check, if the user set it to below 32, they're prolly nuts
-  if (giveUp >= 32)
-    m_arqSeqGiveUp = giveUp;
-
-  // a sanity check, if the user set it to below 32, they're prolly nuts
-  if (m_arqSeqGiveUp >= 32)
-    giveUp = m_arqSeqGiveUp;
-  else
-    giveUp = 32;
-
-  m_client2WorldStream->setArqSeqGiveUp(giveUp);
-  m_world2ClientStream->setArqSeqGiveUp(giveUp);
-  m_client2ZoneStream->setArqSeqGiveUp(giveUp);
-  m_zone2ClientStream->setArqSeqGiveUp(giveUp);
-}
-
-void EQPacket::setRealtime(bool val)
-{
-  m_realtime = val;
 }
 
 ///////////////////////////////////////////
@@ -1530,43 +1312,6 @@ void EQPacket::resetEQPacket()
   m_zone2ClientStream->setSessionTracking(m_session_tracking);
 
   unlatchClientPort();
-}
-
-///////////////////////////////////////////
-// Return the current pcap filter
-const QString EQPacket::pcapFilter()
-{
-  // make sure we aren't playing back packets
-  if (m_playbackPackets != PLAYBACK_OFF)
-    return QString("Playback");
-
-  return m_packetCapture->getFilter();
-}
-
-
-int EQPacket::packetCount(int stream)
-{
-  return m_streams[stream]->packetCount();
-}
-
-uint8_t EQPacket::session_tracking_enabled(void)
-{
-  return m_zone2ClientStream->sessionTracking();
-}
-
-size_t EQPacket::currentCacheSize(int stream)
-{
-  return m_streams[stream]->currentCacheSize();
-}
-
-uint32_t EQPacket::currentMaxLength(int streamId)
-{
-    return m_streams[streamId]->getMaxLength();
-}
-
-uint16_t EQPacket::serverSeqExp(int stream)
-{
-  return m_streams[stream]->arqSeqExp();
 }
 
 // ---------------------------------------------------------------------------

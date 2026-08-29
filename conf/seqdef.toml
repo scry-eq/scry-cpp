@@ -43,12 +43,6 @@ DefaultLastName = ""
 [Misc]
 # Create Unknown Spawns for those spawns with incomplete information
 CreateUnknownSpawns = true
-# set to true to log spawns
-SpawnLogEnabled = false
-# name of file to log spawns into
-SpawnLogFilename = "/usr/local/share/showeq/spawnlog.txt"
-# Enable / disable spell casting messages
-ShowSpellMessages = true
 # enable logging of spawns
 LogSpawns = false
 # enable logging of items
@@ -1004,32 +998,6 @@ MapLineDepthFilteredKey = "Alt+2"
 MapLineFadedFloorsKey = "Alt+3"
 # Key to toggle spawn depth filtering
 SpawnDepthFilteredKey = "Alt+5"
-
-[PacketLogging]
-# Log al packets to global log file
-LogAllPackets = false
-# Log zone packets to zone log file
-LogZonePackets = false
-# Log bazaar packets to bazaar log file
-LogBazaarPackets = false
-# Log unknown packets to unknown zone log file
-LogUnknownZonePackets = false
-# view unknown packets
-ViewUnknown = false
-# log encrypted packets to encrypted log file
-LogEncrypted = false
-# Global log file (enabled with LogAllPackets)
-GlobalLogFilename = "global.log"
-# Zone log file (enabled with LogZonePackets)
-ZoneLogFilename = "zone.log"
-# Zone log file (enabled with LogBazaarPackets)
-BazaarLogFilename = "bazaar.log"
-# Unknown Zone log file (enabled with LogUnknownZonePackets)
-UnknownZoneLogFilename = "unknownzone.log"
-# Encrypted log file (enabled with LogEncrypted)
-EncryptedLogFilenameBase = "encrypted"
-PktLoggerMask = ""
-PktLoggerFilename = "packet.log"
 
 [Interface_StatusBar]
 # Display Experience total

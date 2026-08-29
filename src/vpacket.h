@@ -41,7 +41,6 @@
  * Record(...)                 Record data to the buffer
  * Flush()                     Force a flush of data to the file
  * setPlaybackSpeed()          Set a playback rate (0=not timed, 1=1X, etc)
- * playbackSpeed()             Get the playback rate
  * EndOfData()                 Check for out of data
  *
  *
@@ -83,7 +82,6 @@ class VPacket
    void setPlaybackSpeed(int speed);
    void setFlushPacket(bool inset)       { m_bFlushPacket = inset; }
    void setCompressTime(int ms)         { m_nCompressTime = ms; }
-   int playbackSpeed(void)              { return m_nPlaybackSpeed; }
    int endOfData(void)                  { return m_bEndofFile; }
    long FilePos(void)                   { return m_lBytesIO;   }
    bool isRecording(void)               { return m_bRecord; }

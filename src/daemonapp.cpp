@@ -19,7 +19,6 @@
 #include "dbstrings.h"
 #include "eqstr.h"
 #include "everquest.h"
-#include "spellmessages.h"
 #include "filesink.h"
 #include "filtermgr.h"
 #include "group.h"
@@ -180,20 +179,6 @@ bool DaemonApp::start()
     }
     if (dbstrFile.exists())
         m_dbStrings->load(dbstrFile.absoluteFilePath());
-
-    // spells_us_str.txt — per-spell message text (cast/effect/wear-off lines).
-    // Loaded here so the plumbing is in place, but its consumers in
-    // MessageShell::simpleMessage are gated behind a TODO pending Live wire
-    // verification (the selectors + spell-id field were derived from Test —
-    // see archive/test-client commit b403896). Inert until that is wired.
-    m_spellMessages = new SpellMessages();
-    QFileInfo spellStrFile = m_dataLocationMgr->findExistingFile(".", "spells_us_str.txt");
-    if (!spellStrFile.exists()) {
-        QFileInfo fi(QStringLiteral("/usr/local/share/showeq/spells_us_str.txt"));
-        if (fi.exists()) spellStrFile = fi;
-    }
-    if (spellStrFile.exists())
-        m_spellMessages->load(spellStrFile.absoluteFilePath());
 
     // EQPacket reads `[VPacket] Filename` from pSEQPrefs to decide where
     // to record/playback. Set it before constructing EQPacket so both
@@ -741,9 +726,8 @@ ManagerSet DaemonApp::buildManagerSet()
 
     // MessageShell parses chat / system / NPC text into structured
     // signals. Needs the global MessageFilters + Messages.
-    ms.messageShell = new MessageShell(m_messages, m_eqStrings, m_spells,
-                                       m_spellMessages, m_dbStrings,
-                                       ms.zoneMgr, ms.spawnShell, ms.player,
+    ms.messageShell = new MessageShell(m_messages, m_eqStrings, ms.spawnShell,
+                                       ms.player,
                                        this, "messageShell");
     ms.messageShell->setLootStore(m_lootStore.get());
 

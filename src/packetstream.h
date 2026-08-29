@@ -79,15 +79,10 @@ class EQPacketStream : public QObject
 		 QObject* parent = 0, const char* name = 0);
   ~EQPacketStream();
   void reset();
-  uint8_t sessionTracking();
   void setSessionTracking(uint8_t);
-  uint16_t arqSeqGiveUp();
   void setArqSeqGiveUp(uint16_t);
-  int packetCount(void);
   uint8_t dir();
   EQStreamID streamID();
-  size_t currentCacheSize();
-  uint16_t arqSeqExp();
   // Register a PacketHandler for the opcode+payload+szt (typed dispatch, no Qt
   // SLOT). The handler is appended to the payload's dispatcher and fired in
   // registration order (goldens depend on it).
@@ -99,7 +94,6 @@ class EQPacketStream : public QObject
   void close(uint32_t sessionId, EQStreamID streamid, uint8_t sessionTracking);
   uint16_t calculateCRC(EQProtocolPacket& packet);
   uint32_t getSessionKey() const { return m_sessionKey; }
-  uint32_t getMaxLength() const { return m_maxLength; }
 
   // Multibox active-box gate (Stage 3b of MULTIBOX_PLAN.md). When
   // muted, dispatchPacket() still emits the 5-arg decodedPacket
@@ -143,21 +137,11 @@ class EQPacketStream : public QObject
   // this signals stream closure
   void closing(uint32_t sessionId, EQStreamID streamId);
 
-  // this signals a change in the session tracking state
-  void sessionTrackingChanged(uint8_t);
   void lockOnClient(in_port_t serverPort, in_port_t clientPort, in_addr_t clientAddr);
 
   // Signal a new session key being received
   void sessionKey(uint32_t sessionId, EQStreamID streadid, uint32_t sessionKey);
 		    
-  // used for net_stats display
-  void cacheSize(int, int);
-  void seqReceive(int, int);
-  void seqExpect(int, int);
-  void numPacket(int, int);
-  void resetPacket(int, int);
-  void maxLength(int, int);
-
  protected:
   void resetCache();
   void setCache(uint16_t serverArqSeq, EQProtocolPacket& packet);
@@ -175,7 +159,6 @@ class EQPacketStream : public QObject
   QHash<void*, EQPacketDispatch*> m_dispatchers;
   EQStreamID m_streamid;
   uint8_t m_dir;
-  int m_packetCount;
   uint8_t m_session_tracking_enabled;
   bool m_muted = false;
 
@@ -187,7 +170,6 @@ class EQPacketStream : public QObject
 
   // ARQ cache handling
   EQPacketMap m_cache;
-  size_t m_maxCacheCount;
   uint16_t m_arqSeqExp;
   uint16_t m_arqSeqGiveUp;
   bool m_arqSeqFound;
@@ -207,29 +189,14 @@ class EQPacketStream : public QObject
   bool m_validKey;
 };
 
-inline uint8_t EQPacketStream::sessionTracking()
-{
-  return m_session_tracking_enabled;
-}
-
 inline void EQPacketStream::setSessionTracking(uint8_t val)
 {
   m_session_tracking_enabled = val;
 }
 
-inline uint16_t EQPacketStream::arqSeqGiveUp()
-{
-  return m_arqSeqGiveUp;
-}
-
 inline void EQPacketStream::setArqSeqGiveUp(uint16_t val)
 {
   m_arqSeqGiveUp = val;
-}
-
-inline int EQPacketStream::packetCount(void)
-{
-  return m_packetCount;
 }
 
 inline uint8_t EQPacketStream::dir()
@@ -240,16 +207,6 @@ inline uint8_t EQPacketStream::dir()
 inline EQStreamID EQPacketStream::streamID()
 {
   return m_streamid;
-}
-
-inline size_t EQPacketStream::currentCacheSize()
-{
-  return m_cache.size();
-}
-
-inline uint16_t EQPacketStream::arqSeqExp()
-{
-  return m_arqSeqExp;
 }
 
 //----------------------------------------------------------------------
