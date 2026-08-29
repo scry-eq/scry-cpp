@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 
 #include "applicationtrace.h"
@@ -261,6 +262,8 @@ void ApplicationTraceTest::sessionContinuesAfterPublicationCollision()
 
 void ApplicationTraceTest::rustCliChecksSessionTrace()
 {
+    if (QStandardPaths::findExecutable(QStringLiteral("cargo")).isEmpty())
+        QSKIP("cargo is not on PATH; seq-trace cannot be built");
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const QString prefix = directory.filePath(QStringLiteral("session"));
