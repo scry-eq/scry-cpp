@@ -389,13 +389,10 @@ void EqlDispatch::playerUpdateSelf(const uint8_t* data, size_t len, uint8_t dir)
     if (m_player->id() == 0)
         return;   // still unresolved (no id on the wire this patch)
 
-    // Position and heading are authoritative on every packet. The velocities are
-    // NOT located for this patch and the parser surfaces 0 for them rather than
-    // reading a stale offset (which would smear the marker between updates) —
-    // see player_self_pos.rs. delta_heading has no wire field.
+    // Deltas stay 0 until the 09/01 self-pos layout is wire-verified: a wrong
+    // velocity smears the marker between updates.
     m_player->applySelfPosition(int16_t(out.x), int16_t(out.y), int16_t(out.z),
-                                int16_t(out.delta_x), int16_t(out.delta_y),
-                                int16_t(out.delta_z), out.heading, 0.0f);
+                                0, 0, 0, out.heading, 0.0f);
 }
 
 void EqlDispatch::death(const uint8_t* data, size_t len, uint8_t dir)
