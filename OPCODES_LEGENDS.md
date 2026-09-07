@@ -2758,11 +2758,11 @@ unexplained: "Apothic Crown" and the activated item are present in the BASELINE 
 both free but their upstream semantics are unverified), pin the stat-block field offsets against
 a known item's in-game tooltip, then write the parser in `scry-decoder-rs`.
 
-### 2026-08-09 — OP_ItemPacket (0x05d5) record layout; item_id + icon CONFIRMED against loot.db
+### 2026-08-09 — OP_ItemPacket (0x05d5) record layout; item_id + icon CONFIRMED against recorded loot events
 
 Method: Mode C over `eqlegends-inventory-paired.vpk`, validated against an INDEPENDENT source —
-`~/.scry/eql/loot.db`, which holds real `(item_name, item_id, icon)` triples recorded from loot
-events, so it was produced by a completely different decode path.
+a then-recorded loot history holding real `(item_name, item_id, icon)` triples harvested from
+loot events, so it was produced by a completely different decode path.
 
 **Record layout** (offsets from the record start, i.e. the 16-char serial):
 
@@ -2782,12 +2782,12 @@ events, so it was produced by a completely different decode path.
 |---|---|---|---|
 | [0] | +0 | 228/228, 44 distinct | type / class code |
 | [1] | +4 | always 0 | padding |
-| **[2]** | **+8** | **228 distinct** | **`item_id` — CONFIRMED 6/6 vs loot.db** |
+| **[2]** | **+8** | **228 distinct** | **`item_id` — CONFIRMED 6/6 vs loot events** |
 | [3] | +12 | 227/228, 38 distinct | — |
 | [4] | +16 | 9 distinct (1, 257, 0x01000001, 0x02000101 …) | byte-packed flags |
 | **[5]** | **+20** | **21 distinct masks** | **`slot_mask` — CONFIRMED, standard EQ bitmask** |
 | [6] | +24 | 93/228, 63 distinct | weight or value candidate |
-| **[7]** | **+28** | **143 distinct** | **`icon` — CONFIRMED 6/6 vs loot.db** |
+| **[7]** | **+28** | **143 distinct** | **`icon` — CONFIRMED 6/6 vs loot events** |
 | [8] | +32 | 26/228, high-half packed | AC candidate (26 ≈ the armour count) |
 
 **Stat block: signed i32 on a 4-byte grid starting at TAIL+46.** Values run −5..75 and ARE

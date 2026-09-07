@@ -27,8 +27,7 @@ selection can't reconfigure in place).
   `~/.showeq` with the Scry rename — `SEQ_LEGACY_DATA_NAMESPACE` holds the
   old root and `DataLocationMgr::findExistingFile` falls back to it on READ
   ONLY (never write), warning once per file. The Elixir `scry` daemon uses
-  the same namespace scheme, so both share this root; only `loot.db` is a
-  shared writer, so don't run both against the same target at once.
+  the same namespace scheme, so both share this root.
 - **No `#ifdef` in core.** Per-target structs come from the compiled
   `SEQ_STRUCT_DIR` include path: `test` → `src/backend/test/everquest.h`;
   **both `live` AND `eql` → `src/backend/live/everquest.h`** (eql currently
