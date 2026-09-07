@@ -107,8 +107,11 @@ void EQPacketFragmentSequence::addFragment(EQProtocolPacket& packet)
 
       if (m_totalLength == 0)
       {
+         // Not a real first fragment; falling through memcpy'd into a NULL buffer.
          seqWarn("Oversized packet fragment requested buffer of size 0 on stream %d OpCode %04x seq %04x",
            m_streamid, *(uint16_t*)&packet.payload()[4], packet.arqSeq());
+         reset();
+         return;
       }
       else if (m_totalLength > kMaxFragmentBuffer)
       {
