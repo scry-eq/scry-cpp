@@ -24,8 +24,6 @@ find_package(Protobuf REQUIRED)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PCAP REQUIRED libpcap)
-# Loot history (src/lootstore.cpp). The only DB in the daemon.
-pkg_check_modules(SQLITE3 REQUIRED sqlite3)
 pkg_check_modules(ZLIB REQUIRED zlib)
 
 # --- backend target selection ------------------------------------------------
@@ -228,7 +226,6 @@ set(SEQ_DAEMON_CORE_NEW_SOURCES
   src/seqcolor.cpp
   src/itempacket.cpp
   src/itemcache.cpp
-  src/lootstore.cpp
   src/zoneservermgr.cpp
   src/dbstrings.cpp
   src/spellmessages.cpp
@@ -259,7 +256,6 @@ target_include_directories(seq-daemon-core PUBLIC
   # build identically; refresh by replacing the one file.
   third_party/tomlplusplus
   ${PCAP_INCLUDE_DIRS}
-  ${SQLITE3_INCLUDE_DIRS}
 )
 
 target_link_libraries(seq-daemon-core PUBLIC
@@ -269,7 +265,6 @@ target_link_libraries(seq-daemon-core PUBLIC
   Qt6::Network
   Qt6::Xml
   ${PCAP_LIBRARIES}
-  ${SQLITE3_LIBRARIES}
   ${ZLIB_LIBRARIES}
   Threads::Threads
 )
