@@ -183,7 +183,7 @@ Spell::Spell(const QString& spells_enLine)
   m_icon = spellInfo.value(75).toUShort();
 
   for (size_t i = 0; i < playerClasses; i++)
-    m_classLevels[i] = uint8_t(spellInfo[38 + i].toUShort());	//spells_us.txt layout changed December 2018
+    m_classLevels[i] = uint8_t(spellInfo[36 + i].toUShort());
 #if 0 // ZBTEMP
   seqDebug("Spell: %d  Fields: %d", m_spell, 
 	   spellInfo.count());
@@ -236,7 +236,7 @@ int16_t Spell::calcDuration(uint8_t level) const
 
 uint8_t Spell::level(uint8_t class_) const
 {
-  if ((class_ > 0) && (class_ <= PLAYER_CLASSES))
+  if ((class_ > 0) && (class_ <= playerClasses))
     return m_classLevels[class_ - 1];
   else
     return 255;

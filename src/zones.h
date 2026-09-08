@@ -120,7 +120,7 @@
 { "timorous", "Timorous Deep" }, // 96
 { "kurn", "Kurn's Tower" }, // 97
 { "erudsxing", "Erud's Crossing" }, // 98
-{ NULL, NULL }, // 99
+{ "newsebexp", "New Sebilis Expedition" }, // 99
 { "stonebrunt", "The Stonebrunt Mountains" }, // 100
 { "warrens", "The Warrens" }, // 101
 { "karnor", "Karnor's Castle" }, // 102

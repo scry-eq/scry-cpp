@@ -36,7 +36,7 @@
 #include <QStringList>
 #include <QString>
 
-const size_t playerClasses = 15;
+const size_t playerClasses = 16;
 
 class Spell
 {
@@ -49,12 +49,8 @@ class Spell
   const QString& name() const { return m_name; }
   uint8_t level(uint8_t class_) const;
   uint8_t targetType() const { return m_targetType; }
-  // In the post-2018 spells_us.txt layout the Bard class-level column sits at
-  // index 5 of m_classLevels (awk field 44, 0-indexed field 43). This differs
-  // from EQ's canonical class number (8) because the 2018 format reshuffled
-  // the class column order. A non-255 value means Bard can cast the spell,
-  // which is the reliable discriminator for songs vs other spell types.
-  bool isSong() const { return m_classLevels[5] != 255; }
+  // Bard (class 8) can cast it: the reliable song discriminator.
+  bool isSong() const { return m_classLevels[7] != 255; }
   // "Good effect" column (spellInfo[28] in the post-2018 layout): 1 for
   // beneficial spells (buffs/heals), 0 for detrimental (debuffs/nukes/DoTs).
   // Verified against both the Live (166-field) and EQL (173-field) files.
