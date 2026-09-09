@@ -36,23 +36,14 @@
 //----------------------------------------------------------------------
 // forward declarations
 class QString;
-class QDateTime;
 
 class EQStr;
 class LootStore;
-class Spells;
-class SpellMessages;
-class DbStrings;
-class ZoneMgr;
 class SpawnShell;
-class Item;
 class Player;
 
-struct ClientZoneEntryStruct;
 struct ServerZoneEntryStruct;
-struct charProfileStruct;
 struct inspectDataStruct;
-struct zoneChangeStruct;
 
 //----------------------------------------------------------------------
 // MessageShell
@@ -60,9 +51,7 @@ class MessageShell : public QObject
 {
   Q_OBJECT
  public:
-  MessageShell(Messages* messages, EQStr* eqStrings, Spells* spells,
-	       SpellMessages* spellMessages, DbStrings* dbStrings,
-	       ZoneMgr* zoneMgr, SpawnShell* spawnShell,
+  MessageShell(Messages* messages, EQStr* eqStrings, SpawnShell* spawnShell,
                Player* player, QObject* parent = 0, const char* name = 0);
 
   // Where completed loot rows go. Left null under --replay so a regression run
@@ -87,63 +76,7 @@ class MessageShell : public QObject
    // live/test (Rust stub is empty).
    void ucsChatMessage(const uint8_t* data, size_t len, uint8_t dir,
                        uint32_t clientAddr);
-   void guildMOTD(const uint8_t* gmotd, size_t, uint8_t);
-   void consent(const uint8_t* consent, size_t, uint8_t);
-   void moneyOnCorpse(const uint8_t* money);
-   void moneyUpdate(const uint8_t* money);
-   void moneyThing(const uint8_t* money);
-   void randomRequest(const uint8_t* randr);
-   void random(const uint8_t* randr);
-   void emoteText(const uint8_t* emotetext);
    void inspectData(const uint8_t* inspt);
-
-   void logOut(const uint8_t*, size_t, uint8_t);
-   void zoneEntryClient(const ClientZoneEntryStruct* zsentry);
-   void zoneNew(const uint8_t* zoneNew, size_t, uint8_t);
-   void zoneChanged(const zoneChangeStruct*, size_t, uint8_t);
-   void zoneBegin(const QString& shortZoneName);
-   void zoneEnd(const QString& shortZoneName, const QString& longZoneName);
-   void zoneChanged(const QString& shortZoneName);
-
-   void worldMOTD(const uint8_t* motd);
-
-   void handleSpell(const uint8_t* mem, size_t, uint8_t);
-   void beginCast(const uint8_t* bcast);
-   void spellFaded(const uint8_t* sf);
-   void interruptSpellCast(const uint8_t*icast);
-   void startCast(const uint8_t* cast);
-
-   void groupUpdate(const uint8_t* gmem, size_t, uint8_t);
-   void groupInvite(const uint8_t* gmem, size_t, uint8_t);
-   void groupDecline(const uint8_t* gmem);
-   void groupFollow(const uint8_t* gmem);
-   void groupDisband(const uint8_t* gmem);
-   void groupLeaderChange(const uint8_t* gmem);
-
-   void syncDateTime(const QDateTime&);
-
-   void player(const charProfileStruct* player);
-   void increaseSkill(const uint8_t* data);
-   void updateLevel(const uint8_t* data);
-   void consMessage(const uint8_t* data, size_t, uint8_t dir);
-
-   void setExp(uint32_t totalExp, uint32_t totalTick,
-	       uint32_t minExpLevel, uint32_t maxExpLevel, 
-	       uint32_t tickExpLevel);
-
-   void newExp(uint32_t newExp, uint32_t totalExp, uint32_t totalTick,
-	       uint32_t minExpLevel, uint32_t maxExpLevel, 
-	       uint32_t tickExpLevel);
-   void setAltExp(uint32_t totalExp,
-		  uint32_t maxExp, uint32_t tickExp, uint32_t aapoints);
-   void newAltExp(uint32_t newExp, uint32_t totalExp, uint32_t totalTick, 
-		  uint32_t maxExp, uint32_t tickExp, uint32_t aapoints);
-
-   void addItem(const Item* item);
-   void delItem(const Item* item);
-   void killSpawn(const Item* item);
-   void filterMessage(const QString& prefix, MessageType type,
-		      const Item* item);
 
  signals:
    // Structured emission of a player-to-player chat message, in addition
@@ -172,10 +105,6 @@ class MessageShell : public QObject
  protected:
    Messages* m_messages;
    EQStr* m_eqStrings;
-   Spells* m_spells;
-   SpellMessages* m_spellMessages;
-   DbStrings* m_dbStrings;
-   ZoneMgr* m_zoneMgr;
    SpawnShell* m_spawnShell;
    Player* m_player;
    // Loot history. The tracker is per-box session state (one acquisition spans

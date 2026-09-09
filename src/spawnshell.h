@@ -40,11 +40,9 @@
 #include <cstdint>
 #endif
 #include <cstdio>
-#include <cmath>
 
 #include <QHash>
 #include <QTimer>
-#include <QTextStream>
 
 #include "everquest.h"
 #include "spawn.h"
@@ -87,18 +85,12 @@ public:
    ~SpawnShell();
 
    const Item* findID(spawnItemType type, int idSpawn);
-   
-   const Item* findClosestItem(spawnItemType type, 
-			       int16_t x,
-			       int16_t y, 
-			       double& minDistance);
    Spawn* findSpawnByName(const QString& name);
    // Like findSpawnByName but compares against Spawn::transformedName()
    // (the display form, e.g. "Foo") instead of the raw m_name (which
    // can carry the server's "Foo00"-style suffix). Player spawns only.
    Spawn* findPlayerByDisplayName(const QString& name);
 
-   void dumpSpawns(spawnItemType type, QTextStream& out);
    FilterMgr* filterMgr(void) { return &m_filterMgr; }
    const ItemMap& getConstMap(spawnItemType type) const;
    const ItemMap& spawns(void) const;
@@ -148,7 +140,6 @@ public slots:
    void removeGroundItem(const uint8_t*, size_t, uint8_t);
    void newDoorSpawns(const uint8_t*, size_t, uint8_t);
    void newDoorSpawn(const doorStruct&, size_t, uint8_t);
-   void zoneSpawns(const uint8_t* zspawns, size_t len);
    void zoneEntry(const uint8_t* spawn, size_t len);
    void newSpawn(const uint8_t* spawn);
    void newSpawn(const spawnStruct& s);
@@ -169,13 +160,11 @@ public slots:
    void shroudSpawn(const uint8_t* spawnupdate, size_t, uint8_t);
    void updateNpcHP(const uint8_t* hpupdate);
    void updateMobHealth(const uint8_t* mobhp);
-   void spawnWearingUpdate(const uint8_t* wearing);
    void consMessage(const uint8_t* con, size_t, uint8_t);
    void clientTarget(const uint8_t* cts);
    void removeSpawn(const uint8_t* rmSpawn, size_t len, uint8_t dir);
    void deleteSpawn(const uint8_t* delSpawn);
    void killSpawn(const uint8_t* deadspawn);
-   void respawnFromHover(const uint8_t* respawn, size_t len, uint8_t dir);
    void corpseLoc(const uint8_t* corpseLoc);
 
    void playerChangedID(uint16_t oldPlayerID, uint16_t newPlayerID);

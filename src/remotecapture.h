@@ -52,10 +52,8 @@ class RemoteCaptureThread : public PacketCaptureProviderThread
         explicit RemoteCaptureThread(const QString& agentTarget);
         ~RemoteCaptureThread();
 
-        bool offlinePlaybackSupported() { return false; }
         void startOffline(const char* filename, int playbackSpeed);
         void setPlaybackSpeed(int) {}
-        int getPlaybackSpeed() { return 0; }
 
         // `device` is ignored (frames come from the agent). `hostname`/
         // `address_type` scope the BPF filter requested from the agent, exactly
@@ -65,7 +63,6 @@ class RemoteCaptureThread : public PacketCaptureProviderThread
 
         void setFilter(const char* device, const char* hostname, bool realtime,
                 uint8_t address_type, uint16_t zone_server_port, uint16_t client_port);
-        const QString getFilter();
 
     private:
         static void* loop(void* param);

@@ -24,7 +24,6 @@
 #define _PACKETCAPTUREPROVIDERTHREAD_H_
 
 #include <cstdint>
-#include <QString>
 
 #include <pthread.h>
 
@@ -34,10 +33,8 @@ class PacketCaptureProviderThread
         PacketCaptureProviderThread();
         virtual ~PacketCaptureProviderThread();
 
-        virtual bool offlinePlaybackSupported() = 0;
         virtual void startOffline(const char* filename, int playbackSpeed) = 0;
         virtual void setPlaybackSpeed(int playbackSpeed) = 0;
-        virtual int getPlaybackSpeed() = 0;
 
         virtual void start (const char *device, const char *host, bool realtime, uint8_t address_type) = 0;
         virtual void stop () = 0;
@@ -46,7 +43,6 @@ class PacketCaptureProviderThread
 
         virtual void setFilter (const char *device, const char *hostname, bool realtime,
                 uint8_t address_type, uint16_t zone_server_port, uint16_t client_port) = 0;
-        virtual const QString getFilter() = 0;
 
         // Offline (pcap/tcpdump) playback only: true once the reader thread has
         // hit end-of-file AND every queued packet has been consumed. Lets the
@@ -91,4 +87,3 @@ class PacketCaptureProviderThread
 };
 
 #endif
-

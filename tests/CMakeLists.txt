@@ -47,6 +47,10 @@ target_link_libraries(tomlpreferences_test PRIVATE
   Qt6::Test
 )
 
+target_compile_definitions(tomlpreferences_test PRIVATE
+  SEQ_SOURCE_DIR_PATH="${CMAKE_SOURCE_DIR}"
+)
+
 target_compile_options(tomlpreferences_test PRIVATE
   -Wall
   -Wno-unused-parameter

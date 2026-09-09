@@ -41,7 +41,6 @@
  * Record(...)                 Record data to the buffer
  * Flush()                     Force a flush of data to the file
  * setPlaybackSpeed()          Set a playback rate (0=not timed, 1=1X, etc)
- * playbackSpeed()             Get the playback rate
  * EndOfData()                 Check for out of data
  *
  *

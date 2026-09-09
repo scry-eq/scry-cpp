@@ -44,7 +44,6 @@
 
 #include <QFile>
 #include <QDataStream>
-#include <QTextStream>
 
 #ifdef __FreeBSD__
 #include <sys/types.h>
@@ -224,44 +223,6 @@ const Item* SpawnShell::findID(spawnItemType type, int id)
   return item;
 }
 
-const Item* SpawnShell::findClosestItem(spawnItemType type, 
-					int16_t x, int16_t y,
-					double& minDistance)
-{
-   ItemMap& theMap = getMap(type);
-   ItemIterator it(theMap);
-   double distance;
-   Item* item;
-   Item* closest = NULL;
-
-   // find closest spawn
-
-   // iterate over all the items in the map
-   while (it.hasNext())
-   {
-     it.next();
-
-     // get the item
-     item = it.value();
-     if (!item)
-         break;
-
-     // calculate the distance from the specified point
-     distance = item->calcDist(x, y);
-
-     // is this distance closer?
-     if (distance < minDistance)
-     {
-       // yes, note it
-       minDistance = distance;
-       closest = item;
-     }
-   }
-
-   // return the closest item.
-   return closest;
-}
-
 void SpawnShell::updateGuildTag(uint32_t guildId)
 {
     ItemIterator it(m_spawns);
@@ -420,20 +381,6 @@ bool SpawnShell::updateRuntimeFilterFlags(Item* item)
   return false;
 }
 
-void SpawnShell::dumpSpawns(spawnItemType type, QTextStream& out)
-{
-   ItemIterator it(getMap(type));
-
-   while (it.hasNext())
-   {
-       it.next();
-       if (!it.value())
-           break;
-
-       out << it.value()->dumpString() << Qt::endl;
-   }
-}
-
 // same-name slots, connecting to Packet signals
 // this packet is variable in length.  everything is dwords except the "idFile" field
 // which can be variable
@@ -555,70 +502,6 @@ void SpawnShell::newDoorSpawn(const doorStruct& d, size_t len, uint8_t dir)
      m_doors.insert(d.doorId, item);
      emit addItem(item);
    }
-}
-
-void SpawnShell::zoneSpawns(const uint8_t* data, size_t len)
-{
-  int spawndatasize = len / sizeof(spawnStruct);
-
-  const spawnStruct* zspawns = (const spawnStruct*)data;
-
-  for (int i = 0; i < spawndatasize; i++)
-  {
-#if 0
-  // Dump position updates for debugging spawn struct position changes
-  for (int j=54; j<70; i++)
-  {
-      printf("%.2x", zspawns[i][j]);
-
-      if ((j+1) % 8 == 0)
-      {
-          printf("    ");
-      }
-      else
-      {
-          printf(" ");
-      }
-  }
-  printf("\n");
-#endif
-
-#if 0
-    // Debug positioning without having to recompile everything...
-#pragma pack(1)
-struct pos
-{
-/*0004*/ unsigned pitch:12;
-	 signed   animation:10;                    // velocity 
-	 signed   deltaHeading:10;                 // change in heading 
-/*0008*/ signed   z:19;                            // z coord (3rd loc value)
-	 signed   deltaZ:13;                       // change in z
-/*0012*/ signed   deltaY:13;                       // change in y
-	 unsigned heading:12;                      // heading 
-         unsigned padding01:7;
-/*0016*/ signed   y:19;                            // y coord (2nd loc value)
-	 signed   deltaX:13;                       // change in x
-/*0020*/ signed   x:19;                            // x coord (1st loc value)
-	 unsigned padding02:13;
-/*0024*/ signed   unknown0001;                     // ***Placeholder
-/*0028*/	         
-};
-#endif
-
-#if 0
-#pragma pack(0)
-    struct pos *p = (struct pos *)(data + i*sizeof(spawnStruct) + 151);
-    printf("[%.2x](%f, %f, %f), dx %f dy %f dz %f head %f dhead %f anim %d (%x, %x, %x, %x)\n",
-            zspawns[i].spawnId, 
-            float(p->x)/8.0, float(p->y/8.0), float(p->z)/8.0, 
-            float(p->deltaX)/4.0, float(p->deltaY)/4.0, 
-            float(p->deltaZ)/4.0, 
-            float(p->heading), float(p->deltaHeading),
-            p->animation, p->padding0000, 
-            p->padding0005, p->padding0006, p->padding0014);
-#endif
-    newSpawn(zspawns[i]);
-  }
 }
 
 static void applySpawn(spawnStruct* spawn,
@@ -1418,25 +1301,6 @@ void SpawnShell::updateMobHealth(const uint8_t* data)
   emit changeItem(item, tSpawnChangedHP);
 }
 
-void SpawnShell::spawnWearingUpdate(const uint8_t* data)
-{
-  const wearChangeStruct *wearing = (const wearChangeStruct *)data;
-  Item* item = m_spawns.value(wearing->spawnId, nullptr);
-  if (item != NULL)
-  {
-    // ZBTEMP: Find newItemID
-    //Spawn* spawn = (Spawn*)item;
-    //    spawn->setEquipment(wearing->wearSlotId, wearing->newItemId);
-    uint32_t changeType = tSpawnChangedWearing;
-    if (updateFilterFlags(item))
-      changeType |= tSpawnChangedFilter;
-    if (updateRuntimeFilterFlags(item))
-      changeType |= tSpawnChangedRuntimeFilter;
-    item->updateLastChanged();
-    emit changeItem(item, changeType);
-  }
-}
-
 void SpawnShell::consMessage(const uint8_t* data, size_t len, uint8_t dir)
 {
   // Pass the ACTUAL payload length, not sizeof(considerStruct): the EQL
@@ -1603,38 +1467,6 @@ void SpawnShell::killSpawn(const uint8_t* data)
      killer = m_spawns.value(out.killer_id, nullptr);
      emit killSpawn(item, killer, out.killer_id);
    }
-}
-
-void SpawnShell::respawnFromHover(const uint8_t* data, size_t len, uint8_t dir)
-{
-   if(dir != DIR_Client)
-      return;
-#ifdef SPAWNSHELL_DIAG
-   seqDebug("SpawnShell::respawnFromHover()");
-#endif
-
-    // Our old player is a corpse, but we're rising from the dead. So
-    // we need to pop a corpse to represent our deadselves, invalidate
-    // the player, and then let the OP_ZoneEntry that is coming for the repop
-    // fix the player.
-    uint16_t corpseId = m_player->id();
-
-    // invalidate the player by severing it from its Id.
-    m_player->setID(0);
-
-    // Pop a corpse
-    Spawn* corpse = new Spawn((Spawn*) m_player, corpseId);
-
-    updateFilterFlags(corpse);
-    updateRuntimeFilterFlags(corpse);
-    m_spawns.insert(corpse->id(), corpse);
-
-    corpse->setGuildTag(m_guildMgr->guildIdToName(corpse->guildID(), corpse->guildServerID()));
-
-    emit addItem(corpse);
-
-    // send notification of new spawn count
-    emit numSpawns(m_spawns.count());
 }
 
 void SpawnShell::corpseLoc(const uint8_t* data)
