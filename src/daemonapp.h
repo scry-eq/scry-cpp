@@ -30,7 +30,6 @@ class CombatRouter;
 class FileSink;
 class FilterMgr;
 class ItemCache;
-class LootStore;
 class OpcodeStatsLogger;
 class GroupMgr;
 class GuildShell;
@@ -279,9 +278,6 @@ private:
     GuildShell*                     m_guildShell    = nullptr;
     CategoryMgr*                    m_categoryMgr   = nullptr;
     ItemCache*                      m_itemCache     = nullptr;
-    // Daemon-global loot history; one DB per backend namespace.
-    // Left unopened under --replay so fixtures never reach it.
-    std::unique_ptr<LootStore>      m_lootStore;
     MessageFilters*                 m_messageFilters = nullptr;
     Messages*                       m_messages       = nullptr;
     MessageShell*                   m_messageShell   = nullptr;

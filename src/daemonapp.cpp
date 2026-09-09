@@ -26,7 +26,6 @@
 #include "guildshell.h"
 #include "guild.h"
 #include "itemcache.h"
-#include "lootstore.h"
 #include "mapcore.h"
 #include "messagefilter.h"
 #include "messages.h"
@@ -315,20 +314,6 @@ bool DaemonApp::start()
         qInfo("ItemCache: replay mode, persistence disabled");
     }
 
-    // Loot history. Same replay rule as the item cache, and for a sharper
-    // reason: tests/replay/check.sh runs on every pre-push, so without this a
-    // regression run would append fixture loot to the user's real DB. The
-    // tracker still runs under replay — it just has nowhere to write.
-    m_lootStore = std::make_unique<LootStore>();
-    {
-        const QFileInfo lootFile = m_dataLocationMgr->findWriteFile(
-            ".", "loot.db", true, true);
-        const bool replaying = !m_cfg.replay.isEmpty();
-        m_lootStore->setStorePath(lootFile.absoluteFilePath(), replaying);
-        if (replaying)
-            qInfo("LootStore: replay mode — read-only, recording disabled");
-    }
-
     // PrefsBroker is the curated TomlPreferences <-> wire bridge. Constructed
     // after pSEQPrefs is initialized but before any client can connect, so
     // the very first PrefsSnapshot reflects the on-disk state.
@@ -388,7 +373,6 @@ bool DaemonApp::start()
                    m_packet ? &m_packet->boxRegistry() : nullptr);
     m_ws->setMapPackageHost(this);
     m_ws->setManagerProvider(this);
-    m_ws->setLootStore(m_lootStore.get());
 
     // --record-golden: spin up an internal SessionAdapter writing into a
     // FileSink. Subscribe is synthesized immediately so the on-disk
@@ -745,7 +729,6 @@ ManagerSet DaemonApp::buildManagerSet()
                                        m_spellMessages, m_dbStrings,
                                        ms.zoneMgr, ms.spawnShell, ms.player,
                                        this, "messageShell");
-    ms.messageShell->setLootStore(m_lootStore.get());
 
     // SpellShell tracks active buffs / outgoing casts. Wires player
     // signals + clear-on-zone, mirroring showeq interface.cpp:967-988.
